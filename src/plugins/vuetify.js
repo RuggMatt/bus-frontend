@@ -9,6 +9,7 @@ export default createVuetify({
   components,
   directives,
   theme: {
+    defaultTheme: 'system',
     themes: {
       light: {
         primary: '#3f51b5',

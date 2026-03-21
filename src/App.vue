@@ -13,6 +13,15 @@
       <v-list-item nav to="/electric">
         Electric Bus Finder
       </v-list-item>
+      <v-list-item nav to="/hydrogen">
+        Hydrogen Bus Finder
+      </v-list-item>
+      <v-list-item nav to="/electric-bus-stats">
+        Electric Bus Stats
+      </v-list-item>
+      <v-list-item nav to="/hydrogen-bus-stats">
+        Hydrogen Bus Stats
+      </v-list-item>
       <v-list-item nav to="/about">
         About
       </v-list-item>

@@ -1,3 +1,6 @@
+import ElectricBusStatsPage from '../views/ElectricBusStatsPage.vue';
+import HydrogenBusStatsPage from '../views/HydrogenBusStatsPage.vue';
+import HydrogenBus from '../components/HydrogenBus.vue';
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../components/HelloWorld.vue'
 import Electric from '../components/ElectricBus.vue'
@@ -18,6 +21,21 @@ const routes = [
     path: '/electric',
     name: 'Electric Buses',
     component: Electric
+  },
+  {
+    path: '/hydrogen',
+    name: 'Hydrogen Buses',
+    component: HydrogenBus
+  },
+  {
+    path: '/electric-bus-stats',
+    name: 'Electric Bus Stats',
+    component: ElectricBusStatsPage
+  },
+  {
+    path: '/hydrogen-bus-stats',
+    name: 'Hydrogen Bus Stats',
+    component: HydrogenBusStatsPage
   },
   {
     path: '/about',

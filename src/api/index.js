@@ -1,4 +1,105 @@
 /**
+ * @typedef {Object} ElectricBusHourlyStat
+ * @property {string} hour ISO8601 hour string (e.g., "2025-11-24T12:00:00Z")
+ * @property {number} unique_bus_count Number of unique electric buses for the hour
+ */
+
+/**
+ * Fetches hourly electric bus stats from the backend API
+ * @returns {Promise<ElectricBusHourlyStat[]>}
+ */
+export const getElectricBusStatsHourly = async () => {
+    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/electric/hourly`;
+    const result = await fetch(url, {
+        headers: {
+            "Accept": "application/json"
+        }
+    });
+    if (result.ok) {
+        return result.json();
+    } else {
+        throw Error(result.status);
+    }
+};
+
+/**
+ * @typedef {Object} ElectricBusDailyStat
+ * @property {string} day ISO8601 day string (e.g., "2025-11-24T00:00:00Z")
+ * @property {number} unique_bus_count Number of unique electric buses for the day
+ */
+
+/**
+ * Fetches daily electric bus stats from the backend API
+ * @returns {Promise<ElectricBusDailyStat[]>}
+ */
+export const getElectricBusStatsDaily = async () => {
+    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/electric/daily`;
+    const result = await fetch(url, {
+        headers: {
+            "Accept": "application/json"
+        }
+    });
+    if (result.ok) {
+        return result.json();
+    } else {
+        throw Error(result.status);
+    }
+};
+
+/**
+ * Fetches the list of active hydrogen buses
+ * @returns {Promise<Bus[]>}
+ */
+export const getHydrogenBuses = async () => {
+    const url = `${import.meta.env.VITE_APP_API_URL}/bus/hydrogen`;
+    const result = await fetch(url, {
+        headers: {
+            "Accept": "application/json"
+        }
+    });
+    if (result.ok) {
+        return result.json();
+    } else {
+        throw Error(result.status);
+    }
+};
+
+/**
+ * Fetches hourly hydrogen bus stats from the backend API
+ * @returns {Promise<ElectricBusHourlyStat[]>}
+ */
+export const getHydrogenBusStatsHourly = async () => {
+    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/hydrogen/hourly`;
+    const result = await fetch(url, {
+        headers: {
+            "Accept": "application/json"
+        }
+    });
+    if (result.ok) {
+        return result.json();
+    } else {
+        throw Error(result.status);
+    }
+};
+
+/**
+ * Fetches daily hydrogen bus stats from the backend API
+ * @returns {Promise<ElectricBusDailyStat[]>}
+ */
+export const getHydrogenBusStatsDaily = async () => {
+    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/hydrogen/daily`;
+    const result = await fetch(url, {
+        headers: {
+            "Accept": "application/json"
+        }
+    });
+    if (result.ok) {
+        return result.json();
+    } else {
+        throw Error(result.status);
+    }
+};
+/**
  * @typedef {Object} BusStop
  * @property {string} stop_id
  * @property {string} stop_code
