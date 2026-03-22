@@ -33,6 +33,9 @@
         </template>
       </template>
 
+      <v-list-item v-else-if="locating">
+        Locating...
+      </v-list-item>
       <v-list-item v-else-if="loading">
         Loading...
       </v-list-item>
@@ -52,6 +55,7 @@ const REFRESH_INTERVAL = 60000;
 
 const buses = ref([]);
 const loading = ref(false);
+const locating = ref(false);
 
 let userLat = 53.5212;
 let userLng = -113.5213;
@@ -59,13 +63,18 @@ let intervalId = null;
 
 const getLocation = () =>
   new Promise((resolve) => {
+    locating.value = true;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         userLat = pos.coords.latitude;
         userLng = pos.coords.longitude;
+        locating.value = false;
         resolve();
       },
-      () => resolve()
+      () => {
+        locating.value = false;
+        resolve();
+      }
     );
   });
 

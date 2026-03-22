@@ -44,6 +44,9 @@
           </template>
         </v-list-item-group>
       </template>
+      <v-list-item v-else-if="locating">
+        Locating...
+      </v-list-item>
       <v-list-item v-else-if="loading">
         Loading...
       </v-list-item>
@@ -274,6 +277,7 @@ export default {
       active: null,
       firstTime: true,
       i: null, // holder for timer interval
+      locating: false,
     };
   },
   computed: {
@@ -302,6 +306,7 @@ export default {
     // fetch the bus route
     async refresh() {
       this.loading = true;
+      this.locating = true;
       await new Promise((res) => {
         // ask for location
         navigator.geolocation.getCurrentPosition(
@@ -316,6 +321,7 @@ export default {
           () => res()
         );
       });
+      this.locating = false;
       // make sure the map has loaded
       if (this.firstTime) {
         if (map) {
