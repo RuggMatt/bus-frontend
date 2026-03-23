@@ -9,17 +9,46 @@
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */
 export const getElectricBusStatsHourly = async () => {
-    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/electric/hourly`;
-    const result = await fetch(url, {
-        headers: {
-            "Accept": "application/json"
-        }
-    });
-    if (result.ok) {
-        return result.json();
-    } else {
-        throw Error(result.status);
-    }
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/electric/hourly`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
+
+/**
+ * @typedef {Object} Bus
+ * @property {number|string} bus The bus id, or the number that uniquely identifies the physical bus
+ * @property {number} lat
+ * @property {number} long
+ * @property {number} trip
+ * @property {number} timestamp UNix epoch timestamp in seconds
+ * @property {number} bearing
+ * @property {number} speed
+ */
+
+/**
+ *
+ * @returns {Promise<Bus[]>}
+ */
+export const getElectricBuses = async () => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/electric`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
 };
 
 /**
@@ -33,17 +62,17 @@ export const getElectricBusStatsHourly = async () => {
  * @returns {Promise<ElectricBusDailyStat[]>}
  */
 export const getElectricBusStatsDaily = async () => {
-    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/electric/daily`;
-    const result = await fetch(url, {
-        headers: {
-            "Accept": "application/json"
-        }
-    });
-    if (result.ok) {
-        return result.json();
-    } else {
-        throw Error(result.status);
-    }
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/electric/daily`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
 };
 
 /**
@@ -51,17 +80,39 @@ export const getElectricBusStatsDaily = async () => {
  * @returns {Promise<Bus[]>}
  */
 export const getHydrogenBuses = async () => {
-    const url = `${import.meta.env.VITE_APP_API_URL}/bus/hydrogen`;
-    const result = await fetch(url, {
-        headers: {
-            "Accept": "application/json"
-        }
-    });
-    if (result.ok) {
-        return result.json();
-    } else {
-        throw Error(result.status);
-    }
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/hydrogen`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
+
+/**
+ * Fetches recent trip data for a given tripId
+ * @param {string|number} tripId The trip ID to fetch data for
+ * @returns {Promise<Bus[]>} Promise resolving to an array of Bus objects
+ *
+ * @example
+ *   getRecentTripData(123).then(buses => { ... })
+ */
+export const getRecentTripData = async (tripId) => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/trips/${tripId}`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
 };
 
 /**
@@ -69,17 +120,17 @@ export const getHydrogenBuses = async () => {
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */
 export const getHydrogenBusStatsHourly = async () => {
-    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/hydrogen/hourly`;
-    const result = await fetch(url, {
-        headers: {
-            "Accept": "application/json"
-        }
-    });
-    if (result.ok) {
-        return result.json();
-    } else {
-        throw Error(result.status);
-    }
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/hydrogen/hourly`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
 };
 
 /**
@@ -87,18 +138,19 @@ export const getHydrogenBusStatsHourly = async () => {
  * @returns {Promise<ElectricBusDailyStat[]>}
  */
 export const getHydrogenBusStatsDaily = async () => {
-    const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/hydrogen/daily`;
-    const result = await fetch(url, {
-        headers: {
-            "Accept": "application/json"
-        }
-    });
-    if (result.ok) {
-        return result.json();
-    } else {
-        throw Error(result.status);
-    }
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/hydrogen/daily`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
 };
+
 /**
  * @typedef {Object} BusStop
  * @property {string} stop_id
@@ -108,26 +160,24 @@ export const getHydrogenBusStatsDaily = async () => {
  * @property {string} stop_lon
  * @property {string} zone_id
  * @property {string} location_type
- * @property {string} level_name
- * 
- */
-
-/**
- * @typedef {Object} Bus
- * @property {string} bus The bus id, or the number that uniquely identifies the physical bus
- * @property {string} lat 
- * @property {string} long
- * 
+ * @property {GeometryPoint} geometry_point
+ *
  */
 
 /**
  * @typedef {Object} GeometryLine
  * @property {"MultiLineString"} type
- * @property {CoridnateSet[]} coordinates
+ * @property {CoordinateSet[]} coordinates
  */
 
 /**
- * @typedef {[number, number][]} CoridnateSet
+ * @typedef {Object} GeometryPoint
+ * @property {"Point"} type
+ * @property {[number, number]} coordinates
+ */
+
+/**
+ * @typedef {[number, number][]} CoordinateSet
  */
 
 /**
@@ -141,46 +191,46 @@ export const getHydrogenBusStatsDaily = async () => {
  * @property {string} shape_id
  * @property {boolean} wheelchair_accessible
  * @property {boolean} bikes_allowed
- * @property {GeometryLine} geometry_line  
+ * @property {GeometryLine} geometry_line
  */
 
 /**
  * Gets a list of 1000 bus stops from the edmonton data api
- * @param {number} offset 
- * 
+ * @param {number} offset
+ *
+ * @return {Promise<BusStop[]>}
  */
 const getBusStops = async (offset = null) => {
-    let url = "https://data.edmonton.ca/resource/4vt2-8zrq.json";
-    if (offset) {
-        url += `?$offset=${offset}`;
-    } 
-    let result = await fetch(url, {
-        headers: {
-            "Accept": "application/json",
-            "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN
-        }
-    })
-    if (result.ok) {
-        return  result.json();
-    } else {
-        throw Error(result.status);
-    }
-    
-}
+  let url = "https://data.edmonton.ca/resource/4vt2-8zrq.json";
+  if (offset) {
+    url += `?$offset=${offset}`;
+  }
+  let result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
 
 /**
- * 
+ *
  * @returns {Promise<BusStop[]>}
  */
 export const getAllBusStops = async () => {
-    let stops = await getBusStops();
-    let offset = 0;
-    while (stops.length % 1000 === 0 && offset < stops.length) {
-        offset += 1000;
-        stops = [...stops, ...await getBusStops(offset)];
-    }
-    return stops;
-}
+  let stops = await getBusStops();
+  let offset = 0;
+  while (stops.length % 1000 === 0 && offset < stops.length) {
+    offset += 1000;
+    stops = [...stops, ...(await getBusStops(offset))];
+  }
+  return stops;
+};
 
 /** 
  * @typedef {Object} BusStopTime 
@@ -200,42 +250,47 @@ Indicates drop off method. Valid options are: 0 or empty - Regularly scheduled d
  */
 
 /**
- * 
+ *
  * @param {string} tripId The trip id to get bus stop times for
- * @returns {Promise<BusStopTime[]>} 
+ * @returns {Promise<BusStopTime[]>}
  */
 export const getBusStopTimes = async (tripId) => {
-    let url = `https://data.edmonton.ca/resource/greh-g7ac.json?trip_id=${tripId}`;
-        
-    let result = await fetch(url, {
-        headers: {
-            "Accept": "application/json",
-            "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN
-        }
-    })
-    if (result.ok) {
-        return result.json();
-    }
-    return [];
-}
+  let url = `https://data.edmonton.ca/resource/greh-g7ac.json?trip_id=${tripId}`;
+
+  let result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  return [];
+};
+
+export const getRoute = getBusStopTimes;
 
 /**
- * 
- * @param {} tripId 
+ *
+ * @param {} tripId
  * @returns {Promise<Trip | null>}
  */
 export const getTrip = async (tripId) => {
-    let result = await  fetch(`https://data.edmonton.ca/resource/ctwr-tvrd.json?trip_id=${tripId}`, {
-        headers: {
-            "Accept": "application/json",
-            "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN
-        }
-    })
-    if (result.ok) {
-        let trip = (await result.json())[0];
-        if (trip) {
-            return trip;
-        }
+  let result = await fetch(
+    `https://data.edmonton.ca/resource/ctwr-tvrd.json?trip_id=${tripId}`,
+    {
+      headers: {
+        Accept: "application/json",
+        "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+      },
+    },
+  );
+  if (result.ok) {
+    let trip = (await result.json())[0];
+    if (trip) {
+      return trip;
     }
-    return null;
-}
+  }
+  return null;
+};

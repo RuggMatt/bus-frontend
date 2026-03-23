@@ -2,8 +2,12 @@
   <v-container>
     <h1>Hydrogen Bus Stats</h1>
     <v-tabs v-model="activeTab" class="mb-4">
-      <v-tab value="hourly">Hourly</v-tab>
-      <v-tab value="daily">Daily</v-tab>
+      <v-tab value="hourly">
+        Hourly
+      </v-tab>
+      <v-tab value="daily">
+        Daily
+      </v-tab>
     </v-tabs>
 
     <v-tabs-window v-model="activeTab">
@@ -28,7 +32,7 @@
           <div v-if="loadingHourly" class="d-flex justify-center align-center" style="min-height: 300px">
             <v-progress-circular indeterminate color="primary" size="64" />
           </div>
-          <canvas v-else ref="hourlyChartRef"></canvas>
+          <canvas v-else ref="hourlyChartRef" />
         </div>
       </v-tabs-window-item>
 
@@ -53,7 +57,7 @@
           <div v-if="loadingDaily" class="d-flex justify-center align-center" style="min-height: 300px">
             <v-progress-circular indeterminate color="primary" size="64" />
           </div>
-          <canvas v-else ref="dailyChartRef"></canvas>
+          <canvas v-else ref="dailyChartRef" />
         </div>
       </v-tabs-window-item>
     </v-tabs-window>

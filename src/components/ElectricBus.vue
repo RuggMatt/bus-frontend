@@ -44,9 +44,6 @@
           </template>
         </v-list-item-group>
       </template>
-      <v-list-item v-else-if="locating">
-        Locating...
-      </v-list-item>
       <v-list-item v-else-if="loading">
         Loading...
       </v-list-item>
@@ -63,10 +60,11 @@
   </v-container>
 </template>
 <script>
+// import { marker } from 'leaflet';
+import { getElectricBuses } from '../api';
+
 /* globals google */
 let map;
-let lat = 53.5212;
-let lng = -113.5213;
 
 // window.initMap = async () => {
 //   map = new google.maps.Map(document.getElementById("map"), {
@@ -276,6 +274,8 @@ export default {
       markers: [],
       active: null,
       firstTime: true,
+      lat:  53.5212,
+      lng: -113.5213,
       i: null, // holder for timer interval
       locating: false,
     };
@@ -303,9 +303,10 @@ export default {
     clearInterval(this.i);
   },
   methods: {
-    // fetch the bus route
-    async refresh() {
-      this.loading = true;
+    /**
+     * Gets the users location
+     */
+    async updateUserLocation() {
       this.locating = true;
       await new Promise((res) => {
         // ask for location
@@ -313,8 +314,8 @@ export default {
           // user granted permission
           (locale) => {
             console.log("Permission read")
-            lat = locale.coords.latitude;
-            lng = locale.coords.longitude;
+            this.lat = locale.coords.latitude;
+            this.lng = locale.coords.longitude;
             res();
           },
           // user denies permission
@@ -322,84 +323,83 @@ export default {
         );
       });
       this.locating = false;
-      // make sure the map has loaded
-      if (this.firstTime) {
-        if (map) {
+    }, 
+    updateMarkers(buses) {
+      // mark each marker as not updated
+      Object.keys(this.markers).forEach(
+        (key) => (this.markers[key].updated = false)
+      );
+      // update each marker that exists
+      buses.forEach(({ lat, long: lng, bus }) => {
+        if (this.active == bus) {
           map.setCenter({ lat, lng });
         }
-        this.firstTime = false;
-      } // if the map has not loaded, then location will be set to the lat, lng above when it does
-
-      fetch(`${import.meta.env.VITE_APP_API_URL}/bus/now`)
-        .then((r) => r.json())
-        .then((buses) => {
-          Promise.all(
-            buses
-              .filter(({ bus }) => bus >= 8000)
-              .map(async (bus) => {
-                bus.route = await this.route(bus.trip);
-                // simple calculation to determine distance of bus from user's location
-                bus.dist = Math.sqrt(
-                  (lat - bus.lat) ** 2 + (lng - bus.long) ** 2
-                );
-                return bus;
-              })
-          )
-            .then(buses => {
-              // sort buses based on distance from user
-              buses.sort(({ dist: a }, { dist: b }) => a - b);
-              if (map) {
-                // mark each marker as not updated
-                Object.keys(this.markers).forEach(
-                  (key) => (this.markers[key].updated = false)
-                );
-                // update each marker that exists
-                buses.forEach(({ lat, long: lng, bus }) => {
-                  if (this.active == bus) {
-                    map.setCenter({ lat, lng });
-                  }
-                  let marker = this.markers[bus];
-                  if (marker) {
-                    marker.setPosition({ lat, lng });
-                    marker.updated = true;
-                  } else {
-                    marker = new google.maps.Marker({
-                      position: { lat, lng },
-                      map,
-                    });
-                    marker.bus = bus;
-                    marker.addListener('click', () => {
-                      this.active = bus
-                      this.$nextTick(() =>
-                        this.$vuetify.goTo('#active', {container: '#bus-list'})
-                      )
-                    });
-                    marker.updated = true;
-                    this.markers[bus] = marker;
-                  }
-                });
-                // remove the markers that were not updated
-                Object.keys(this.markers).forEach((key) => {
-                  let marker = this.markers[key];
-                  if (!marker.updated) {
-                    marker.setMap(null);
-                    delete this.markers[key];
-                  }
-                });
-              }
-              this.buses = buses;
+        let marker = this.markers[bus];
+        if (marker) {
+          marker.setPosition({ lat, lng });
+          marker.updated = true;
+        } else {
+          marker = new google.maps.Marker({
+            position: { lat, lng },
+            map,
+          });
+          marker.bus = bus;
+          marker.addListener('click', () => {
+            this.active = bus
+            this.$nextTick(() =>
+              this.$vuetify.goTo('#active', {container: '#bus-list'})
+            )
+          });
+          marker.updated = true;
+          this.markers[bus] = marker;
+        }
+      });
+      // remove the markers that were not updated
+      Object.keys(this.markers).forEach((key) => {
+        let marker = this.markers[key];
+        if (!marker.updated) {
+          marker.setMap(null);
+          delete this.markers[key];
+        }
+      });
+    }, 
+    async refresh() {
+      this.loading = true;
+      try {
+        // make sure the map has loaded
+  
+        const buses = await getElectricBuses();
+        await Promise.all(
+          buses
+            .map(async (bus) => {
+              bus.route = await this.route(bus.trip);
+              // simple calculation to determine distance of bus from user's location
+              return bus;
             })
-            .finally(() => {
-              this.loading = false
-              this.$nextTick(() => {
-                // if a bus is selected and has moved up or down the list,
-                // scroll the user to the new position in the list automatically
-                if (this.active) {
-                  this.$vuetify.goTo('#active', {container: '#bus-list'});
-                }
-              })
-            });
-        });
+        )
+        this.buses = buses;
+        this.refreshLocation();
+      } finally {
+        this.loading = false;
+        if (this.active) {
+          this.$vuetify.goTo('#active', {container: '#bus-list'});
+        }
+      }
+    },
+    async refreshLocation() {
+      await this.updateUserLocation();
+      await this.sortBuses();
+    },
+    async sortBuses() {
+      if (this.lat === null || this.lng === null) {
+        return;
+      }
+      this.buses.forEach(bus => {
+        bus.dist = Math.sqrt(
+          (this.lat - bus.lat) ** 2 + (this.lng - bus.long) ** 2
+        );
+      })
+      this.buses.sort(({ dist: a }, { dist: b }) => a - b);
     },
     async route(trip) {
       let result = await fetch(

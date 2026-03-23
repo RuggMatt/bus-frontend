@@ -2,8 +2,12 @@
   <v-container>
     <h1>Electric Bus Stats</h1>
     <v-tabs v-model="activeTab" class="mb-4">
-      <v-tab value="hourly">Hourly</v-tab>
-      <v-tab value="daily">Daily</v-tab>
+      <v-tab value="hourly">
+        Hourly
+      </v-tab>
+      <v-tab value="daily">
+        Daily
+      </v-tab>
     </v-tabs>
 
     <v-tabs-window v-model="activeTab">
@@ -24,7 +28,7 @@
             </v-btn-group>
           </v-col>
         </v-row>
-        <canvas ref="hourlyChartRef"></canvas>
+        <canvas ref="hourlyChartRef" />
       </v-tabs-window-item>
 
       <v-tabs-window-item value="daily">
@@ -44,7 +48,7 @@
             </v-btn-group>
           </v-col>
         </v-row>
-        <canvas ref="dailyChartRef"></canvas>
+        <canvas ref="dailyChartRef" />
       </v-tabs-window-item>
     </v-tabs-window>
   </v-container>

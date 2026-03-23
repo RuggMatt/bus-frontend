@@ -32,6 +32,11 @@ const viewBusDetails = (clickedBus) => {
         On Time<br>
         <b>{{ Math.round(bus.speed * 3.6) }}</b> km/h
       </VCardText>
+      <VCardActions>
+        <VBtn v-if="trip" :to="`/trips/${trip.trip_id}`">
+          View Trip Details
+        </VBtn>
+      </VCardActions>
     </VCard>
   </VBottomSheet>
 </template>
