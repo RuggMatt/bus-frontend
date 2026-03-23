@@ -6,7 +6,9 @@
     <div
       id="map"
       style="height: 30vh; max-width: 100%; margin: 0; position: sticky; box-sizing: border-box;"
-    />
+    >
+      <map-only ref="map" :buses="electricBuses" />
+    </div>
     <v-list
       id="bus-list"
       dark
@@ -27,18 +29,12 @@
       <template v-if="electricBuses.length && !(loading && firstTime)">
         <v-list-item-group v-model="active">
           <template v-for="bus in electricBuses" :key="bus.bus">
-            <v-list-item :id="active == bus.bus ? 'active' : null" :value="bus.bus" dark>
-              <v-list-item-content>
-                <v-list-item-title>
-                  <b>{{ bus.route.route_id }}</b>
-                </v-list-item-title>
-                <v-list-item-subtitle>{{ bus.route?.trip_headsign }} - {{ bus.bus }}</v-list-item-subtitle>
-              </v-list-item-content>
+            <v-list-item :id="active == bus.bus ? 'active' : null" :value="bus.bus" dark @click="listClickHandler(bus)">
+              <v-list-item-title>
+                <b>{{ bus.route?.trip_headsign }} - {{ bus.bus }}</b>
+              </v-list-item-title>
               <v-list-item-action>
-                <v-list-item-action-text style="text-align: center;">
-                  <span style="font-size: 2em;">{{ Number(bus.dist/0.005).toFixed(0) }}</span>
-                  <br>min.
-                </v-list-item-action-text>
+                <span style="font-size: 2em;">{{ Number(bus.dist/0.005).toFixed(0) }} min.</span>
               </v-list-item-action>
             </v-list-item>
           </template>
@@ -62,209 +58,16 @@
 <script>
 // import { marker } from 'leaflet';
 import { getElectricBuses } from '../api';
+import MapOnly from './MapOnly.vue';
 
 /* globals google */
 let map;
-
-// window.initMap = async () => {
-//   map = new google.maps.Map(document.getElementById("map"), {
-//     center: { lat, lng },
-//     zoom: 10,
-//     zoomControl: false,
-//     streetViewControl: false,
-//     mapTypeControl: false,
-//     fullscreenControl: false,
-//     styles: [
-//       {
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#212121",
-//           },
-//         ],
-//       },
-//       {
-//         elementType: "labels.icon",
-//         stylers: [
-//           {
-//             visibility: "off",
-//           },
-//         ],
-//       },
-//       {
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#757575",
-//           },
-//         ],
-//       },
-//       {
-//         elementType: "labels.text.stroke",
-//         stylers: [
-//           {
-//             color: "#212121",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "administrative",
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#757575",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "administrative.country",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#9e9e9e",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "administrative.land_parcel",
-//         stylers: [
-//           {
-//             visibility: "off",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "administrative.locality",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#bdbdbd",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "poi",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#757575",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "poi.park",
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#181818",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "poi.park",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#616161",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "poi.park",
-//         elementType: "labels.text.stroke",
-//         stylers: [
-//           {
-//             color: "#1b1b1b",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "road",
-//         elementType: "geometry.fill",
-//         stylers: [
-//           {
-//             color: "#2c2c2c",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "road",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#8a8a8a",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "road.arterial",
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#373737",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "road.highway",
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#3c3c3c",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "road.highway.controlled_access",
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#4e4e4e",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "road.local",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#616161",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "transit",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#757575",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "water",
-//         elementType: "geometry",
-//         stylers: [
-//           {
-//             color: "#000000",
-//           },
-//         ],
-//       },
-//       {
-//         featureType: "water",
-//         elementType: "labels.text.fill",
-//         stylers: [
-//           {
-//             color: "#3d3d3d",
-//           },
-//         ],
-//       },
-//     ],
-//   });
-// };
 const REFRESH_INTERVAL = 60000; // 1 minute
 // import goTo from 'vuetify/es5/services';
 export default {
+  components: {
+    MapOnly,
+  },
   data() {
     return {
       buses: [],
@@ -346,9 +149,6 @@ export default {
           marker.bus = bus;
           marker.addListener('click', () => {
             this.active = bus
-            this.$nextTick(() =>
-              this.$vuetify.goTo('#active', {container: '#bus-list'})
-            )
           });
           marker.updated = true;
           this.markers[bus] = marker;
@@ -377,29 +177,27 @@ export default {
               return bus;
             })
         )
-        this.buses = buses;
+        this.buses = this.sortBuses(buses);
         this.refreshLocation();
       } finally {
         this.loading = false;
-        if (this.active) {
-          this.$vuetify.goTo('#active', {container: '#bus-list'});
-        }
       }
     },
     async refreshLocation() {
       await this.updateUserLocation();
-      await this.sortBuses();
+      this.buses = this.sortBuses(this.buses);
     },
-    async sortBuses() {
+    sortBuses(buses) {
       if (this.lat === null || this.lng === null) {
         return;
       }
-      this.buses.forEach(bus => {
+      buses.forEach(bus => {
         bus.dist = Math.sqrt(
           (this.lat - bus.lat) ** 2 + (this.lng - bus.long) ** 2
         );
       })
-      this.buses.sort(({ dist: a }, { dist: b }) => a - b);
+      buses.sort(({ dist: a }, { dist: b }) => a - b);
+      return buses;
     },
     async route(trip) {
       let result = await fetch(
@@ -412,15 +210,14 @@ export default {
         }
       )
       if (result.ok) {
-        let trips = result.json();
+        let trips = await result.json();
         return trips[0];
       }
       return null;
     },
     listClickHandler(item) {
       this.active = item.bus;
-      map.setCenter({ lat: item.lat, lng: item.long });
-      map.setZoom(16);
+      this.$refs.map.centerOnBus(item);
     },
   },
 };

@@ -1,41 +1,35 @@
-import ElectricBusStatsPage from "../views/ElectricBusStatsPage.vue";
-import HydrogenBusStatsPage from "../views/HydrogenBusStatsPage.vue";
-import HydrogenBus from "../components/HydrogenBus.vue";
 import { createRouter, createWebHistory } from "vue-router";
-import Home from "../components/HelloWorld.vue";
-import Electric from "../components/ElectricBus.vue";
-import HomePage from "../views/HomePage.vue";
 
 const routes = [
   {
     path: "/",
     name: "Home",
-    component: HomePage,
+    component: () => import("../views/HomePage.vue"),
   },
   {
     path: "/old",
     name: "old",
-    component: Home,
+    component: () => import("../components/HelloWorld.vue"),
   },
   {
     path: "/electric",
     name: "Electric Buses",
-    component: Electric,
+    component: () => import("../components/ElectricBus.vue"),
   },
   {
     path: "/hydrogen",
     name: "Hydrogen Buses",
-    component: HydrogenBus,
+    component: () => import("../components/HydrogenBus.vue"),
   },
   {
     path: "/electric-bus-stats",
     name: "Electric Bus Stats",
-    component: ElectricBusStatsPage,
+    component: () => import("../views/ElectricBusStatsPage.vue"),
   },
   {
     path: "/hydrogen-bus-stats",
     name: "Hydrogen Bus Stats",
-    component: HydrogenBusStatsPage,
+    component: () => import("../views/HydrogenBusStatsPage.vue"),
   },
   {
     path: "/about",

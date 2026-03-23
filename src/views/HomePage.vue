@@ -40,3 +40,9 @@ const viewBusDetails = (clickedBus) => {
     </VCard>
   </VBottomSheet>
 </template>
+
+<style scoped>
+.map {
+    width: 100%;
+}
+</style>
