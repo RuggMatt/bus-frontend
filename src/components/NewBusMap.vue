@@ -6,7 +6,8 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import logo from '../assets/bus.png'
 import electric from '../assets/elec.png'
 import { useQuery } from '@tanstack/vue-query';
-import { getTrip, getBusStopTimes, getAllBusStops } from '../api';
+import { getTrip, getBusStopTimes } from '../api';
+import { useStops } from '../composables/useStops';
 // import 'leaflet/dist/leaflet.css'
 let map = null
 
@@ -91,12 +92,9 @@ const { data: tripStops } = useQuery({
     queryFn: () => selectedBus.value ? getBusStopTimes(selectedBus.value.trip) : []
 });
 
-const { data: stops } = useQuery({
-    queryKey: ['stops'],
-    queryFn: () => getAllBusStops()
-});
+const { stops } = useStops();
 
-/** @type {import("vue").CopmutedRef<Record<string, import("../api/index").BusStop>>} */
+/** @type {import("vue").ComputedRef<Record<string, import("../api/index").BusStop>>} */
 const stopsHashMap = computed(() => {
     if (!stops.value) {
         return {};
@@ -104,7 +102,7 @@ const stopsHashMap = computed(() => {
     return stops.value.reduce((acc, stop) => {
         acc[stop.stop_id] = {...stop};
         return acc;
-    }, {})
+    }, /** @type {Record<string, import("../api/index").BusStop>} */ ({}));
 });
 
 const handleBusClick = (bus) => {
@@ -136,7 +134,6 @@ watch(tripStops, () => {
     }
     stopMarkers = [];
     for (const stop of tripStops.value) {
-        /** @type {import("../api/index").BusStop} */
         const stopDetails = stopsHashMap.value?.[stop.stop_id];
         if (!stopDetails) {
             continue;
