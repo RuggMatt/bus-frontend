@@ -177,7 +177,7 @@ export default {
               return bus;
             })
         )
-        this.buses = this.sortBuses(buses);
+        this.sortBuses(buses);
         this.refreshLocation();
       } finally {
         this.loading = false;
@@ -185,7 +185,7 @@ export default {
     },
     async refreshLocation() {
       await this.updateUserLocation();
-      this.buses = this.sortBuses(this.buses);
+      this.sortBuses(this.buses);
     },
     sortBuses(buses) {
       if (this.lat === null || this.lng === null) {
@@ -197,7 +197,6 @@ export default {
         );
       })
       buses.sort(({ dist: a }, { dist: b }) => a - b);
-      return buses;
     },
     async route(trip) {
       let result = await fetch(
