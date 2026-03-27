@@ -251,7 +251,7 @@ Indicates drop off method. Valid options are: 0 or empty - Regularly scheduled d
 
 /**
  *
- * @param {string} tripId The trip id to get bus stop times for
+ * @param {string|number} tripId The trip id to get bus stop times for
  * @returns {Promise<BusStopTime[]>}
  */
 export const getBusStopTimes = async (tripId) => {
