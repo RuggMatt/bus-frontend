@@ -11,6 +11,9 @@
         <v-list-item nav to="/" prepend-icon="mdi-home">
           Home
         </v-list-item>
+        <v-list-item nav to="/routes" prepend-icon="mdi-bus">
+          Bus Routes
+        </v-list-item>
         <v-divider />
         <v-list-subheader>
           Electric

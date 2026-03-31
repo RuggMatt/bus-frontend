@@ -5,6 +5,24 @@
  */
 
 /**
+ *
+ * @returns {Promise<Bus[]>}
+ */
+export const getAllBuses = async () => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/now`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
+
+/**
  * Fetches hourly electric bus stats from the backend API
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */
@@ -293,4 +311,73 @@ export const getTrip = async (tripId) => {
     }
   }
   return null;
+};
+
+/**
+ *
+ * @param {string[]} tripIds
+ * @returns {Promise<{route_id: string, trip_id: string}[]>}
+ */
+export const getTrips = async (tripIds) => {
+  const tripIdParams = tripIds.map((tripId) => `'${tripId}'`).join(",");
+  let result = await fetch(
+    `https://data.edmonton.ca/resource/ctwr-tvrd.json?$select=trip_id,route_id&$where=trip_id IN (${tripIdParams})`,
+    {
+      headers: {
+        Accept: "application/json",
+        "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+      },
+    },
+  );
+  if (result.ok) {
+    return result.json();
+  }
+  return [];
+};
+
+/**
+ *
+ * @returns {Promise<Trip[]>}
+ */
+export const getAllTrips = async () => {
+  let url = `https://data.edmonton.ca/resource/ctwr-tvrd.json`;
+  let result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
+
+/**
+ * @typedef {Object} Route
+ * @property {string} route_id
+ * @property {string} route_short_name
+ * @property {string} route_long_name
+ * @property {string} route_type
+ * @property {string} route_type_descr
+ */
+
+/**
+ *
+ * @returns {Promise<Route[]>}
+ */
+export const getAllRoutes = async () => {
+  let url = `https://data.edmonton.ca/resource/d577-xky7.json`;
+  let result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
 };
