@@ -30,7 +30,9 @@ const filteredRoutes = computed(() => {
   <v-container>
     <v-row>
       <v-col cols="12">
-        <h1 class="text-h4 mb-4">Bus Routes</h1>
+        <h1 class="text-h4 mb-4">
+          Bus Routes
+        </h1>
         <v-text-field
           v-model="search"
           label="Search by Route Name or ID"
