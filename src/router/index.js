@@ -46,6 +46,12 @@ const routes = [
       import(/* webpackChunkName: "about" */ "../views/AboutPage.vue"),
   },
   {
+    path: "/routes/:routeId",
+    name: "Route Details",
+    component: () => import("../views/RouteDetailsPage.vue"),
+    props: true,
+  },
+  {
     path: "/trips/:tripId",
     name: "Trip Details",
     component: () => import("../views/TripDetails.vue"),

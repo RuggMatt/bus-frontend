@@ -49,6 +49,7 @@ export const getElectricBusStatsHourly = async () => {
  * @property {number} timestamp UNix epoch timestamp in seconds
  * @property {number} bearing
  * @property {number} speed
+ * @property {string|null} [route_id] Assigned dynamically by useBuses
  */
 
 /**
@@ -380,4 +381,67 @@ export const getAllRoutes = async () => {
   } else {
     throw Error(result.status);
   }
+};
+
+/**
+ * Fetches trips for a specific route from the Edmonton open data API
+ * @param {string} routeId
+ * @returns {Promise<Trip[]>}
+ */
+export const getTripsByRouteId = async (routeId) => {
+  const url = `https://data.edmonton.ca/resource/ctwr-tvrd.json?route_id=${encodeURIComponent(routeId)}&$limit=500`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
+
+/**
+ * Fetches GTFS service calendar entries for the given service IDs.
+ * Each entry indicates which days of the week a service runs.
+ * @param {string[]} serviceIds
+ * @returns {Promise<Array<{service_id: string, monday: string, tuesday: string, wednesday: string, thursday: string, friday: string, saturday: string, sunday: string}>>}
+ */
+export const getServiceCalendars = async (serviceIds) => {
+  if (!serviceIds.length) return [];
+  const idList = serviceIds.map((id) => `'${id}'`).join(",");
+  const url = `https://data.edmonton.ca/resource/hsgq-5b29.json?$where=service_id IN (${idList})`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  return [];
+};
+
+/**
+ * Fetches stop times for multiple trips in a single request.
+ * @param {string[]} tripIds
+ * @returns {Promise<BusStopTime[]>}
+ */
+export const getStopTimesByTripIds = async (tripIds) => {
+  if (!tripIds.length) return [];
+  const idList = tripIds.map((id) => `'${id}'`).join(",");
+  const url = `https://data.edmonton.ca/resource/greh-g7ac.json?$where=trip_id IN (${idList})&$order=trip_id,stop_sequence&$limit=10000`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  return [];
 };
