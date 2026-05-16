@@ -45,12 +45,14 @@ const filteredRoutes = computed(() => {
         />
         <v-list two-line>
           <template v-for="route in filteredRoutes" :key="route.route">
-            <v-list-item >
+            <v-list-item>
               <v-list-item-content>
                 <v-list-item-title>{{ route.route_id }} - {{ route.route_long_name }}</v-list-item-title>
                 <v-list-item-subtitle>
                   <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/trips/${bus.trip}`">
-                    <v-chip class="ma-1" color="primary" text-color="white" small>{{ bus.bus }}</v-chip>
+                    <v-chip class="ma-1" color="primary" text-color="white" small>
+                      {{ bus.bus }}
+                    </v-chip>
                   </router-link>
                 </v-list-item-subtitle>
               </v-list-item-content>
