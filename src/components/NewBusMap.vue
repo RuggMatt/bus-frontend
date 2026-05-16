@@ -6,8 +6,9 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import logo from '../assets/bus.png'
 import electric from '../assets/elec.png'
 import { useQuery } from '@tanstack/vue-query';
-import { getTrip, getBusStopTimes } from '../api';
+import { getTrip, getBusStopTimes, getTrips } from '../api';
 import { useStops } from '../composables/useStops';
+import { chunk } from '../utils/chunk';
 // import 'leaflet/dist/leaflet.css'
 let map = null
 
@@ -29,6 +30,25 @@ const elec = new LeafIcon({
  * @type {Record<string, import("../api/index").Bus>}
  */
 const buses = {};
+
+const assignRouteToEachBus = async (newBuses) => {
+    const tripIds = newBuses.map((bus) => bus.trip);
+    const uniqueTrips = [...new Set(tripIds)];
+    const tripBatches = chunk(uniqueTrips, 50);
+    const routes = [];
+    await Promise.allSettled(
+        tripBatches.map((batch) =>
+            getTrips(batch).then((batchTrips) => routes.push(...batchTrips)),
+        ),
+    );
+    const routeMap = {};
+    routes.forEach((route) => {
+        routeMap[route.trip_id] = route.route_id;
+    });
+    newBuses.forEach((bus) => {
+        bus.route_id = routeMap[bus.trip] || null;
+    });
+}
 
 /** @type {import("vue").Ref<{bus: string, lat: string, long: string, trip: string}|null>} */
 const selectedBus = ref(null);
@@ -62,6 +82,7 @@ const updateBuses = async () => {
     }
     /** @type {{}[]} */
     let newBuses = await fetch(`${import.meta.env.VITE_APP_API_URL}/bus/now`).then(r => r.json());
+    await assignRouteToEachBus(newBuses);
     removeOldBuses(newBuses);
     for (let bus of newBuses) {
         // add new ones
@@ -70,16 +91,17 @@ const updateBuses = async () => {
             let prev = buses[bus.bus];
             let line = L.polyline([prev.getLatLng(), [bus.lat, bus.long]])
             prev.remove();
-            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon}).addTo(map)
+            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon, route_id: bus.route_id}).addTo(map)
             newMarker.on("click", () => handleBusClick(bus));
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
-            let marker = L.marker([bus.lat, bus.long], {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon}).addTo(map)
+            let marker = L.marker([bus.lat, bus.long], {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon, route_id: bus.route_id}).addTo(map)
             marker.on("click", () => handleBusClick(bus))
             buses[bus.bus] = marker;
         }
     }
+    applyRouteHighlighting();
 }
 
 const { data: trip } = useQuery({
@@ -112,14 +134,68 @@ const handleBusClick = (bus) => {
 
 /** @type {import('leaflet').Polyline | null} */
 let previousPolyline = null;
+/** @type {[number, number][]} */
+let routePathPoints = [];
+
+const getClosestRoutePoint = (lat, lon) => {
+    if (!routePathPoints.length) {
+        return [lat, lon];
+    }
+    let nearestPoint = routePathPoints[0];
+    let nearestDistance = Infinity;
+    const target = L.latLng(lat, lon);
+    for (const point of routePathPoints) {
+        const distance = target.distanceTo(L.latLng(point[0], point[1]));
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestPoint = point;
+        }
+    }
+    return nearestPoint;
+}
+
+const applyRouteHighlighting = () => {
+    const selectedRouteId = trip.value?.route_id;
+    for (const marker of Object.values(buses)) {
+        marker.setOpacity(1);
+        marker.setZIndexOffset(0);
+    }
+    if (!selectedRouteId) {
+        return;
+    }
+    for (const markerBus of Object.values(buses)) {
+        if (markerBus.options.title === selectedBus.value?.bus) {
+            markerBus.setOpacity(1);
+            markerBus.setZIndexOffset(2000);
+            continue;
+        }
+        const markerRouteId = markerBus.options?.route_id;
+        if (markerRouteId === selectedRouteId) {
+            markerBus.setOpacity(1);
+            markerBus.setZIndexOffset(1000);
+        } else {
+            markerBus.setOpacity(0.35);
+            markerBus.setZIndexOffset(0);
+        }
+    }
+}
 
 watch(trip, () => {
     if (!trip.value) {
+        routePathPoints = [];
+        applyRouteHighlighting();
         return;
     }
     previousPolyline?.remove();
-    previousPolyline = L.polyline(trip.value.geometry_line.coordinates.map(e => e.map(([a, b]) => [b, a]))).addTo(map);
+    const coordinates = trip.value.geometry_line?.coordinates || [];
+    routePathPoints = coordinates.flatMap((segment) => segment.map(([a, b]) => [b, a]));
+    if (!routePathPoints.length) {
+        applyRouteHighlighting();
+        return;
+    }
+    previousPolyline = L.polyline(routePathPoints).addTo(map);
     map.fitBounds(previousPolyline.getBounds());
+    applyRouteHighlighting();
 })
 
 /** @type {import("leaflet").Marker[]} */
@@ -142,12 +218,20 @@ watch(tripStops, () => {
             console.error("No location details for ", stopDetails);
             continue;
         }
-        const marker = L.marker(
-            [stopDetails.stop_lat, stopDetails.stop_lon], 
+        const [pathLat, pathLon] = getClosestRoutePoint(stopDetails.stop_lat, stopDetails.stop_lon);
+        const marker = L.circleMarker(
+            [pathLat, pathLon], 
             {
-                title: `${stopDetails.stop_name} ${stop.arrival_time_fixed}`
+                title: `${stopDetails.stop_name} ${stop.arrival_time_fixed}`,
+                radius: 4,
+                color: "#ffffff",
+                fillColor: "#ffffff",
+                fillOpacity: 1,
+                opacity: 0.95,
+                weight: 1
             }
         ).addTo(map);
+        marker.bindTooltip(`${stopDetails.stop_name} ${stop.arrival_time_fixed}`);
         stopMarkers.push(marker);
     }
 })
