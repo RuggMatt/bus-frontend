@@ -15,7 +15,7 @@ const { data: trip } = useQuery({
 
 const viewBusDetails = (clickedBus) => {
     bus.value = clickedBus;
-    showBottomSheet.value = true;
+    showBottomSheet.value = Boolean(clickedBus);
 }
 </script>
 <template>
