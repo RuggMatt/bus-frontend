@@ -246,37 +246,53 @@ function cellIsPM(tripId, stopId) {
       <h1 class="text-h4 mb-1">
         Route {{ route.route_short_name || route.route_id }}
       </h1>
-      <p class="text-subtitle-1 text-medium-emphasis mb-6">{{ route.route_long_name }}</p>
+      <p class="text-subtitle-1 text-medium-emphasis mb-6">
+        {{ route.route_long_name }}
+      </p>
 
       <v-row>
         <v-col cols="12" sm="4">
           <v-card variant="tonal" color="primary">
             <v-card-text>
-              <div class="text-overline">Route ID</div>
-              <div class="text-h6">{{ route.route_id }}</div>
+              <div class="text-overline">
+                Route ID
+              </div>
+              <div class="text-h6">
+                {{ route.route_id }}
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
         <v-col cols="12" sm="4">
           <v-card variant="tonal" color="secondary">
             <v-card-text>
-              <div class="text-overline">Type</div>
-              <div class="text-h6">{{ route.route_type_descr || route.route_type }}</div>
+              <div class="text-overline">
+                Type
+              </div>
+              <div class="text-h6">
+                {{ route.route_type_descr || route.route_type }}
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
         <v-col cols="12" sm="4">
           <v-card variant="tonal" color="success">
             <v-card-text>
-              <div class="text-overline">Active Buses</div>
-              <div class="text-h6">{{ activeBuses.length }}</div>
+              <div class="text-overline">
+                Active Buses
+              </div>
+              <div class="text-h6">
+                {{ activeBuses.length }}
+              </div>
             </v-card-text>
           </v-card>
         </v-col>
       </v-row>
 
       <!-- Active Buses -->
-      <h2 class="text-h5 mt-8 mb-3">Active Buses</h2>
+      <h2 class="text-h5 mt-8 mb-3">
+        Active Buses
+      </h2>
       <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
         No buses currently active on this route.
       </div>
@@ -293,7 +309,9 @@ function cellIsPM(tripId, stopId) {
       </div>
 
       <!-- Timetable -->
-      <h2 class="text-h5 mt-8 mb-4">Timetable</h2>
+      <h2 class="text-h5 mt-8 mb-4">
+        Timetable
+      </h2>
 
       <div v-if="tripsLoading" class="d-flex justify-center py-8">
         <v-progress-circular indeterminate color="primary" />
@@ -352,7 +370,9 @@ function cellIsPM(tripId, stopId) {
           <table class="timetable-table">
             <thead>
               <tr>
-                <th class="stop-col">Stop</th>
+                <th class="stop-col">
+                  Stop
+                </th>
                 <th
                   v-for="trip in timetableTrips"
                   :key="trip.trip_id"
@@ -365,7 +385,9 @@ function cellIsPM(tripId, stopId) {
             </thead>
             <tbody>
               <tr v-for="stop in timetableStops" :key="stop.stop_id">
-                <td class="stop-col">{{ stop.stop_name }}</td>
+                <td class="stop-col">
+                  {{ stop.stop_name }}
+                </td>
                 <td
                   v-for="trip in timetableTrips"
                   :key="trip.trip_id"
@@ -379,7 +401,9 @@ function cellIsPM(tripId, stopId) {
               </tr>
             </tbody>
           </table>
-          <p class="text-caption mt-3"><strong>Bold</strong> times are P.M.</p>
+          <p class="text-caption mt-3">
+            <strong>Bold</strong> times are P.M.
+          </p>
         </div>
       </template>
 

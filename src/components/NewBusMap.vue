@@ -11,20 +11,19 @@ import { useStops } from '../composables/useStops';
 import { chunk } from '../utils/chunk';
 // import 'leaflet/dist/leaflet.css'
 let map = null
+const ROUTE_PANE_Z_INDEX = 450;
 
 let interval = null;
 
-const LeafIcon = L.Icon.extend({
-    options: {
-        iconSize:     [25, 25],
-    }
-})
-const icon = new LeafIcon({
-    iconUrl: logo
+const createBusIcon = (iconUrl) => L.divIcon({
+    className: "bus-marker-icon",
+    html: `<div class="bus-icon-wrapper"><img class="bus-icon-image" src="${iconUrl}" /></div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
 });
-const elec = new LeafIcon({
-    iconUrl: electric
-})
+
+const icon = createBusIcon(logo);
+const elec = createBusIcon(electric);
 
 /**
  * @type {Record<string, import("../api/index").Bus>}
@@ -92,12 +91,18 @@ const updateBuses = async () => {
             let line = L.polyline([prev.getLatLng(), [bus.lat, bus.long]])
             prev.remove();
             let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon, route_id: bus.route_id}).addTo(map)
-            newMarker.on("click", () => handleBusClick(bus));
+            newMarker.on("click", (event) => {
+                L.DomEvent.stopPropagation(event);
+                handleBusClick(bus);
+            });
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
             let marker = L.marker([bus.lat, bus.long], {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon, route_id: bus.route_id}).addTo(map)
-            marker.on("click", () => handleBusClick(bus))
+            marker.on("click", (event) => {
+                L.DomEvent.stopPropagation(event);
+                handleBusClick(bus);
+            })
             buses[bus.bus] = marker;
         }
     }
@@ -132,6 +137,19 @@ const handleBusClick = (bus) => {
     selectedBus.value = bus;
 }
 
+const clearRouteSelection = () => {
+    selectedBus.value = null;
+    routePathPoints.length = 0;
+    previousPolyline?.remove();
+    previousPolyline = null;
+    for (const marker of stopMarkers) {
+        marker?.remove();
+    }
+    stopMarkers.length = 0;
+    emits("bus-details", null);
+    applyRouteHighlighting();
+}
+
 /** @type {import('leaflet').Polyline | null} */
 let previousPolyline = null;
 /** @type {[number, number][]} */
@@ -155,7 +173,7 @@ const getClosestRoutePoint = (lat, lon) => {
 }
 
 const applyRouteHighlighting = () => {
-    const selectedRouteId = trip.value?.route_id;
+    const selectedRouteId = selectedBus.value ? trip.value?.route_id : null;
     for (const marker of Object.values(buses)) {
         marker.setOpacity(1);
         marker.setZIndexOffset(0);
@@ -182,7 +200,9 @@ const applyRouteHighlighting = () => {
 
 watch(trip, () => {
     if (!trip.value) {
-        routePathPoints = [];
+        routePathPoints.length = 0;
+        previousPolyline?.remove();
+        previousPolyline = null;
         applyRouteHighlighting();
         return;
     }
@@ -193,7 +213,8 @@ watch(trip, () => {
         applyRouteHighlighting();
         return;
     }
-    previousPolyline = L.polyline(routePathPoints).addTo(map);
+    previousPolyline = L.polyline(routePathPoints, { pane: "routePane" }).addTo(map);
+    previousPolyline.on("click", (event) => L.DomEvent.stopPropagation(event));
     map.fitBounds(previousPolyline.getBounds());
     applyRouteHighlighting();
 })
@@ -224,13 +245,14 @@ watch(tripStops, () => {
             {
                 title: `${stopDetails.stop_name} ${stop.arrival_time_fixed}`,
                 radius: 4,
-                color: "#ffffff",
+                color: "#000000",
                 fillColor: "#ffffff",
                 fillOpacity: 1,
                 opacity: 0.95,
-                weight: 1
+                weight: 2
             }
         ).addTo(map);
+        marker.on("click", (event) => L.DomEvent.stopPropagation(event));
         marker.bindTooltip(`${stopDetails.stop_name} ${stop.arrival_time_fixed}`);
         stopMarkers.push(marker);
     }
@@ -241,6 +263,9 @@ const createMap = () => {
         center: [53.5150, -113.4757],
         zoom: 12,
     });
+    map.createPane("routePane");
+    map.getPane("routePane").style.zIndex = ROUTE_PANE_Z_INDEX;
+    map.on("click", clearRouteSelection);
     L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}/?{accessToken}', {
         attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
         maxZoom: 18,
@@ -265,6 +290,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     clearInterval(interval)
+    map?.off("click", clearRouteSelection);
 })
 </script>
 <template>
@@ -276,5 +302,27 @@ onBeforeUnmount(() => {
 .map {
     width: 100vw;
     height: 50vh;
+}
+
+:deep(.bus-marker-icon) {
+    background: transparent;
+    border: 0;
+}
+
+:deep(.bus-icon-wrapper) {
+    align-items: center;
+    background: #ffffff;
+    border: 2px solid #000000;
+    border-radius: 9999px;
+    display: flex;
+    height: 30px;
+    justify-content: center;
+    width: 30px;
+}
+
+:deep(.bus-icon-image) {
+    display: block;
+    height: 20px;
+    width: 20px;
 }
 </style>
