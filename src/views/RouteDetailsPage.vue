@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getServiceCalendars, getStopTimesByTripIds, getActiveTripsByRouteId } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -73,7 +73,13 @@ const DAYS = [
   { label: 'Sun', field: 'sunday' },
 ];
 
+/**
+ * @type {Array<'sunday'|'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'>}
+ */
 const DAY_JS_INDEX = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+/**
+ * @type {import('vue').Ref<'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'>}
+ */
 const selectedDay = ref(DAY_JS_INDEX[new Date().getDay()] ?? 'monday');
 const selectedDirection = ref('0');
 
@@ -103,45 +109,36 @@ const directionLabels = computed(() => {
   return labels;
 });
 
-// --- Service calendar ---
-const serviceIds = computed(() => {
-  if (!activeTrips.value.length) return [];
-  return [...new Set(activeTrips.value.map((t) => t.service_id))];
-});
+// --- Day-of-week filtering via service_id encoding (last 7 digits = MTWRFSU, 1=active 0=inactive) ---
+const DAY_TO_SERVICE_ID_INDEX = {
+  monday:    0,
+  tuesday:   1,
+  wednesday: 2,
+  thursday:  3,
+  friday:    4,
+  saturday:  5,
+  sunday:    6,
+};
 
-const { data: calendarData, isLoading: calendarLoading } = useQuery({
-  queryKey: computed(() => ['service-calendars', serviceIds.value.join(',')] ),
-  queryFn: () => getServiceCalendars(serviceIds.value),
-  enabled: computed(() => serviceIds.value.length > 0),
-  retry: false,
-});
-
-const calendarMap = computed(() => {
-  if (!calendarData.value) return {};
-  /** @type {Record<string, any>} */
-  const map = {};
-  calendarData.value.forEach((entry) => {
-    map[entry.service_id] = entry;
-  });
-  return map;
-});
-
-// Whether calendar data actually loaded (non-empty) so we can decide how to filter
-const hasCalendarData = computed(
-  () => !calendarLoading.value && calendarData.value != null && calendarData.value.length > 0
-);
+/**
+ * Returns true if the given service_id indicates the service runs on the given day.
+ * The last 7 characters encode MTWRFSU as '1' (runs) or '0' (doesn't run).
+ * @param {string} serviceId
+ * @param {'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'} day - e.g. 'monday'
+ */
+function serviceRunsOnDay(serviceId, day) {
+  const index = DAY_TO_SERVICE_ID_INDEX[day];
+  if (index === undefined || serviceId.length < 7) return true; // fallback: show if we can't determine
+  return serviceId[serviceId.length - 7 + index] === '1';
+}
 
 // --- Trips for selected day + direction ---
 const dayTrips = computed(() => {
   if (!activeTrips.value.length) return [];
-  return activeTrips.value.filter((trip) => {
-    if (trip.direction_id !== selectedDirection.value) return false;
-    if (!hasCalendarData.value) return true; // no calendar: show all
-    const cal = calendarMap.value[trip.service_id];
-    if (!cal) return false;
-    const dayField = String(selectedDay.value);
-    return cal[dayField] === '1' || cal[dayField] === true;
-  });
+  return activeTrips.value.filter((trip) =>
+    trip.direction_id === selectedDirection.value &&
+    serviceRunsOnDay(trip.service_id, selectedDay.value)
+  );
 });
 
 const dayTripIds = computed(() => dayTrips.value.map((t) => t.trip_id));
@@ -212,7 +209,7 @@ const timetableTrips = computed(() => {
 });
 
 const timetableLoading = computed(
-  () => tripsLoading.value || activeFeedLoading.value || calendarLoading.value || stopTimesLoading.value
+  () => tripsLoading.value || activeFeedLoading.value || stopTimesLoading.value
 );
 
 // --- Time helpers ---
@@ -431,8 +428,10 @@ function cellIsPM(tripId, stopId) {
                   :key="trip.trip_id"
                   class="time-col"
                 >
-                  <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
-                  <span v-else>{{ trip.headerTime }}</span>
+                  <router-link :to="`/trips/${trip.trip_id}`" class="trip-header-link">
+                    <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
+                    <span v-else>{{ trip.headerTime }}</span>
+                  </router-link>
                 </th>
               </tr>
             </thead>
@@ -502,6 +501,16 @@ function cellIsPM(tripId, stopId) {
 
 .timetable-table thead .stop-col {
   z-index: 2;
+}
+
+.trip-header-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.trip-header-link:hover {
+  text-decoration: underline;
 }
 
 .timetable-table tbody tr:hover td {
