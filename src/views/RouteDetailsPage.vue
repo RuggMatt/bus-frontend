@@ -111,7 +111,6 @@ const dayTrips = computed(() => {
     const cal = calendarMap.value[trip.service_id];
     if (!cal) return false;
     const dayField = String(selectedDay.value);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     return cal[dayField] === '1' || cal[dayField] === true;
   });
 });
@@ -135,7 +134,6 @@ const stopTimeMap = computed(() => {
     tripEntry.set(st.stop_id, st.arrival_time_fixed || st.departure_time_fixed);
     lookup.set(st.trip_id, tripEntry);
   });
-  return lookup;
   return lookup;
 });
 
