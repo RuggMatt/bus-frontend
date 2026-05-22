@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getServiceCalendars, getStopTimesByTripIds } from '../api';
+import { getTripsByRouteId, getServiceCalendars, getStopTimesByTripIds, getActiveTripsByRouteId } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -33,6 +33,35 @@ const activeBuses = computed(() => {
   return buses.value.filter((bus) => bus.route_id === props.routeId);
 });
 
+// --- Active GTFS feed trips ---
+const { data: activeFeedData, isLoading: activeFeedLoading } = useQuery({
+  queryKey: ['active-feed-trips', props.routeId],
+  queryFn: () => getActiveTripsByRouteId(props.routeId),
+  enabled: !!props.routeId,
+  retry: false,
+});
+
+const activeFeedTripIdSet = computed(() => {
+  if (!activeFeedData.value || !activeFeedData.value.length) return null;
+  return new Set(activeFeedData.value.map((t) => t.trip_id));
+});
+
+// Trips filtered to the currently-active GTFS feed, deduplicated by trip_id
+const activeTrips = computed(() => {
+  if (!trips.value) return [];
+  const activeSet = activeFeedTripIdSet.value;
+  const filtered = activeSet
+    ? trips.value.filter((t) => activeSet.has(t.trip_id))
+    : trips.value;
+  // Deduplicate by trip_id
+  const seen = new Set();
+  return filtered.filter((t) => {
+    if (seen.has(t.trip_id)) return false;
+    seen.add(t.trip_id);
+    return true;
+  });
+});
+
 // --- Timetable state ---
 const DAYS = [
   { label: 'Mon', field: 'monday' },
@@ -48,18 +77,18 @@ const DAY_JS_INDEX = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'f
 const selectedDay = ref(DAY_JS_INDEX[new Date().getDay()] ?? 'monday');
 const selectedDirection = ref('0');
 
-// --- Available directions derived from trips ---
+// --- Available directions derived from active trips ---
 const availableDirections = computed(() => {
-  if (!trips.value) return [];
-  return [...new Set(trips.value.map((t) => t.direction_id))].sort();
+  if (!activeTrips.value.length) return [];
+  return [...new Set(activeTrips.value.map((t) => t.direction_id))].sort();
 });
 
 // Headsign labels per direction (use the most common headsign per direction)
 const directionLabels = computed(() => {
-  if (!trips.value) return {};
+  if (!activeTrips.value.length) return {};
   /** @type {Map<string, Map<string, number>>} */
   const counts = new Map();
-  trips.value.forEach((t) => {
+  activeTrips.value.forEach((t) => {
     const bucket = counts.get(t.direction_id) ?? new Map();
     const hs = t.trip_headsign || '';
     bucket.set(hs, (bucket.get(hs) ?? 0) + 1);
@@ -76,8 +105,8 @@ const directionLabels = computed(() => {
 
 // --- Service calendar ---
 const serviceIds = computed(() => {
-  if (!trips.value) return [];
-  return [...new Set(trips.value.map((t) => t.service_id))];
+  if (!activeTrips.value.length) return [];
+  return [...new Set(activeTrips.value.map((t) => t.service_id))];
 });
 
 const { data: calendarData, isLoading: calendarLoading } = useQuery({
@@ -104,8 +133,8 @@ const hasCalendarData = computed(
 
 // --- Trips for selected day + direction ---
 const dayTrips = computed(() => {
-  if (!trips.value) return [];
-  return trips.value.filter((trip) => {
+  if (!activeTrips.value.length) return [];
+  return activeTrips.value.filter((trip) => {
     if (trip.direction_id !== selectedDirection.value) return false;
     if (!hasCalendarData.value) return true; // no calendar: show all
     const cal = calendarMap.value[trip.service_id];
@@ -156,7 +185,7 @@ const timetableStops = computed(() => {
     })
     .map((stop_id) => ({
       stop_id,
-      stop_name: keyedStops.value?.[stop_id]?.stop_name || `Stop ${stop_id}`,
+      stop_name: shortenStopName(keyedStops.value?.[stop_id]?.stop_name || `Stop ${stop_id}`),
     }));
 });
 
@@ -183,10 +212,36 @@ const timetableTrips = computed(() => {
 });
 
 const timetableLoading = computed(
-  () => tripsLoading.value || calendarLoading.value || stopTimesLoading.value
+  () => tripsLoading.value || activeFeedLoading.value || calendarLoading.value || stopTimesLoading.value
 );
 
 // --- Time helpers ---
+
+/** Shortens common street-name words to save space on mobile
+ * @param {string} name
+ * @returns {string}
+ */
+function shortenStopName(name) {
+  if (typeof name !== 'string' || !name) return name;
+  const replacements = [
+    [/\bAvenue\b/g, 'Av'],
+    [/\bStreet\b/g, 'St'],
+    [/\bBoulevard\b/g, 'Blvd'],
+    [/\bDrive\b/g, 'Dr'],
+    [/\bRoad\b/g, 'Rd'],
+    [/\bCrescent\b/g, 'Cres'],
+    [/\bPlace\b/g, 'Pl'],
+    [/\bCourt\b/g, 'Ct'],
+    [/\bTrail\b/g, 'Tr'],
+    [/\bLane\b/g, 'Ln'],
+    [/\bClose\b/g, 'Cl'],
+    [/\bNorthwest\b/g, 'NW'],
+    [/\bNortheast\b/g, 'NE'],
+    [/\bSouthwest\b/g, 'SW'],
+    [/\bSoutheast\b/g, 'SE'],
+  ];
+  return replacements.reduce((result, [pattern, replacement]) => result.replace(pattern, /** @type {string} */ (replacement)), name);
+}
 
 /** Returns true if a raw HH:MM:SS time string is PM (hour >= 12)
  * @param {string} timeStr
@@ -311,11 +366,11 @@ function cellIsPM(tripId, stopId) {
         Timetable
       </h2>
 
-      <div v-if="tripsLoading" class="d-flex justify-center py-8">
+      <div v-if="tripsLoading || activeFeedLoading" class="d-flex justify-center py-8">
         <v-progress-circular indeterminate color="primary" />
       </div>
 
-      <template v-else-if="trips && trips.length">
+      <template v-else-if="activeTrips.length > 0">
         <!-- Direction selector -->
         <v-btn-toggle
           v-model="selectedDirection"
@@ -451,5 +506,10 @@ function cellIsPM(tripId, stopId) {
 
 .timetable-table tbody tr:hover td {
   background: rgba(var(--v-theme-primary), 0.06);
+}
+
+.timetable-table tbody tr:hover .stop-col {
+  background: rgb(var(--v-theme-surface));
+  z-index: 3;
 }
 </style>

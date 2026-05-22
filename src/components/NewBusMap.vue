@@ -11,7 +11,7 @@ import { useStops } from '../composables/useStops';
 import { chunk } from '../utils/chunk';
 // import 'leaflet/dist/leaflet.css'
 let map = null
-const ROUTE_PANE_Z_INDEX = 450;
+const ROUTE_PANE_Z_INDEX = 350;
 
 let interval = null;
 
