@@ -426,6 +426,30 @@ export const getServiceCalendars = async (serviceIds) => {
 };
 
 /**
+ * Fetches the trip IDs that belong to the currently-active GTFS feed for a given route.
+ * Uses the ETS GTFS Feed Trip Schedule dataset to filter by today's date.
+ * @param {string} routeId
+ * @returns {Promise<Array<{trip_id: string}>>}
+ */
+export const getActiveTripsByRouteId = async (routeId) => {
+  const today = new Date().toISOString().split('T')[0];
+  // Escape single quotes to prevent SoQL injection
+  const safeRouteId = String(routeId).replace(/'/g, "''");
+  const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND route_id = '${safeRouteId}'`;
+  const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&$select=trip_id&$limit=5000`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  return [];
+};
+
+/**
  * Fetches stop times for multiple trips in a single request.
  * @param {string[]} tripIds
  * @returns {Promise<BusStopTime[]>}
