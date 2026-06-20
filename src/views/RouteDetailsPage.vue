@@ -430,7 +430,7 @@ function cellIsPM(tripId, stopId) {
 
       <template v-else-if="activeTrips.length > 0">
         <!-- Effective date selector -->
-        <div class="mb-3" v-if="effectiveDateOptions.length > 1">
+        <div v-if="effectiveDateOptions.length > 1" class="mb-3">
           <v-select
             v-model="selectedEffectiveDate"
             :items="effectiveDateOptions"

@@ -270,7 +270,7 @@ const createMap = () => {
         attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
         maxZoom: 18,
         minZoom: 10,
-        bounds: [[53.6, -113.7], [53.33, -113.3]],
+        bounds: [[53.65, -113.7], [53.23, -113.3]],
         id: 'mapbox/streets-v11',
         tileSize: 512,
         zoomOffset: -1,
@@ -301,7 +301,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .map {
     width: 100vw;
-    height: 50vh;
+    height: 100vh;
 }
 
 :deep(.bus-marker-icon) {
