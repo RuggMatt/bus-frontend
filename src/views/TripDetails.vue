@@ -3,7 +3,14 @@
 import { useQuery } from '@tanstack/vue-query';
 import { getRecentTripData, getTrip, getBusStopTimes } from '../api';
 import { useStops } from '../composables/useStops';
-import { computed } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import 'leaflet/dist/leaflet';
+import 'leaflet';
+
+/** @typedef {import('../api/index').BusStopTime} BusStopTime */
+
+
+const mapboxAccessToken = `access_token=${import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN}`;
 
 const props = defineProps({
     tripId: {
@@ -67,6 +74,14 @@ const groupedTripData = computed(() => {
     return groups;
 })
 
+const latestTripPoint = computed(() => {
+    if (!data.value || data.value.length === 0) return null;
+    return data.value.reduce((latest, datum) => {
+        if (!latest) return datum;
+        return datum.timestamp >= latest.timestamp ? datum : latest;
+    }, /** @type {typeof data.value[number] | null} */ (null));
+})
+
 /**
  * Converts a HH:MM:SS 24-hour time string to a readable 12-hour format (e.g. "7:32 PM")
  * @param {string} time
@@ -75,8 +90,8 @@ const groupedTripData = computed(() => {
 function formatTime(time) {
     if (!time) return ''
     const [hourStr, minuteStr] = time.split(':')
-    let hour = parseInt(hourStr, 10)
-    const minute = minuteStr
+    let hour = parseInt(hourStr ?? '0', 10)
+    const minute = minuteStr ?? '00'
     const ampm = hour >= 12 ? 'PM' : 'AM'
     hour = hour % 12 || 12
     return `${hour}:${minute} ${ampm}`
@@ -121,12 +136,25 @@ function estimatedActualArrivalTime(stopId) {
     if (!groupedData || groupedData.length === 0) {
         return null;
     }
-    console.log(groupedData);
-    let maxEstimateDistance = 1000; // meters
-    let nearestData = groupedData[0];
-    let nearestDistance = distance(stop.stop_lat, stop.stop_lon, nearestData.lat, nearestData.long);
+    const stopLat = Number(stop.stop_lat);
+    const stopLon = Number(stop.stop_lon);
+    if (!Number.isFinite(stopLat) || !Number.isFinite(stopLon)) {
+        return null;
+    }
+    const firstDatum = groupedData[0];
+    if (!firstDatum) {
+        return null;
+    }
+    const maxEstimateDistance = 1000; // meters
+    let nearestData = firstDatum;
+    let nearestDistance = distance(stopLat, stopLon, Number(nearestData.lat), Number(nearestData.long));
     for (const datum of groupedData) {
-        const datumDistance = distance(stop.stop_lat, stop.stop_lon, datum.lat, datum.long);
+        const datumLat = Number(datum.lat);
+        const datumLon = Number(datum.long);
+        if (!Number.isFinite(datumLat) || !Number.isFinite(datumLon)) {
+            continue;
+        }
+        const datumDistance = distance(stopLat, stopLon, datumLat, datumLon);
         if (datumDistance < nearestDistance) {
             nearestData = datum;
             nearestDistance = datumDistance;
@@ -139,8 +167,8 @@ function estimatedActualArrivalTime(stopId) {
 }
 
 /**
- *
- *
+ * @param {BusStopTime} stop
+ * @returns {string}
  */
 function formatSubtitle(stop) {
     const scheduledTime = formatTime(stop.arrival_time_fixed);
@@ -161,6 +189,223 @@ function convertUnixEpochToTime(unixEpoch) {
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+const startTime = computed(() => {
+    const stops = routeData.value ?? [];
+    return formatTime(stops[0]?.arrival_time_fixed ?? '');
+});
+const endTime = computed(() => {
+    const stops = routeData.value ?? [];
+    return formatTime(stops.length > 0 ? (stops[stops.length - 1]?.arrival_time_fixed ?? '') : '');
+});
+
+const weekdayLabel = computed(() => {
+    const id = tripData.value?.service_id ?? '';
+    if (/\b(weekday|mon(day)?|tue(s(day)?)?|wed(nesday)?|thu(rs(day)?)?|fri(day)?|wd)\b/i.test(id)) return 'Weekday';
+    if (/\b(sat(urday)?)\b/i.test(id)) return 'Saturday';
+    if (/\b(sun(day)?)\b/i.test(id)) return 'Sunday';
+    return id;
+});
+
+/**
+ * Returns the difference in minutes between estimated and scheduled arrival.
+ * Negative = early, positive = late, 0 = on time.
+ * @param {BusStopTime} stop
+ * @returns {number|null}
+ */
+function getTimeDiffMinutes(stop) {
+    const estimatedEpoch = estimatedActualArrivalTime(stop.stop_id);
+    if (estimatedEpoch === null) return null;
+    if (!stop.arrival_time_fixed) return null;
+    const parts = stop.arrival_time_fixed.split(':');
+    const scheduledSecondsFromMidnight =
+        parseInt(parts[0] || '0', 10) * 3600 +
+        parseInt(parts[1] || '0', 10) * 60 +
+        parseInt(parts[2] || '0', 10);
+    const estimatedDate = new Date(estimatedEpoch * 1000);
+    const midnight = new Date(estimatedDate);
+    midnight.setHours(0, 0, 0, 0);
+    const scheduledEpoch = midnight.getTime() / 1000 + scheduledSecondsFromMidnight;
+    return Math.round((estimatedEpoch - scheduledEpoch) / 60);
+}
+
+/**
+ * @param {BusStopTime} stop
+ * @returns {boolean}
+ */
+function hasTimeDiff(stop) {
+    return getTimeDiffMinutes(stop) !== null;
+}
+
+/**
+ * @param {BusStopTime} stop
+ * @returns {number}
+ */
+function getTimeDiffValue(stop) {
+    return getTimeDiffMinutes(stop) ?? 0;
+}
+
+/** @type {import('leaflet').Map | null} */
+let map = null;
+/** @type {import('leaflet').CircleMarker[]} */
+let stopMarkers = [];
+/** @type {import('leaflet').Polyline | null} */
+let routePolyline = null;
+/** @type {import('leaflet').Marker | null} */
+let busMarker = null;
+const tripMapEl = ref(null);
+
+const busMarkerIcon = L.divIcon({
+    className: 'trip-bus-marker-icon',
+    html: '<div class="trip-bus-marker-badge">🚌</div>',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+});
+
+/**
+ * @param {BusStopTime} stop
+ * @returns {string}
+ */
+function getStopMarkerColor(stop) {
+    const diff = getTimeDiffMinutes(stop);
+    if (diff === null || diff === 0) return '#546e7a';
+    if (diff > 0) return '#d32f2f'; // late
+    return '#1976d2'; // early
+}
+
+/**
+ * @param {BusStopTime} stop
+ * @returns {string}
+ */
+function getStopStatusLabel(stop) {
+    const diff = getTimeDiffMinutes(stop);
+    if (diff === null) return 'No live estimate';
+    if (diff > 0) return `${diff} min late`;
+    if (diff < 0) return `${Math.abs(diff)} min early`;
+    return 'On time';
+}
+
+function clearTripMapLayers() {
+    for (const marker of stopMarkers) {
+        marker.remove();
+    }
+    stopMarkers = [];
+    routePolyline?.remove();
+    routePolyline = null;
+    busMarker?.remove();
+    busMarker = null;
+}
+
+function drawTripMap() {
+    const activeMap = map;
+    if (!activeMap) return;
+    clearTripMapLayers();
+
+    /** @type {[number, number][]} */
+    const boundsPoints = [];
+    const coordinates = tripData.value?.geometry_line?.coordinates || [];
+    const routePathPoints = coordinates.flatMap((segment) =>
+        segment.map(([lon, lat]) => /** @type {[number, number]} */ ([lat, lon])),
+    );
+    if (routePathPoints.length > 1) {
+        routePolyline = L.polyline(routePathPoints, {
+            color: '#263238',
+            opacity: 0.85,
+            weight: 4,
+        }).addTo(activeMap);
+        boundsPoints.push(...routePathPoints);
+    }
+
+    if (routeData.value && keyedStops.value) {
+        for (const stop of routeData.value) {
+            const stopInfo = keyedStops.value?.[stop.stop_id];
+            const lat = Number(stopInfo?.stop_lat);
+            const lon = Number(stopInfo?.stop_lon);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                continue;
+            }
+            const color = getStopMarkerColor(stop);
+            const marker = L.circleMarker([lat, lon], {
+                radius: 6,
+                color,
+                fillColor: color,
+                fillOpacity: 0.95,
+                weight: 2,
+            }).addTo(activeMap);
+            marker.bindTooltip(
+                `${stopInfo?.stop_name || stop.stop_id} • ${formatTime(stop.arrival_time_fixed)} • ${getStopStatusLabel(stop)}`,
+            );
+            stopMarkers.push(marker);
+            boundsPoints.push([lat, lon]);
+        }
+    }
+
+    const currentPoint = latestTripPoint.value;
+    if (currentPoint) {
+        const currentLat = Number(currentPoint.lat);
+        const currentLon = Number(currentPoint.long);
+        if (Number.isFinite(currentLat) && Number.isFinite(currentLon)) {
+            busMarker = L.marker([currentLat, currentLon], {
+                icon: busMarkerIcon,
+                title: `Bus ${currentPoint.bus}`,
+            }).addTo(activeMap);
+            busMarker.bindTooltip(`Current position: Bus ${currentPoint.bus}`);
+            boundsPoints.push([currentLat, currentLon]);
+        }
+    }
+
+    if (boundsPoints.length > 0) {
+        activeMap.fitBounds(boundsPoints, { padding: [20, 20] });
+    }
+}
+
+onMounted(() => {
+    maybeInitializeMap();
+});
+
+function maybeInitializeMap() {
+    if (map || !tripMapEl.value) {
+        return;
+    }
+    if (!mapboxAccessToken) {
+        console.error('Missing Mapbox access token. Set VITE_APP_MAPBOX_ACCESS_TOKEN in .env');
+    }
+    const createdMap = L.map(tripMapEl.value, {
+        center: [53.5150, -113.4757],
+        zoom: 12,
+    });
+    map = createdMap;
+    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?{accessToken}', {
+        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+        maxZoom: 18,
+        minZoom: 10,
+        bounds: [[53.6, -113.7], [53.33, -113.3]],
+        id: 'mapbox/streets-v11',
+        tileSize: 512,
+        zoomOffset: -1,
+        accessToken: mapboxAccessToken,
+    }).addTo(createdMap);
+}
+
+watch([isLoading, error], async () => {
+    if (isLoading.value || error.value) {
+        return;
+    }
+    await nextTick();
+    maybeInitializeMap();
+    map?.invalidateSize();
+    drawTripMap();
+}, { immediate: true });
+
+watch([routeData, keyedStops, tripData, data], () => {
+    drawTripMap();
+});
+
+onBeforeUnmount(() => {
+    clearTripMapLayers();
+    map?.remove();
+    map = null;
+});
+
 
 </script>
 <template>
@@ -172,17 +417,52 @@ function convertUnixEpochToTime(unixEpoch) {
       Error: {{ error.message }}
     </div>
     <div v-else>
-      <h1>Trip Details for Trip ID: {{ props.tripId }}</h1>
-      <p><strong>Route:</strong> {{ tripData?.trip_headsign }}</p>
+      <h1>{{ tripData?.trip_headsign }} &mdash; {{ weekdayLabel }}<span v-if="startTime && endTime">, {{ startTime }} &ndash; {{ endTime }}</span></h1>
+        <div ref="tripMapEl" class="trip-map mt-3" />
       <v-list class="mt-3">
         <v-list-item
           v-for="stop in routeData"
           :key="stop.stop_id"
           :title="keyedStops[stop.stop_id]?.stop_name || stop.stop_id"
-          :subtitle="formatSubtitle(stop)"
           prepend-icon="mdi-bus-stop"
-        />
+        >
+          <template #subtitle>
+            {{ formatSubtitle(stop) }}
+                        <template v-if="hasTimeDiff(stop)">
+                            <span v-if="getTimeDiffValue(stop) < 0" class="text-success ml-1">{{ Math.abs(getTimeDiffValue(stop)) }} min early</span>
+                            <span v-else-if="getTimeDiffValue(stop) > 0" class="text-error ml-1">{{ getTimeDiffValue(stop) }} min late</span>
+              <span v-else class="text-info ml-1">On Time</span>
+            </template>
+          </template>
+        </v-list-item>
       </v-list>
     </div>
   </v-container>
 </template>
+
+<style scoped>
+.trip-map {
+    width: 100%;
+    height: 45vh;
+    min-height: 300px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+:deep(.trip-bus-marker-icon) {
+    background: transparent;
+    border: 0;
+}
+
+:deep(.trip-bus-marker-badge) {
+    align-items: center;
+    background: #ffffff;
+    border: 2px solid #000000;
+    border-radius: 9999px;
+    display: flex;
+    font-size: 18px;
+    height: 28px;
+    justify-content: center;
+    width: 28px;
+}
+</style>
