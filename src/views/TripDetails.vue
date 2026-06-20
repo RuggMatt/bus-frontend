@@ -11,6 +11,21 @@ import 'leaflet';
 
 
 const mapboxAccessToken = `access_token=${import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN}`;
+const ACTIVE_TRIP_STALE_SECONDS = 300;
+
+/**
+ * @param {Array<{timestamp:number}> | undefined} tripPoints
+ * @returns {boolean}
+ */
+function isTripCurrentlyActive(tripPoints) {
+    if (!tripPoints || tripPoints.length === 0) return false;
+    const latestTimestamp = tripPoints.reduce(
+        (max, point) => Math.max(max, point.timestamp),
+        0,
+    );
+    const nowSeconds = Date.now() / 1000;
+    return nowSeconds - latestTimestamp <= ACTIVE_TRIP_STALE_SECONDS;
+}
 
 const props = defineProps({
     tripId: {
@@ -27,6 +42,11 @@ const { data, error, isLoading } = useQuery({
     enabled: !!props.tripId,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    refetchInterval: (query) => {
+        const tripPoints = /** @type {Array<{timestamp:number}> | undefined} */ (query.state.data);
+        return isTripCurrentlyActive(tripPoints) ? 60000 : false;
+    },
+    refetchIntervalInBackground: true,
 })
 
 const { data: tripData } = useQuery({
@@ -267,9 +287,10 @@ const busMarkerIcon = L.divIcon({
  */
 function getStopMarkerColor(stop) {
     const diff = getTimeDiffMinutes(stop);
-    if (diff === null || diff === 0) return '#546e7a';
-    if (diff > 0) return '#d32f2f'; // late
-    return '#1976d2'; // early
+    if (diff === null) return '#999999';
+    if (diff === 0) return '#0000f2';
+    if (diff > 0) return '#f20000'; // late
+    return '#19d276'; // early
 }
 
 /**
@@ -418,7 +439,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-else>
       <h1>{{ tripData?.trip_headsign }} &mdash; {{ weekdayLabel }}<span v-if="startTime && endTime">, {{ startTime }} &ndash; {{ endTime }}</span></h1>
-        <div ref="tripMapEl" class="trip-map mt-3" />
+      <div ref="tripMapEl" class="trip-map mt-3" />
       <v-list class="mt-3">
         <v-list-item
           v-for="stop in routeData"
@@ -428,9 +449,9 @@ onBeforeUnmount(() => {
         >
           <template #subtitle>
             {{ formatSubtitle(stop) }}
-                        <template v-if="hasTimeDiff(stop)">
-                            <span v-if="getTimeDiffValue(stop) < 0" class="text-success ml-1">{{ Math.abs(getTimeDiffValue(stop)) }} min early</span>
-                            <span v-else-if="getTimeDiffValue(stop) > 0" class="text-error ml-1">{{ getTimeDiffValue(stop) }} min late</span>
+            <template v-if="hasTimeDiff(stop)">
+              <span v-if="getTimeDiffValue(stop) < 0" class="text-success ml-1">{{ Math.abs(getTimeDiffValue(stop)) }} min early</span>
+              <span v-else-if="getTimeDiffValue(stop) > 0" class="text-error ml-1">{{ getTimeDiffValue(stop) }} min late</span>
               <span v-else class="text-info ml-1">On Time</span>
             </template>
           </template>

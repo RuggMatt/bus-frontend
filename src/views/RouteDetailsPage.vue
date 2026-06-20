@@ -5,7 +5,7 @@ import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId } fro
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
   routeId: {
@@ -82,19 +82,76 @@ const DAY_JS_INDEX = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'f
  */
 const selectedDay = ref(DAY_JS_INDEX[new Date().getDay()] ?? 'monday');
 const selectedDirection = ref('0');
+const selectedEffectiveDate = ref('');
+
+/**
+ * Parses YY-MM from service_id format like DX-001-Weekday-1-26-06-1111100.
+ * @param {string} serviceId
+ * @returns {string|null} YYYY-MM
+ */
+function getEffectiveDateKey(serviceId) {
+  const match = serviceId.match(/-(\d{2})-(\d{2})-\d{7}$/);
+  if (!match) return null;
+  const yy = match[1];
+  const mm = match[2];
+  return `20${yy}-${mm}`;
+}
+
+const effectiveDateOptions = computed(() => {
+  if (!activeTrips.value.length) return [];
+  const keys = new Set();
+  for (const trip of activeTrips.value) {
+    const key = getEffectiveDateKey(trip.service_id || '');
+    if (key) keys.add(key);
+  }
+  return [...keys]
+    .sort((a, b) => b.localeCompare(a))
+    .map((key) => ({
+      title: key,
+      value: key,
+    }));
+});
+
+const activeTripsForDate = computed(() => {
+  if (!activeTrips.value.length) return [];
+  const selected = selectedEffectiveDate.value || effectiveDateOptions.value[0]?.value;
+  if (!selected) return activeTrips.value;
+  return activeTrips.value.filter((trip) => getEffectiveDateKey(trip.service_id || '') === selected);
+});
+
+watch(effectiveDateOptions, (options) => {
+  if (!options.length) {
+    selectedEffectiveDate.value = '';
+    return;
+  }
+  const exists = options.some((opt) => opt.value === selectedEffectiveDate.value);
+  if (!exists) {
+    selectedEffectiveDate.value = options.map((opt) => opt.value).find((value) => !!value) || '';
+  }
+}, { immediate: true });
 
 // --- Available directions derived from active trips ---
 const availableDirections = computed(() => {
-  if (!activeTrips.value.length) return [];
-  return [...new Set(activeTrips.value.map((t) => t.direction_id))].sort();
+  if (!activeTripsForDate.value.length) return [];
+  return [...new Set(activeTripsForDate.value.map((t) => t.direction_id))].sort();
 });
+
+watch(availableDirections, (dirs) => {
+  if (!dirs.length) {
+    selectedDirection.value = '0';
+    return;
+  }
+  if (!dirs.includes(selectedDirection.value)) {
+    selectedDirection.value = dirs.find((dir) => !!dir) || '0';
+  }
+}, { immediate: true });
 
 // Headsign labels per direction (use the most common headsign per direction)
 const directionLabels = computed(() => {
-  if (!activeTrips.value.length) return {};
+  if (!activeTripsForDate.value.length) return {};
   /** @type {Map<string, Map<string, number>>} */
   const counts = new Map();
-  activeTrips.value.forEach((t) => {
+  activeTripsForDate.value.forEach((t) => {
     const bucket = counts.get(t.direction_id) ?? new Map();
     const hs = t.trip_headsign || '';
     bucket.set(hs, (bucket.get(hs) ?? 0) + 1);
@@ -134,8 +191,8 @@ function serviceRunsOnDay(serviceId, day) {
 
 // --- Trips for selected day + direction ---
 const dayTrips = computed(() => {
-  if (!activeTrips.value.length) return [];
-  return activeTrips.value.filter((trip) =>
+  if (!activeTripsForDate.value.length) return [];
+  return activeTripsForDate.value.filter((trip) =>
     trip.direction_id === selectedDirection.value &&
     serviceRunsOnDay(trip.service_id, selectedDay.value)
   );
@@ -220,7 +277,7 @@ const timetableLoading = computed(
  */
 function shortenStopName(name) {
   if (typeof name !== 'string' || !name) return name;
-  const replacements = [
+  const replacements = /** @type {Array<[RegExp, string]>} */ ([
     [/\bAvenue\b/g, 'Av'],
     [/\bStreet\b/g, 'St'],
     [/\bBoulevard\b/g, 'Blvd'],
@@ -236,8 +293,12 @@ function shortenStopName(name) {
     [/\bNortheast\b/g, 'NE'],
     [/\bSouthwest\b/g, 'SW'],
     [/\bSoutheast\b/g, 'SE'],
-  ];
-  return replacements.reduce((result, [pattern, replacement]) => result.replace(pattern, /** @type {string} */ (replacement)), name);
+  ]);
+  let result = name;
+  for (const [pattern, replacement] of replacements) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
 }
 
 /** Returns true if a raw HH:MM:SS time string is PM (hour >= 12)
@@ -368,6 +429,19 @@ function cellIsPM(tripId, stopId) {
       </div>
 
       <template v-else-if="activeTrips.length > 0">
+        <!-- Effective date selector -->
+        <div class="mb-3" v-if="effectiveDateOptions.length > 1">
+          <v-select
+            v-model="selectedEffectiveDate"
+            :items="effectiveDateOptions"
+            label="Route Effective Date"
+            density="compact"
+            variant="outlined"
+            hide-details
+            style="max-width: 240px"
+          />
+        </div>
+
         <!-- Direction selector -->
         <v-btn-toggle
           v-model="selectedDirection"
