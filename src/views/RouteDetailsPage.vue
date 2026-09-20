@@ -354,10 +354,10 @@ function cellIsPM(tripId, stopId) {
     </div>
 
     <template v-else>
-      <h1 class="text-h4 mb-1">
+      <h1 class="text-headline-large mb-1">
         Route {{ route.route_short_name || route.route_id }}
       </h1>
-      <p class="text-subtitle-1 text-medium-emphasis mb-6">
+      <p class="text-body-large text-medium-emphasis mb-6">
         {{ route.route_long_name }}
       </p>
 
@@ -365,10 +365,10 @@ function cellIsPM(tripId, stopId) {
         <v-col cols="12" sm="4">
           <v-card variant="tonal" color="primary">
             <v-card-text>
-              <div class="text-overline">
+              <div class="text-label-medium">
                 Route ID
               </div>
-              <div class="text-h6">
+              <div class="text-title-large">
                 {{ route.route_id }}
               </div>
             </v-card-text>
@@ -377,10 +377,10 @@ function cellIsPM(tripId, stopId) {
         <v-col cols="12" sm="4">
           <v-card variant="tonal" color="secondary">
             <v-card-text>
-              <div class="text-overline">
+              <div class="text-label-medium">
                 Type
               </div>
-              <div class="text-h6">
+              <div class="text-title-large">
                 {{ route.route_type_descr || route.route_type }}
               </div>
             </v-card-text>
@@ -389,10 +389,10 @@ function cellIsPM(tripId, stopId) {
         <v-col cols="12" sm="4">
           <v-card variant="tonal" color="success">
             <v-card-text>
-              <div class="text-overline">
+              <div class="text-label-medium">
                 Active Buses
               </div>
-              <div class="text-h6">
+              <div class="text-title-large">
                 {{ activeBuses.length }}
               </div>
             </v-card-text>
@@ -401,7 +401,7 @@ function cellIsPM(tripId, stopId) {
       </v-row>
 
       <!-- Active Buses -->
-      <h2 class="text-h5 mt-8 mb-3">
+      <h2 class="text-headline-small mt-8 mb-3">
         Active Buses
       </h2>
       <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
@@ -420,7 +420,7 @@ function cellIsPM(tripId, stopId) {
       </div>
 
       <!-- Timetable -->
-      <h2 class="text-h5 mt-8 mb-4">
+      <h2 class="text-headline-small mt-8 mb-4">
         Timetable
       </h2>
 
@@ -527,7 +527,7 @@ function cellIsPM(tripId, stopId) {
               </tr>
             </tbody>
           </table>
-          <p class="text-caption mt-3">
+          <p class="text-body-small mt-3">
             <strong>Bold</strong> times are P.M.
           </p>
         </div>

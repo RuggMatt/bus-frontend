@@ -60,8 +60,6 @@
 import { getElectricBuses } from '../api';
 import MapOnly from './MapOnly.vue';
 
-/* globals google */
-let map;
 const REFRESH_INTERVAL = 60000; // 1 minute
 // import goTo from 'vuetify/es5/services';
 export default {
@@ -126,42 +124,6 @@ export default {
         );
       });
       this.locating = false;
-    }, 
-    updateMarkers(buses) {
-      // mark each marker as not updated
-      Object.keys(this.markers).forEach(
-        (key) => (this.markers[key].updated = false)
-      );
-      // update each marker that exists
-      buses.forEach(({ lat, long: lng, bus }) => {
-        if (this.active == bus) {
-          map.setCenter({ lat, lng });
-        }
-        let marker = this.markers[bus];
-        if (marker) {
-          marker.setPosition({ lat, lng });
-          marker.updated = true;
-        } else {
-          marker = new google.maps.Marker({
-            position: { lat, lng },
-            map,
-          });
-          marker.bus = bus;
-          marker.addListener('click', () => {
-            this.active = bus
-          });
-          marker.updated = true;
-          this.markers[bus] = marker;
-        }
-      });
-      // remove the markers that were not updated
-      Object.keys(this.markers).forEach((key) => {
-        let marker = this.markers[key];
-        if (!marker.updated) {
-          marker.setMap(null);
-          delete this.markers[key];
-        }
-      });
     }, 
     async refresh() {
       this.loading = true;

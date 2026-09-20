@@ -33,7 +33,7 @@ const filteredRoutes = computed(() => {
   <v-container>
     <v-row>
       <v-col cols="12">
-        <h1 class="text-h4 mb-4">
+        <h1 class="text-headline-large mb-4">
           Bus Routes
         </h1>
         <v-text-field
