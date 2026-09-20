@@ -1,6 +1,5 @@
 <script setup>
-import 'leaflet/dist/leaflet';
-import 'leaflet';
+import L from '../plugins/leaflet';
 import '../plugins/AnimatedMarker';
 import electric from '../assets/elec.png'
 import logo from '../assets/bus.png'

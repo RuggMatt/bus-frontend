@@ -1,6 +1,5 @@
 <script setup>
-import 'leaflet/dist/leaflet';
-import 'leaflet';
+import L from '../plugins/leaflet';
 import '../plugins/AnimatedMarker';
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import logo from '../assets/bus.png'
