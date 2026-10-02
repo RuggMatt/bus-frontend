@@ -447,3 +447,29 @@ export const getStopTimesByTripIds = async (tripIds) => {
   }
   return [];
 };
+
+/**
+ * @typedef {Object} DiskStats
+ * @property {number} availableBytes
+ * @property {number} totalBytes
+ * @property {number} usedBytes
+ * @property {number} percentFull
+ */
+
+/**
+ * Fetches disk stats from the backend API
+ * @returns {Promise<DiskStats>}
+ */
+export const getDiskStats = async () => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/stats/disk`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};

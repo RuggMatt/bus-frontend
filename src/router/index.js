@@ -57,6 +57,11 @@ const routes = [
     component: () => import("../views/TripDetails.vue"),
     props: true,
   },
+  {
+    path: "/status",
+    name: "Status",
+    component: () => import("../views/StatusPage.vue"),
+  },
 ];
 
 const router = createRouter({
