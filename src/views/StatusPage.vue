@@ -71,11 +71,6 @@ onMounted(async () => {
   top: 50%;
   transform: translate(-50%, -50%);
   font-weight: bold;
-  color: #000;
-  font-size: 16px;
-  text-shadow: 0 0 4px rgba(255, 255, 255, 0.8), 0 0 8px rgba(255, 255, 255, 0.6);
-  pointer-events: none;
-  z-index: 10;
-  white-space: nowrap;
+  color: white
 }
 </style>
