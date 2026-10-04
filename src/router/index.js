@@ -12,11 +12,6 @@ const routes = [
     component: () => import("../views/RoutesPage.vue"),
   },
   {
-    path: "/old",
-    name: "old",
-    component: () => import("../components/HelloWorld.vue"),
-  },
-  {
     path: "/electric",
     name: "Electric Buses",
     component: () => import("../components/ElectricBus.vue"),
