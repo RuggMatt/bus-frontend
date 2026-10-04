@@ -2,8 +2,6 @@
 import L from '../plugins/leaflet';
 import '../plugins/AnimatedMarker';
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
-import logo from '../assets/bus.png'
-import electric from '../assets/elec.png'
 import { useQuery } from '@tanstack/vue-query';
 import { getTrip, getBusStopTimes, getTrips } from '../api';
 import { useStops } from '../composables/useStops';
@@ -14,15 +12,23 @@ const ROUTE_PANE_Z_INDEX = 350;
 
 let interval = null;
 
-const createBusIcon = (iconUrl) => L.divIcon({
-    className: "bus-marker-icon",
-    html: `<div class="bus-icon-wrapper"><img class="bus-icon-image" src="${iconUrl}" /></div>`,
-    iconSize: [30, 30],
-    iconAnchor: [15, 15],
-});
+const BUS_PIN_SHAPE = '<polygon points="18,1.5 11.5,10 24.5,10" /><circle cx="18" cy="18" r="11" />';
 
-const icon = createBusIcon(logo);
-const elec = createBusIcon(electric);
+const isElectric = (bus) => bus.bus >= 8000;
+
+// Pin pointing in the bus's direction of travel, with an upright glyph on top
+const createBusIcon = (bus) => L.divIcon({
+    className: `bus-marker-icon${isElectric(bus) ? " bus-marker-icon--electric" : ""}`,
+    html: `<div class="bus-icon-wrapper">
+        <svg class="bus-icon-pin" viewBox="0 0 36 36" style="transform: rotate(${Number(bus.bearing) || 0}deg)">
+            <g class="bus-icon-outline">${BUS_PIN_SHAPE}</g>
+            <g class="bus-icon-fill">${BUS_PIN_SHAPE}</g>
+        </svg>
+        <i class="bus-icon-glyph mdi ${isElectric(bus) ? "mdi-lightning-bolt" : "mdi-bus"}"></i>
+    </div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+});
 
 /**
  * @type {Record<string, import("../api/index").Bus>}
@@ -89,7 +95,7 @@ const updateBuses = async () => {
             let prev = buses[bus.bus];
             let line = L.polyline([prev.getLatLng(), [bus.lat, bus.long]])
             prev.remove();
-            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon, route_id: bus.route_id}).addTo(map)
+            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(map)
             newMarker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -97,7 +103,7 @@ const updateBuses = async () => {
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
-            let marker = L.marker([bus.lat, bus.long], {title: bus.bus, icon: bus.bus >= 8000 ? elec : icon, route_id: bus.route_id}).addTo(map)
+            let marker = L.marker([bus.lat, bus.long], {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(map)
             marker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -176,6 +182,10 @@ const applyRouteHighlighting = () => {
     for (const marker of Object.values(buses)) {
         marker.setOpacity(1);
         marker.setZIndexOffset(0);
+        marker.getElement()?.classList.toggle(
+            "bus-marker-icon--selected",
+            marker.options.title === selectedBus.value?.bus,
+        );
     }
     if (!selectedRouteId) {
         return;
@@ -306,22 +316,63 @@ onBeforeUnmount(() => {
 :deep(.bus-marker-icon) {
     background: transparent;
     border: 0;
+    --bus-color: #0a6fd8;
+    --bus-outline: #ffffff;
+}
+
+:deep(.bus-marker-icon--electric) {
+    --bus-color: #12924f;
+}
+
+:deep(.bus-marker-icon--selected) {
+    --bus-outline: #111111;
 }
 
 :deep(.bus-icon-wrapper) {
     align-items: center;
-    background: #ffffff;
-    border: 2px solid #000000;
-    border-radius: 9999px;
     display: flex;
-    height: 30px;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+    height: 36px;
     justify-content: center;
-    width: 30px;
+    position: relative;
+    transition: transform 150ms ease;
+    width: 36px;
 }
 
-:deep(.bus-icon-image) {
-    display: block;
-    height: 20px;
-    width: 20px;
+:deep(.bus-marker-icon:hover .bus-icon-wrapper) {
+    transform: scale(1.15);
+}
+
+:deep(.bus-marker-icon--selected .bus-icon-wrapper),
+:deep(.bus-marker-icon--selected:hover .bus-icon-wrapper) {
+    transform: scale(1.3);
+}
+
+:deep(.bus-icon-pin) {
+    height: 100%;
+    inset: 0;
+    position: absolute;
+    width: 100%;
+    /* leaflet's css puts every svg in a pane at z-index 200 */
+    z-index: 0;
+}
+
+:deep(.bus-icon-outline) {
+    fill: var(--bus-outline);
+    stroke: var(--bus-outline);
+    stroke-linejoin: round;
+    stroke-width: 4;
+}
+
+:deep(.bus-icon-fill) {
+    fill: var(--bus-color);
+}
+
+:deep(.bus-icon-glyph) {
+    color: #ffffff;
+    font-size: 14px;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
 }
 </style>
