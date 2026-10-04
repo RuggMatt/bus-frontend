@@ -103,7 +103,7 @@ const updateBuses = async () => {
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
-            let marker = L.marker([bus.lat, bus.long], {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(map)
+            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(map)
             marker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -344,7 +344,7 @@ onBeforeUnmount(() => {
     height: 36px;
     justify-content: center;
     position: relative;
-    transition: transform 150ms ease;
+    transition: transform 150ms ease-in-out;
     width: 36px;
 }
 
