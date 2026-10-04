@@ -1,6 +1,6 @@
 <script setup>
 import NewBusMap from '../components/NewBusMap.vue';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { getTrip } from '../api';
 import { useDisplay } from 'vuetify';
@@ -10,9 +10,15 @@ const showBottomSheet = ref(false);
 /** @type {{bus: number, id: number, heading: number, speed: number}} */
 const bus = ref(null);
 
-const { data: trip } = useQuery({
+const { data: trip, isError } = useQuery({
   queryKey: ['buses', bus],
   queryFn: () => bus.value ? getTrip(bus.value.trip) : []
+})
+
+const showRouteNotFound = ref(false);
+// getTrip resolves to null when the open data API has no matching trip
+watch([trip, isError, bus], () => {
+  showRouteNotFound.value = Boolean(bus.value) && (trip.value === null || isError.value);
 })
 
 const viewBusDetails = (clickedBus) => {
@@ -70,6 +76,10 @@ const viewBusDetails = (clickedBus) => {
         </VCardActions>
       </VCard>
     </VBottomSheet>
+
+    <VSnackbar v-model="showRouteNotFound" location="bottom" :timeout="3000" color="error">
+      Route could not be found
+    </VSnackbar>
   </div>
 </template>
 
