@@ -1,9 +1,9 @@
 L.AnimatedMarker = L.Marker.extend({
     options: {
       // meters
-      distance: 200,
+      distance: 0,
       // ms
-      interval: 1000,
+      interval: 150,
       // animate on add?
       autoStart: true,
       // callback onend
@@ -48,10 +48,36 @@ L.AnimatedMarker = L.Marker.extend({
   
     onAdd: function (map) {
       L.Marker.prototype.onAdd.call(this, map);
-  
+
+      // The transition would otherwise also apply to the zoom repositioning
+      map.on('zoomstart', this._finish, this);
+
       // Start animating when added to the map
       if (this.options.autoStart) {
         this.start();
+      }
+    },
+
+    onRemove: function (map) {
+      map.off('zoomstart', this._finish, this);
+      this.stop();
+      L.Marker.prototype.onRemove.call(this, map);
+    },
+
+    _clearTransition: function() {
+      if (L.DomUtil.TRANSITION) {
+        if (this._icon) { this._icon.style[L.DomUtil.TRANSITION] = ''; }
+        if (this._shadow) { this._shadow.style[L.DomUtil.TRANSITION] = ''; }
+      }
+    },
+
+    // Jump straight to the end of the line
+    _finish: function() {
+      var len = this._latlngs.length;
+      this.stop();
+      if (this._i < len) {
+        this._i = len;
+        this.setLatLng(this._latlngs[len - 1]);
       }
     },
   
@@ -78,6 +104,7 @@ L.AnimatedMarker = L.Marker.extend({
       // Queue up the animation to the next next vertex
       this._tid = setTimeout(function(){
         if (self._i === len) {
+          self._clearTransition();
           self.options.onEnd.apply(self, Array.prototype.slice.call(arguments));
         } else {
           self.animate();
@@ -95,6 +122,7 @@ L.AnimatedMarker = L.Marker.extend({
       if (this._tid) {
         clearTimeout(this._tid);
       }
+      this._clearTransition();
     },
   
     setLine: function(latlngs){
