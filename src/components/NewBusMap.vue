@@ -177,16 +177,25 @@ const getClosestRoutePoint = (lat, lon) => {
     return nearestPoint;
 }
 
-const applyRouteHighlighting = () => {
-    const selectedRouteId = selectedBus.value ? trip.value?.route_id : null;
+const applySelectedStyling = () => {
     for (const marker of Object.values(buses)) {
-        marker.setOpacity(1);
-        marker.setZIndexOffset(0);
         marker.getElement()?.classList.toggle(
             "bus-marker-icon--selected",
             marker.options.title === selectedBus.value?.bus,
         );
     }
+}
+
+// the trip watcher doesn't fire when the trip lookup fails or returns the same value
+watch(selectedBus, applySelectedStyling);
+
+const applyRouteHighlighting = () => {
+    const selectedRouteId = selectedBus.value ? trip.value?.route_id : null;
+    for (const marker of Object.values(buses)) {
+        marker.setOpacity(1);
+        marker.setZIndexOffset(0);
+    }
+    applySelectedStyling();
     if (!selectedRouteId) {
         return;
     }
