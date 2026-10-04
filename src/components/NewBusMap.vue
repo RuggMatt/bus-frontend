@@ -326,21 +326,22 @@ onBeforeUnmount(() => {
     background: transparent;
     border: 0;
     --bus-color: #0a6fd8;
-    --bus-outline: #ffffff;
+    --bus-outline: #0b2f5c;
 }
 
 :deep(.bus-marker-icon--electric) {
     --bus-color: #12924f;
+    --bus-outline: #0a4526;
 }
 
 :deep(.bus-marker-icon--selected) {
-    --bus-outline: #111111;
+    --bus-outline: #0a1a2f;
+    --bus-outline-width: 6;
 }
 
 :deep(.bus-icon-wrapper) {
     align-items: center;
     display: flex;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
     height: 36px;
     justify-content: center;
     position: relative;
@@ -360,6 +361,7 @@ onBeforeUnmount(() => {
 :deep(.bus-icon-pin) {
     height: 100%;
     inset: 0;
+    overflow: visible;
     position: absolute;
     width: 100%;
     /* leaflet's css puts every svg in a pane at z-index 200 */
@@ -370,7 +372,7 @@ onBeforeUnmount(() => {
     fill: var(--bus-outline);
     stroke: var(--bus-outline);
     stroke-linejoin: round;
-    stroke-width: 4;
+    stroke-width: var(--bus-outline-width, 4);
 }
 
 :deep(.bus-icon-fill) {
