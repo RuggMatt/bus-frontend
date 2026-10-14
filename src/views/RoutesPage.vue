@@ -52,7 +52,7 @@ const filteredRoutes = computed(() => {
                   <RouteBadge :route-id="route.route_id" size="small" class="mr-2" />{{ route.route_long_name }}
                 </v-list-item-title>
                 <v-list-item-subtitle>
-                  <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/trips/${bus.trip}`">
+                  <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/buses/${encodeURIComponent(bus.bus)}`">
                     <v-chip class="ma-1" color="primary" text-color="white" small>
                       {{ bus.bus }}
                     </v-chip>

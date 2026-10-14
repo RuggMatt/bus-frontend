@@ -1,6 +1,6 @@
 <script setup>
 import L from '../plugins/leaflet';
-import { createBusIcon } from '../plugins/busIcon';
+import { createBusIcon, refreshReportAges } from '../plugins/busIcon';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -35,6 +35,16 @@ const props = defineProps({
         type: [String, Number],
         default: null,
     },
+    // label bus pins with how old their positions are
+    showAge: {
+        type: Boolean,
+        default: false,
+    },
+    // keep the map centred on the first bus instead of fitting the stops
+    followBus: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const STOP_STYLE = {
@@ -51,6 +61,8 @@ const PATH_STYLE = {
 };
 // under the stops and buses
 const PATH_PANE_Z_INDEX = 350;
+// close enough to see which street the bus is on
+const FOLLOW_ZOOM = 16;
 
 const router = useRouter();
 const mapElement = ref(null);
@@ -63,9 +75,12 @@ let busLayer = null;
 /** @type {Map<number | string, {marker: import('leaflet').Marker, bus: import('../api').Bus}>} */
 const busMarkers = new Map();
 let fitted = false;
+/** @type {[number, number] | null} where the map last centred on the followed bus */
+let followed = null;
+let reportAgeInterval = null;
 
 const fit = () => {
-    if (fitted || !props.stops.length) {
+    if (props.followBus || fitted || !props.stops.length) {
         return;
     }
     const points = [
@@ -118,17 +133,22 @@ const drawBuses = () => {
         if (!entry) {
             const marker = L.marker([bus.lat, bus.long], {
                 title: `Bus ${bus.bus}`,
-                // no age badges, as a route's worth of them clutters the map
-                icon: createBusIcon(bus),
+                // no age badges by default, as a route's worth of them clutters the map
+                icon: createBusIcon(bus, { showAge: props.showAge }),
             }).addTo(busLayer);
             entry = { marker, bus };
             const created = entry;
-            marker.on("click", () => router.push(`/trips/${created.bus.trip}`));
+            marker.on("click", () => {
+                // a bus out of service has no trip to open
+                if (created.bus.trip) {
+                    router.push(`/trips/${created.bus.trip}`);
+                }
+            });
             busMarkers.set(bus.bus, entry);
         } else {
             entry.marker.setLatLng([bus.lat, bus.long]);
             // picks up the new bearing
-            entry.marker.setIcon(createBusIcon(bus));
+            entry.marker.setIcon(createBusIcon(bus, { showAge: props.showAge }));
         }
         entry.bus = bus;
     }
@@ -138,6 +158,26 @@ const drawBuses = () => {
             busMarkers.delete(id);
         }
     }
+    follow();
+}
+
+const follow = () => {
+    const bus = props.buses[0];
+    if (!props.followBus || !bus) {
+        return;
+    }
+    const position = /** @type {[number, number]} */ ([Number(bus.lat), Number(bus.long)]);
+    if (!position.every(Number.isFinite)) {
+        return;
+    }
+    if (!followed) {
+        map.setView(position, FOLLOW_ZOOM);
+    } else if (followed[0] !== position[0] || followed[1] !== position[1]) {
+        map.flyTo(position, FOLLOW_ZOOM, {
+            animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        });
+    }
+    followed = position;
 }
 
 const createMap = () => {
@@ -176,9 +216,13 @@ onMounted(() => {
     drawPaths();
     drawStops();
     drawBuses();
+    if (props.showAge) {
+        reportAgeInterval = setInterval(() => refreshReportAges(mapElement.value), 1000);
+    }
 })
 
 onBeforeUnmount(() => {
+    clearInterval(reportAgeInterval);
     busMarkers.clear();
     map?.remove();
     map = null;

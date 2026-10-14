@@ -129,7 +129,7 @@ const moreSections = navSections
 // by path, so detail pages light up their section's tab (trips belong to routes)
 const activeTab = computed(() => {
   const path = route.path;
-  if (path === '/') return 'buses';
+  if (path === '/' || path.startsWith('/buses/')) return 'buses';
   if (path.startsWith('/stops')) return 'stops';
   if (path.startsWith('/routes') || path.startsWith('/trips')) return 'routes';
   return 'more';

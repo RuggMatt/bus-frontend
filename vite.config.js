@@ -14,7 +14,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-        "^/bus": {
+        // not /buses, which is the app's bus page
+        "^/bus(/|\\.db$)": {
             target: "https://bus.mattschlosser.me/",
             secure: false
         }

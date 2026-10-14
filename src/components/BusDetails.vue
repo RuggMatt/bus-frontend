@@ -6,6 +6,7 @@ import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import { routeNumber } from '../utils/routes';
 import { transitionLinkClick } from '../utils/viewTransition';
 import RouteBadge from './RouteBadge.vue';
+import BusLink from './BusLink.vue';
 
 const props = defineProps({
   /** @type {import('vue').PropType<import('../api').Bus>} */
@@ -82,7 +83,7 @@ const openRoute = (event) => {
             {{ trip.trip_headsign }}
           </div>
           <div class="text-medium-emphasis">
-            <span :style="transitionName(`bus-${bus.bus}`)">Bus {{ bus.bus }}</span>
+            <BusLink :bus="bus.bus" :style="transitionName(`bus-${bus.bus}`)" />
             · {{ Math.round(bus.speed * 3.6) }} km/h
           </div>
         </div>

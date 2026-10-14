@@ -137,6 +137,65 @@ export const getRecentTripData = async (tripId) => {
 };
 
 /**
+ * @typedef {Object} BusInfo
+ * @property {number|string} bus
+ * @property {Bus} latest The bus's most recent recorded position
+ * @property {number} firstSeen Unix epoch seconds
+ * @property {number} lastSeen Unix epoch seconds
+ * @property {boolean} active Whether the bus has reported in the last 2 minutes
+ */
+
+/**
+ * Fetches a single bus, with its most recent position. A bus that has never been
+ * seen throws an error with status 404.
+ * @param {string|number} busId
+ * @returns {Promise<BusInfo>}
+ */
+export const getBus = async (busId) => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/${encodeURIComponent(busId)}`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Object.assign(Error(result.status), { status: result.status });
+};
+
+/**
+ * @typedef {Object} TripSummary
+ * @property {number|string|null} trip Empty or null while the bus wasn't on a trip
+ * @property {number} start First position on the trip, Unix epoch seconds
+ * @property {number} end Last position on the trip, Unix epoch seconds
+ * @property {number} points
+ * @property {number|null} avgSpeed m/s
+ * @property {number|null} maxSpeed m/s
+ */
+
+/**
+ * Fetches the trips a bus has run recently, newest first. A trip is split when the
+ * bus goes 30 minutes without reporting, and shows once per day it was run.
+ * @param {string|number} busId
+ * @param {{hours?: number, limit?: number}} [options] hours back, up to 168
+ * @returns {Promise<TripSummary[]>}
+ */
+export const getBusRecentTrips = async (busId, { hours = 168, limit = 50 } = {}) => {
+  const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/${encodeURIComponent(busId)}/recent-trips?${params}`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Error(result.status);
+};
+
+/**
  * Fetches hourly hydrogen bus stats from the backend API
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */
@@ -333,6 +392,33 @@ export const getTrips = async (tripIds) => {
       },
     },
   );
+  if (result.ok) {
+    return result.json();
+  }
+  throw Error(result.status);
+};
+
+/**
+ * Fetches the route and headsign of several trips, without their shapes. Trips the
+ * feed doesn't know are left out.
+ * @param {string[]} tripIds
+ * @returns {Promise<Array<Pick<Trip, "trip_id" | "route_id" | "trip_headsign" | "direction_id">>>}
+ */
+export const getTripSummaries = async (tripIds) => {
+  if (!tripIds.length) return [];
+  // Escape single quotes to prevent SoQL injection
+  const idList = tripIds.map((tripId) => `'${String(tripId).replace(/'/g, "''")}'`).join(",");
+  const params = new URLSearchParams({
+    $select: "trip_id,route_id,trip_headsign,direction_id",
+    $where: `trip_id IN (${idList})`,
+    $limit: "1000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/ctwr-tvrd.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
   if (result.ok) {
     return result.json();
   }

@@ -31,7 +31,7 @@
           <template v-for="bus in electricBuses" :key="bus.bus">
             <v-list-item :id="active == bus.bus ? 'active' : null" :value="bus.bus" dark @click="listClickHandler(bus)">
               <v-list-item-title>
-                <b>{{ bus.route?.trip_headsign }} - {{ bus.bus }}</b>
+                <b>{{ bus.route?.trip_headsign }} - <BusLink :bus="bus.bus" /></b>
               </v-list-item-title>
               <v-list-item-action>
                 <span style="font-size: 2em;">{{ Number(bus.dist/0.005).toFixed(0) }} min.</span>
@@ -59,12 +59,14 @@
 // import { marker } from 'leaflet';
 import { getElectricBuses } from '../api';
 import MapOnly from './MapOnly.vue';
+import BusLink from './BusLink.vue';
 
 const REFRESH_INTERVAL = 60000; // 1 minute
 // import goTo from 'vuetify/es5/services';
 export default {
   components: {
     MapOnly,
+    BusLink,
   },
   data() {
     return {
