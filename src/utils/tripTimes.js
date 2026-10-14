@@ -66,3 +66,17 @@ export const formatTripTimes = (start, end, { ongoing = false } = {}) => {
   const to = formatClockTime(end);
   return from === to ? from : `${from} – ${to}`;
 };
+
+/**
+ * How long a bus was seen on a trip, e.g. "43 min" or "1 h 5 min"
+ * @param {number} start Unix epoch seconds
+ * @param {number} end Unix epoch seconds
+ * @returns {string}
+ */
+export const formatTripDuration = (start, end) => {
+  const minutes = Math.round(Math.max(0, end - start) / 60);
+  if (minutes < 1) return "Under a minute";
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${minutes / 60} h`;
+};

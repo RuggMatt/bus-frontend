@@ -207,6 +207,19 @@ const createMap = () => {
 watch(() => props.fitKey, () => {
     fitted = false;
 });
+// switching between following the bus and showing a whole trip
+watch(() => props.followBus, (following) => {
+    if (!map) {
+        return;
+    }
+    if (following) {
+        followed = null;
+        follow();
+    } else {
+        fitted = false;
+        fit();
+    }
+});
 watch(() => props.stops, drawStops);
 watch(() => props.paths, drawPaths);
 watch(() => props.buses, drawBuses);

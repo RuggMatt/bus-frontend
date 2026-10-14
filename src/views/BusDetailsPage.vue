@@ -8,7 +8,7 @@ import { useStops } from '../composables/useStops';
 import { tripPath } from '../composables/useStopArrivals';
 import { nextBusRefreshDelay } from '../utils/busRefresh';
 import { formatReportAge, reportAgeLevel } from '../utils/reportAge';
-import { formatTripTimes, tripDayLabel } from '../utils/tripTimes';
+import { formatTripDuration, formatTripTimes, tripDayLabel } from '../utils/tripTimes';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 
@@ -51,6 +51,10 @@ watch(() => busInfo.value?.lastSeen, (lastSeen, previous) => {
 /** @param {import('../api').TripSummary['trip']} trip */
 const hasTrip = (trip) => trip !== null && trip !== undefined && trip !== '';
 
+// a trip id can appear once per day, so rows are told apart by when they started too
+/** @param {import('../api').TripSummary} summary */
+const rowKey = (summary) => `${summary.trip ?? ''}-${summary.start}`;
+
 const tripIds = computed(() =>
     [...new Set((recentTrips.value ?? []).filter((summary) => hasTrip(summary.trip)).map((summary) => String(summary.trip)))].sort(),
 );
@@ -77,23 +81,39 @@ const currentTripId = computed(() => {
     return hasTrip(lastTrip) ? String(lastTrip) : null;
 });
 
+// the expanded row, by key, so it stays open through refreshes
+/** @type {import('vue').Ref<string | null>} */
+const selectedKey = ref(null);
+
+/** @param {string} key */
+const toggleRow = (key) => {
+    selectedKey.value = selectedKey.value === key ? null : key;
+};
+
+// a selected trip takes over the map from the bus's own trip
+const selectedTripId = computed(() => {
+    const trip = recentTrips.value?.find((summary) => rowKey(summary) === selectedKey.value)?.trip;
+    return hasTrip(trip) ? String(trip) : null;
+});
+const mapTripId = computed(() => selectedTripId.value ?? currentTripId.value);
+
 // same queries as the other pages, so they share their cache
-const { data: currentTrip } = useQuery({
-    queryKey: computed(() => ['trip-shape', currentTripId.value]),
-    queryFn: () => getTrip(currentTripId.value),
-    enabled: () => !!currentTripId.value,
+const { data: mapTrip } = useQuery({
+    queryKey: computed(() => ['trip-shape', mapTripId.value]),
+    queryFn: () => getTrip(mapTripId.value),
+    enabled: () => !!mapTripId.value,
     staleTime: Infinity,
 });
 
-const { data: currentStopTimes } = useQuery({
-    queryKey: computed(() => ['trip-stop-times', currentTripId.value]),
-    queryFn: () => getBusStopTimes(/** @type {string} */ (currentTripId.value)),
-    enabled: () => !!currentTripId.value,
+const { data: mapStopTimes } = useQuery({
+    queryKey: computed(() => ['trip-stop-times', mapTripId.value]),
+    queryFn: () => getBusStopTimes(/** @type {string} */ (mapTripId.value)),
+    enabled: () => !!mapTripId.value,
     staleTime: Infinity,
 });
 
 const mapStops = computed(() =>
-    (currentStopTimes.value ?? []).flatMap((stopTime) => {
+    (mapStopTimes.value ?? []).flatMap((stopTime) => {
         const stop = keyedStops.value?.[stopTime.stop_id];
         const lat = Number(stop?.stop_lat);
         const lon = Number(stop?.stop_lon);
@@ -103,7 +123,7 @@ const mapStops = computed(() =>
 );
 
 const mapPaths = computed(() => {
-    const path = tripPath(currentTrip.value);
+    const path = tripPath(mapTrip.value);
     return path.length ? [path] : [];
 });
 
@@ -144,8 +164,16 @@ const trackedSince = computed(() =>
  * @property {string | null} tripId null while the bus was out of service
  * @property {{route_id: string, trip_headsign: string} | null} trip null until loaded, or if the feed doesn't know it
  * @property {string} times
+ * @property {string} duration
+ * @property {number} points
+ * @property {number | null} avgSpeed km/h
+ * @property {number | null} maxSpeed km/h
  * @property {boolean} ongoing
  */
+
+/** @param {number | null} metresPerSecond */
+const toKmh = (metresPerSecond) =>
+    metresPerSecond === null || metresPerSecond === undefined ? null : Math.round(metresPerSecond * 3.6);
 
 /** @type {import('vue').ComputedRef<{label: string, rows: TripRow[]}[]>} */
 const tripDays = computed(() => {
@@ -162,10 +190,14 @@ const tripDays = computed(() => {
             days.push(day);
         }
         day.rows.push({
-            key: `${tripId}-${summary.start}`,
+            key: rowKey(summary),
             tripId,
             trip: tripId ? tripsById.value.get(tripId) ?? null : null,
             times: formatTripTimes(summary.start, summary.end, { ongoing }),
+            duration: formatTripDuration(summary.start, summary.end),
+            points: summary.points,
+            avgSpeed: toKmh(summary.avgSpeed),
+            maxSpeed: toKmh(summary.maxSpeed),
             ongoing,
         });
     });
@@ -210,8 +242,9 @@ const tripDays = computed(() => {
         :stops="mapStops"
         :buses="mapBuses"
         :paths="mapPaths"
+        :follow-bus="!selectedTripId"
+        :fit-key="selectedTripId"
         show-age
-        follow-bus
         class="bus-map mt-3"
       />
 
@@ -234,11 +267,16 @@ const tripDays = computed(() => {
         <v-card variant="outlined">
           <template v-for="(row, index) in day.rows" :key="row.key">
             <v-divider v-if="index > 0" />
-            <component
-              :is="row.tripId ? 'router-link' : 'div'"
-              :to="row.tripId ? `/trips/${encodeURIComponent(row.tripId)}` : undefined"
+            <div
+              v-ripple
               class="trip-row d-flex align-center pa-3"
-              :class="{ 'trip-row--link': row.tripId, 'trip-row--current': row.ongoing }"
+              :class="{ 'trip-row--expanded': selectedKey === row.key }"
+              role="button"
+              tabindex="0"
+              :aria-expanded="selectedKey === row.key"
+              @click="toggleRow(row.key)"
+              @keydown.enter.prevent="toggleRow(row.key)"
+              @keydown.space.prevent="toggleRow(row.key)"
             >
               <div class="flex-grow-1 min-width-0">
                 <template v-if="!row.tripId">
@@ -273,8 +311,38 @@ const tripDays = computed(() => {
                   Now
                 </v-chip>
               </div>
-              <v-icon v-if="row.tripId" icon="mdi-chevron-right" class="ml-1 text-medium-emphasis" />
-            </component>
+            </div>
+            <v-expand-transition>
+              <div v-if="selectedKey === row.key" class="trip-details text-body-medium px-3 pb-3">
+                <div>
+                  <v-icon icon="mdi-timer-outline" size="small" class="mr-1" />
+                  {{ row.duration }}{{ row.ongoing ? ' so far' : '' }}
+                </div>
+                <div v-if="row.avgSpeed !== null">
+                  <v-icon icon="mdi-speedometer" size="small" class="mr-1" />
+                  Average {{ row.avgSpeed }} km/h<template v-if="row.maxSpeed !== null">
+                    &middot; top {{ row.maxSpeed }} km/h
+                  </template>
+                </div>
+                <div>
+                  <v-icon icon="mdi-map-marker-path" size="small" class="mr-1" />
+                  {{ row.points }} {{ row.points === 1 ? 'position' : 'positions' }} recorded
+                </div>
+                <div v-if="row.tripId" class="text-body-small text-medium-emphasis">
+                  Trip {{ row.tripId }}
+                </div>
+                <v-btn
+                  v-if="row.tripId"
+                  :to="`/trips/${encodeURIComponent(row.tripId)}`"
+                  block
+                  variant="tonal"
+                  color="primary"
+                  class="mt-3"
+                >
+                  View trip
+                </v-btn>
+              </div>
+            </v-expand-transition>
           </template>
         </v-card>
       </template>
@@ -292,16 +360,31 @@ const tripDays = computed(() => {
 }
 
 .trip-row {
-    color: inherit;
-    text-decoration: none;
+    cursor: pointer;
 }
 
-.trip-row--link:hover {
+.trip-row:hover {
     background: rgba(var(--v-theme-on-surface), 0.04);
 }
 
-.trip-row--current {
+.trip-row--expanded,
+.trip-row--expanded:hover {
     background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.trip-details {
+    background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.trip-details > div:not(:last-child) {
+    margin-bottom: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .expand-transition-enter-active,
+    .expand-transition-leave-active {
+        transition: none !important;
+    }
 }
 
 .trip-loader {
