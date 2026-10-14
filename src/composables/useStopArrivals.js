@@ -1,10 +1,10 @@
 import { useQueries, useQuery } from "@tanstack/vue-query";
 import { computed, ref } from "vue";
-import { getAllBuses, getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
+import { getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
 import { alongRouteMetres, distanceMetres } from "../utils/geo";
 import { edmontonNow, scheduledSecondsNear, scheduleWindow, secondsToTime } from "../utils/serviceTime";
 import { nextArrivalByRoute } from "../utils/nextArrival";
-import { nextBusRefreshDelay } from "../utils/busRefresh";
+import { liveBusesQuery } from "./useBuses";
 
 // how far either side of now a trip can be scheduled and still be matched to a live bus
 const LIVE_WINDOW_SECONDS = 2 * 60 * 60;
@@ -75,11 +75,8 @@ export const useStopArrivals = (stop, at = ref(null)) => {
     isLoading: busesLoading,
     isError: busesError,
   } = useQuery({
-    queryKey: ["buses-live"],
-    queryFn: getAllBuses,
+    ...liveBusesQuery,
     enabled: () => !!stopId.value && isLive.value,
-    // timed for when the backend's next snapshot should be ready
-    refetchInterval: (query) => nextBusRefreshDelay(query.state.data),
   });
 
   const now = computed(() => edmontonNow(new Date(dataUpdatedAt.value || Date.now())));

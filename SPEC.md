@@ -6,7 +6,7 @@ This is a reference for how the app works and why. It covers the pages, data sou
 
 - Vue 3 (`<script setup>`, JS with JSDoc types and `// @ts-check` in places), Vite 8, Vuetify 4, Vue Router 5
 - TanStack Vue Query for all fetching and caching
-- Leaflet maps with Mapbox tiles
+- Leaflet maps with Mapbox tiles. Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`
 - Vitest for unit tests, in `tests/`
 - ESLint with `eslint-plugin-vue`. The pre-commit hook runs `npm run lint`
 
@@ -33,6 +33,12 @@ Environment, from `.env` (see `.env.example`):
 | `/bus/stats/{electric,hydrogen}/{hourly,daily}`, `/bus/stats/disk` | Stats and status pages |
 
 `/bus/now` is a snapshot the backend takes about every 60 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
+
+Only read `/bus/now` through `src/composables/useBuses.js`:
+- `useLiveBuses()` / `liveBusesQuery` gives the raw snapshot.
+- `useBuses()` gives the snapshot with `route_id` on each bus.
+
+Both use `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So every page shares one cached snapshot, and there's at most one request per backend snapshot. `['buses']` is built from `['buses-live']`, and returns copies so the shared snapshot isn't changed. Trip→route ids are cached for the session, so each refresh only looks up trips it hasn't seen before.
 
 ### City of Edmonton open data (SODA, `data.edmonton.ca/resource/<id>.json`)
 
@@ -65,8 +71,8 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | Key | Data |
 | --- | --- |
 | `['routes']` | All routes |
-| `['buses']` | `/bus/now` with `route_id` assigned. Slow, as it looks up every trip |
-| `['buses-live']` | Raw `/bus/now` |
+| `['buses']` | `/bus/now` with `route_id` assigned (`useBuses`). The first load is slow, as it looks up every trip |
+| `['buses-live']` | Raw `/bus/now` (`useLiveBuses`, `liveBusesQuery`) |
 | `['trip-shape', tripId]` | `getTrip`, `staleTime: Infinity` |
 | `['trip-stop-times', tripId]` | `getBusStopTimes`, `staleTime: Infinity` |
 | `['stop-routes', stopId]` | Every route serving a stop, `staleTime: Infinity` |
@@ -79,7 +85,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - On mobile, the nav drawer slides in and out. On desktop it stays open and the menu button collapses it to icons (a rail), with tooltips while railed.
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
-- Live buses are shown as directional pin markers (`src/plugins/busIcon.js`).
+- Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away.
 - Tapping a bus highlights its route and opens `BusDetails.vue`. On desktop that's a left panel, on mobile a bottom sheet.
 - **BusDetails** shows:
   - a route header: the badge, route name and a chevron to `/routes/:id`
