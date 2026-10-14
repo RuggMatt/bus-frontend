@@ -122,7 +122,8 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
 - An Active Buses chip list, linking to trips.
-- A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time links to `/trips/:id`, and each stop name links to `/stops/:id`.
+- A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
+- The timetable's header row and stop column are sticky. The table sits in a box that scrolls both ways, with its height capped at `100dvh - var(--v-layout-top) - 32px`. That's needed because a box that scrolls sideways is what sticky cells measure against, so the header can't stick to the page itself. Because the box is capped and comes last on the page, its header can never sit under the app bar. The table uses separate borders, because collapsed borders don't move with sticky cells.
 - There are no summary cards. The route id, the type (always bus) and the active-bus count were redundant and were removed.
 
 ### Trip details (`/trips/:tripId`, `TripDetails.vue`)
