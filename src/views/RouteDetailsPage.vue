@@ -6,6 +6,8 @@ import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
 import RouteBadge from '../components/RouteBadge.vue';
+import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
+import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -248,6 +250,24 @@ const timetableTrips = computed(() => {
     }));
 });
 
+/** @type {import('vue').Ref<HTMLElement | null>} */
+const timetableHead = ref(null);
+/** @type {import('vue').Ref<HTMLTableElement | null>} */
+const timetableHeadTable = ref(null);
+/** @type {import('vue').Ref<HTMLElement | null>} */
+const timetableBox = ref(null);
+/** @type {import('vue').Ref<HTMLTableElement | null>} */
+const timetableTable = ref(null);
+const { headHeight: timetableHeadHeight, sizeColumns } = useStickyTableHeader({
+  head: timetableHead,
+  headTable: timetableHeadTable,
+  box: timetableBox,
+  table: timetableTable,
+});
+
+// columns can change width without the table's overall size changing
+watch([timetableTrips, timetableStops], sizeColumns, { flush: 'post' });
+
 const timetableLoading = computed(
   () => tripsLoading.value || activeFeedLoading.value || stopTimesLoading.value
 );
@@ -449,48 +469,45 @@ function openTripCell(event) {
         <p class="text-body-small mb-2">
           <strong>Bold</strong> times are P.M.
         </p>
-        <div class="timetable-scroll">
-          <table class="timetable-table">
-            <thead>
-              <tr>
-                <th class="stop-col">
-                  Stop
-                </th>
-                <th
-                  v-for="trip in timetableTrips"
-                  :key="trip.trip_id"
-                  class="time-col"
-                >
-                  <router-link :to="`/trips/${trip.trip_id}`" class="timetable-link">
-                    <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
-                    <span v-else>{{ trip.headerTime }}</span>
-                  </router-link>
-                </th>
-              </tr>
-            </thead>
-            <tbody @click="openTripCell">
-              <tr v-for="stop in timetableStops" :key="stop.stop_id">
-                <td class="stop-col">
-                  <router-link :to="`/stops/${encodeURIComponent(stop.stop_id)}`" class="timetable-link">
-                    {{ stop.stop_name }}
-                  </router-link>
-                </td>
-                <td
-                  v-for="trip in timetableTrips"
-                  :key="trip.trip_id"
-                  class="time-col"
-                >
-                  <!-- plain links, as a router-link per cell is thousands of components; openTripCell routes them -->
-                  <a :href="`/trips/${trip.trip_id}`" class="timetable-link" data-trip-link>
-                    <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
-                      {{ cellTime(trip.trip_id, stop.stop_id) }}
-                    </strong>
-                    <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
-                  </a>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="timetable">
+          <!-- a copy of the header row that sticks to the page, see useStickyTableHeader -->
+          <div ref="timetableHead" class="timetable-head">
+            <table ref="timetableHeadTable" class="timetable-table">
+              <TimetableHeaderRow :trips="timetableTrips" />
+            </table>
+          </div>
+          <div
+            ref="timetableBox"
+            class="timetable-scroll"
+            :style="{ marginTop: `-${timetableHeadHeight}px` }"
+          >
+            <table ref="timetableTable" class="timetable-table">
+              <!-- the real header keeps the table's layout, hidden under the copy -->
+              <TimetableHeaderRow :trips="timetableTrips" class="timetable-layout-head" />
+              <tbody @click="openTripCell">
+                <tr v-for="stop in timetableStops" :key="stop.stop_id">
+                  <td class="stop-col">
+                    <router-link :to="`/stops/${encodeURIComponent(stop.stop_id)}`" class="timetable-link">
+                      {{ stop.stop_name }}
+                    </router-link>
+                  </td>
+                  <td
+                    v-for="trip in timetableTrips"
+                    :key="trip.trip_id"
+                    class="time-col"
+                  >
+                    <!-- plain links, as a router-link per cell is thousands of components; openTripCell routes them -->
+                    <a :href="`/trips/${trip.trip_id}`" class="timetable-link" data-trip-link>
+                      <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
+                        {{ cellTime(trip.trip_id, stop.stop_id) }}
+                      </strong>
+                      <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
+                    </a>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </template>
     </template>
@@ -507,17 +524,43 @@ function openTripCell(event) {
   display: flex;
   gap: 16px;
 }
+</style>
 
+<!-- unscoped, to reach the header row component; every selector is under .timetable -->
+<style>
 /*
- * A scroll container in both directions, as one that scrolls sideways is also what
- * sticky positioning measures against, so the header can't stick to the page.
- * Capped to the screen below the app bar, and last on the page, so its top (and the
- * header row) can never sit under the app bar.
+ * Scrolls sideways only. That makes it a scroll container in both directions (CSS turns
+ * the other axis's visible into auto), so headers inside it can't stick to the page,
+ * which is why the copy above sticks instead.
  */
 .timetable-scroll {
-  overflow: auto;
+  overflow-x: auto;
   max-width: 100%;
-  max-height: calc(100dvh - var(--v-layout-top, 64px) - 32px);
+}
+
+.timetable-head {
+  background: rgb(var(--v-theme-surface));
+  overflow-x: auto;
+  position: sticky;
+  scrollbar-width: none;
+  top: var(--v-layout-top, 64px);
+  z-index: 2;
+}
+
+.timetable-head::-webkit-scrollbar {
+  display: none;
+}
+
+.timetable-head .timetable-table {
+  table-layout: fixed;
+}
+
+.timetable-head th {
+  box-sizing: border-box;
+}
+
+.timetable-layout-head {
+  visibility: hidden;
 }
 
 /* separate borders, as collapsed ones don't travel with sticky cells */
@@ -550,14 +593,6 @@ function openTripCell(event) {
 .timetable-table thead th {
   background: rgb(var(--v-theme-surface-variant));
   font-weight: 600;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
-/* the corner stays above both the header row and the stop column */
-.timetable-table thead .stop-col {
-  z-index: 3;
 }
 
 /* trip times and stop names link to their pages */
