@@ -349,7 +349,7 @@ const mapPaths = computed(() => {
       <h1>{{ tripData?.trip_headsign }} &mdash; {{ weekdayLabel }}<span v-if="startTime && endTime">, {{ startTime }} &ndash; {{ endTime }}</span></h1>
       <v-btn
         v-if="tripData?.route_id"
-        :to="`/routes/${tripData.route_id}`"
+        :to="{ path: `/routes/${tripData.route_id}`, query: { direction: tripData.direction_id } }"
         variant="tonal"
         color="primary"
         append-icon="mdi-chevron-right"

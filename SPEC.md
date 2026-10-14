@@ -76,7 +76,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['trip-shape', tripId]` | `getTrip`, `staleTime: Infinity` |
 | `['trip-stop-times', tripId]` | `getBusStopTimes`, `staleTime: Infinity` |
 | `['stop-routes', stopId]` | Every route serving a stop, `staleTime: Infinity` |
-| `['route-stops', routeId]` | Every stop a route serves (`getRouteStops`), `staleTime: Infinity` |
+| `['route-direction-stops', routeId, tripIds]` | Stop times for one trip per shape in a direction, `staleTime: Infinity` |
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
 
@@ -128,12 +128,17 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
-- A map (`TransitMap.vue`, see Shared UI):
-  - every stop the route serves, in both directions, from `getRouteStops`. Tapping a stop opens `/stops/:id`
-  - the route's live buses as pins (`createBusIcon`), from `useBuses`. They have no report-age badges, because a route's worth of them clutters the map. Tapping a bus opens its trip
-  - it fits the stops once, when they first load, so later bus refreshes don't undo the user's panning
-- Active Buses, one `RouteBusCard.vue` per bus, sorted by bus number. Like `BusDetails`, each card shows the headsign, "Bus N · X km/h", the On time / late / early chip, the next stop and its scheduled time (all from `useBusTrip`), and a "Trip details" button. Until `useBuses` loads, the cards show the handed-over buses, which have no position, speed or status yet.
-- A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
+- `getTripsByRouteId` loads every trip for the route (1,300 for route 8), without shapes. It used to cap at 500 with shapes, which dropped whole services and came to nearly 10 MB.
+- **The page is split by direction.** A toggle under the heading lists each direction by its most common headsign (`directionLabels` in `src/utils/routes.js`), with a badge for its live bus count. It's hidden for one-direction routes. The map, the Active Buses and the timetable all follow it.
+  - The direction is in the URL as `?direction=`. It's read on load and written back with `router.replace`, so reloads and shared links keep it. An unknown or missing value falls back to the first direction.
+  - The trip page's route button and the main map's bus card (`BusDetails`) pass their trip's `direction_id`. The stop page doesn't, as a stop's route group can have buses going both ways.
+  - Buses are matched to a direction through their trip, using the route's trips. Until those load, the buses are shown unsplit.
+- A map (`TransitMap.vue`, see Shared UI) for the selected direction:
+  - its stops and route lines, from one trip per `shape_id` (`representativeTrips`). The stops come from `getStopTimesByTripIds` on those trips. The lines come from their `['trip-shape', tripId]` queries, shared with the trip page and the bus cards. Tapping a stop opens `/stops/:id`
+  - the direction's live buses as pins (`createBusIcon`), from `useBuses`. They have no report-age badges, because a route's worth of them clutters the map. Tapping a bus opens its trip
+  - it fits once per direction (`fitKey`), so bus refreshes don't undo the user's panning
+- Active Buses, one `RouteBusCard.vue` per bus in the direction, sorted by bus number. Like `BusDetails`, each card shows the headsign, "Bus N · X km/h", the On time / late / early chip, the next stop and its scheduled time (all from `useBusTrip`), and a "Trip details" button. Until `useBuses` loads, the cards show the handed-over buses, which have no position, speed or status yet.
+- A timetable for the selected direction, filtered by effective date (YY-MM in `service_id`) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
 - The timetable's header row sticks to the page just below the app bar, and the stop column sticks to the left. The page scrolls vertically and only the table's box scrolls sideways, so content added below the table scrolls normally.
   - CSS won't let a header inside the box stick to the page. Setting `overflow-x: auto`, `scroll` or `hidden` turns the other axis's `visible` into `auto`. That makes the box a scroll container in both directions, and sticky cells stick to it instead of the page. Only `clip` leaves `overflow-y` alone, but `clip` can't scroll.
   - So `useStickyTableHeader` (`src/composables/`) keeps a copy of the header row (`TimetableHeaderRow.vue`) in a sticky element above the box, at `top: var(--v-layout-top)`. Its columns are sized from the real header, which stays in the table with `visibility: hidden` to keep the layout. The copy's sideways scroll is kept in step with the box in both directions. The box is pulled up under the copy by the copy's height.
