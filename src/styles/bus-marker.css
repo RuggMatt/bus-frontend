@@ -1,0 +1,80 @@
+.bus-marker-icon {
+    background: transparent;
+    border: 0;
+    --bus-color: #0a6fd8;
+    --bus-outline: #0b2f5c;
+}
+
+.bus-marker-icon--electric {
+    --bus-color: #12924f;
+    --bus-outline: #0a4526;
+}
+
+.bus-marker-icon--selected {
+    --bus-outline: #0a1a2f;
+    --bus-outline-width: 6;
+}
+
+.bus-marker-icon .bus-icon-wrapper {
+    align-items: center;
+    display: flex;
+    height: 36px;
+    justify-content: center;
+    position: relative;
+    transition: transform 150ms ease-in-out;
+    width: 36px;
+}
+
+.bus-marker-icon:hover .bus-icon-wrapper {
+    transform: scale(1.15);
+}
+
+.bus-marker-icon--selected .bus-icon-wrapper,
+.bus-marker-icon--selected:hover .bus-icon-wrapper {
+    transform: scale(1.3);
+}
+
+.bus-marker-icon .bus-icon-pin {
+    height: 100%;
+    inset: 0;
+    overflow: visible;
+    position: absolute;
+    width: 100%;
+    /* leaflet's css puts every svg in a pane at z-index 200 */
+    z-index: 0;
+}
+
+.bus-marker-icon .bus-icon-outline {
+    fill: var(--bus-outline);
+    stroke: var(--bus-outline);
+    stroke-linejoin: round;
+    stroke-width: var(--bus-outline-width, 4);
+}
+
+.bus-marker-icon .bus-icon-fill {
+    fill: var(--bus-color);
+}
+
+.bus-marker-icon .bus-icon-glyph {
+    color: #ffffff;
+    font-size: 14px;
+    line-height: 1;
+    position: relative;
+    z-index: 1;
+}
+
+.bus-marker-icon .bus-age-badge {
+    background: rgba(0, 0, 0, 0.75);
+    border-radius: 8px;
+    color: #ffffff;
+    font-size: 10px;
+    left: 50%;
+    line-height: 1;
+    padding: 2px 5px;
+    pointer-events: none;
+    position: absolute;
+    top: calc(100% - 2px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    z-index: 1;
+}
