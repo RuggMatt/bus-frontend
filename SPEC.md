@@ -36,7 +36,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/bus/electric`, `/bus/hydrogen` | Bus finders |
 | `/bus/stats/{electric,hydrogen}/{hourly,daily}`, `/bus/stats/disk` | Stats and status pages |
 | `/bus/:busId` | One bus (bus page): `latest` position, `firstSeen`/`lastSeen` (epoch s), and `active` (reported in the last 2 minutes). 404 if never seen. Bus ids are usually numbers, but not always |
-| `/bus/:busId/recent-trips?hours=&limit=` | A bus's trips, newest first (bus page): `trip`, `start`/`end` (first and last position, epoch s), `points`, `avgSpeed`/`maxSpeed`. `hours` up to 168 (default 24), `limit` up to 200 (default 50). A trip splits after a 30 min gap, so a trip id run on several days appears once per day. Out-of-service stretches have an empty or null `trip` |
+| `/bus/:busId/recent-trips?from=&to=` | A bus's trips, newest first (bus page): `trip`, `start`/`end` (first and last position, epoch s), `points`, `avgSpeed`/`maxSpeed`. Either `from`/`to`, Edmonton days (`YYYY-MM-DD`, inclusive, at most 7 days, `limit` default 1000), or `hours` back (up to 168, default 24, `limit` default 50). `limit` is at most 1000. A trip in a range only includes its positions inside it. A trip splits after a 30 min gap, so a trip id run on several days appears once per day. Out-of-service stretches have an empty or null `trip` |
 | `/bus/:date/:time[/:spread]`, `/bus/stats/speed[/:bus]`, `/bus.db` | Not used yet: positions around an Edmonton time, daily speeds, and the whole SQLite database |
 
 `/bus/now` is a snapshot the backend takes about every 60 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
@@ -96,7 +96,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
 | `['service-dates', routeId, serviceIds]` | Calendar dates for a route's services, `staleTime: Infinity` |
 | `['bus', busId]` | `/bus/:busId` |
-| `['bus-recent-trips', busId]` | `/bus/:busId/recent-trips`, a week back |
+| `['bus-trips-week', busId, weekStart]` | `/bus/:busId/recent-trips` for one Sunday–Saturday week. `staleTime: Infinity` for past weeks |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
 
 ## Pages
@@ -190,10 +190,10 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Reached from any bus id (`BusLink`, see Shared UI).
 - **Heading:** "Bus N", a "Live" chip while `active`, otherwise "Last seen 3h 5m ago" (amber, grey past an hour), an Electric chip for 8000–8999, and "Tracked since" the first sighting.
 - A map (`TransitMap` with `showAge` and `followBus`) of the bus's latest position, with the route line and stops of its current trip, or the last trip it ran if it's out of service (or the expanded trip, see below). It centres on the bus at zoom 16 and flies to it whenever the position changes. The pin's age badge goes amber past 5 minutes, and past an hour the badge and pin go grey.
-- `['bus', busId]` refetches with `nextBusRefreshDelay` while the bus is active, and every 60 s otherwise. Recent trips refetch when `lastSeen` changes.
-- **Recent trips:** the last week (`hours=168`), grouped under Today / Yesterday / "Monday, Oct 12" (`tripDayLabel`, Edmonton days). Each row is a route badge and the headsign without its route number (`headsignWithoutRoute`, so "4 University" reads "University" beside the 4 badge), the route's long name below, and the first-to-last seen times (`formatTripTimes`). The running trip ends in "now" with a Now chip. Trips not in the current feed show "Trip N", and out-of-service stretches show "Not in service".
+- `['bus', busId]` refetches with `nextBusRefreshDelay` while the bus is active, and every 60 s otherwise. The current week's trips refetch when `lastSeen` changes.
+- **Trips** are shown a week at a time, Sunday to Saturday (`src/utils/weeks.js`), picked with `WeekPicker` (see Shared UI). The current week is the default. The week's Sunday is in the URL as `?week=`, read on load and written back with `router.replace`, and left off for the current week. A future or invalid week falls back to the current one. Changing week collapses the expanded row. The trips are fetched with `from`/`to`, newest first, grouped under Today / Yesterday / "Monday, Oct 12" (`tripDayLabel`, Edmonton days). Each row is a route badge and the headsign without its route number (`headsignWithoutRoute`, so "4 University" reads "University" beside the 4 badge), the route's long name below, and the first-to-last seen times (`formatTripTimes`). The running trip ends in "now" with a Now chip (only in the current week). An empty week shows "No trips this week" or "No trips in the week of Oct 4". Trips not in the current feed show "Trip N", and out-of-service stretches show "Not in service".
   - The rows are in outlined cards like the trip page's stops, with no chevron. Tapping one expands it (one at a time, kept open through refreshes by `rowKey`, the trip and start time). It shows how long the bus was seen on it (`formatTripDuration`, "so far" while running), the average and top speed in km/h, how many positions were recorded, the trip id, and a full-width "View trip" button to `/trips/:id`. The trip page shows the trip's latest run, not necessarily this one.
-  - While a trip with an id is expanded, the map shows that trip's route line and stops, and stops following the bus to fit them (`fitKey` is the trip). Collapsing it goes back to following the bus on its own trip.
+  - While a trip with an id is expanded, the map shows that trip's route line and stops, and stops following the bus to fit them (`fitKey` is the trip). Collapsing it goes back to following the bus on its own trip. When the bus isn't on a trip, the map shows the newest trip of the current week, but not of an older week being browsed.
 - No record of the bus shows "Bus N hasn't been seen".
 
 ### Others
@@ -210,6 +210,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - `followBus`: centre on the first bus and fly to it as it moves, instead of fitting the stops. Turning it off fits the stops and lines, and turning it back on re-centres on the bus
 
   Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
+- **`WeekPicker.vue`**: picks a Sunday–Saturday week. `v-model` is the week's Sunday (`YYYY-MM-DD`), and `min`/`max` limit it to days the data can cover. Vuetify has no week picker, so it's previous/next buttons around a label ("This week", "Last week", "Oct 4 – 10"). The label opens a `v-date-picker` with the week's 7 days selected (`multiple`), so the whole week is highlighted. Tapping any day picks its week. Week numbers are hidden on phones, where they make the picker too wide.
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
 - **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).
 - **`RouteBadge.vue`**: the only way to show a route number. A filled primary pill showing `routeNumber(routeId)`, in sizes `small`, `default` and `large`. Attributes pass through to the root, so callers can add `style` and `class`.

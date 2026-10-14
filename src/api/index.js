@@ -175,14 +175,19 @@ export const getBus = async (busId) => {
  */
 
 /**
- * Fetches the trips a bus has run recently, newest first. A trip is split when the
- * bus goes 30 minutes without reporting, and shows once per day it was run.
+ * Fetches the trips a bus has run, newest first, either in the last `hours` or on the
+ * Edmonton days `from` to `to`. A trip is split when the bus goes 30 minutes without
+ * reporting, and shows once per day it was run.
  * @param {string|number} busId
- * @param {{hours?: number, limit?: number}} [options] hours back, up to 168
+ * @param {{hours?: number, limit?: number, from?: string, to?: string}} [options] hours back, up to 168,
+ *   or a YYYY-MM-DD range of at most 7 days, inclusive. A range defaults to 1000 trips
  * @returns {Promise<TripSummary[]>}
  */
-export const getBusRecentTrips = async (busId, { hours = 168, limit = 50 } = {}) => {
-  const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
+export const getBusRecentTrips = async (busId, { hours = 168, limit, from, to } = {}) => {
+  const params = from && to
+    ? new URLSearchParams({ from, to })
+    : new URLSearchParams({ hours: String(hours), limit: String(limit ?? 50) });
+  if (from && to && limit) params.set("limit", String(limit));
   const url = `${import.meta.env.VITE_APP_API_URL}/bus/${encodeURIComponent(busId)}/recent-trips?${params}`;
   const result = await fetch(url, {
     headers: {
