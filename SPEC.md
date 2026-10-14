@@ -122,7 +122,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
 - An Active Buses chip list, linking to trips.
-- A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold.
+- A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time links to `/trips/:id`, and each stop name links to `/stops/:id`.
 - There are no summary cards. The route id, the type (always bus) and the active-bus count were redundant and were removed.
 
 ### Trip details (`/trips/:tripId`, `TripDetails.vue`)

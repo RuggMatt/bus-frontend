@@ -442,7 +442,7 @@ function cellIsPM(tripId, stopId) {
                 :key="trip.trip_id"
                 class="time-col"
               >
-                <router-link :to="`/trips/${trip.trip_id}`" class="trip-header-link">
+                <router-link :to="`/trips/${trip.trip_id}`" class="timetable-link">
                   <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
                   <span v-else>{{ trip.headerTime }}</span>
                 </router-link>
@@ -452,7 +452,9 @@ function cellIsPM(tripId, stopId) {
           <tbody>
             <tr v-for="stop in timetableStops" :key="stop.stop_id">
               <td class="stop-col">
-                {{ stop.stop_name }}
+                <router-link :to="`/stops/${encodeURIComponent(stop.stop_id)}`" class="timetable-link">
+                  {{ stop.stop_name }}
+                </router-link>
               </td>
               <td
                 v-for="trip in timetableTrips"
@@ -522,13 +524,14 @@ function cellIsPM(tripId, stopId) {
   z-index: 2;
 }
 
-.trip-header-link {
+/* trip times and stop names link to their pages */
+.timetable-link {
   display: block;
   color: inherit;
   text-decoration: none;
 }
 
-.trip-header-link:hover {
+.timetable-link:hover {
   text-decoration: underline;
 }
 
