@@ -438,31 +438,6 @@ export const getActiveTripsByRouteId = async (routeId) => {
 };
 
 /**
- * Fetches the ids of every stop a route serves in the currently-active GTFS feed,
- * across both directions and all service patterns.
- * @param {string} routeId
- * @returns {Promise<Array<{stop_id: string}>>}
- */
-export const getRouteStops = async (routeId) => {
-  const today = edmontonNow().dateString;
-  // Escape single quotes to prevent SoQL injection
-  const safeRouteId = String(routeId).replace(/'/g, "''");
-  const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND route_id = '${safeRouteId}'`;
-  const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&$select=stop_id&$group=stop_id&$limit=5000`;
-  const result = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
-    },
-  });
-  if (result.ok) {
-    return result.json();
-  } else {
-    throw Error(result.status);
-  }
-};
-
-/**
  * @typedef {Object} StopScheduleEntry
  * @property {string} trip_id
  * @property {string} route_id

@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
-import { useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getRouteStops } from '../api';
+import { useQueries, useQuery } from '@tanstack/vue-query';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -10,9 +10,11 @@ import RouteBusCard from '../components/RouteBusCard.vue';
 import TransitMap from '../components/TransitMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
+import { tripPath } from '../composables/useStopArrivals';
+import { directionLabels as labelDirections, representativeTrips } from '../utils/routes';
 import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
 import { computed, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 const props = defineProps({
   routeId: {
@@ -22,6 +24,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const currentRoute = useRoute();
 const { keyedroutes } = useRoutes();
 const { buses } = useBuses();
 const { keyedStops } = useStops();
@@ -40,35 +43,6 @@ const { data: trips, isLoading: tripsLoading } = useQuery({
   queryFn: () => getTripsByRouteId(props.routeId),
   enabled: !!props.routeId,
 });
-
-// --- Active buses ---
-const activeBuses = computed(() => {
-  if (!buses.value) return handoff.buses ?? [];
-  return buses.value
-    .filter((bus) => bus.route_id === props.routeId)
-    .sort((a, b) => Number(a.bus) - Number(b.bus));
-});
-
-// --- Every stop on the route, both directions, for the map ---
-const { data: routeStopIds } = useQuery({
-  queryKey: ['route-stops', props.routeId],
-  queryFn: () => getRouteStops(props.routeId),
-  enabled: !!props.routeId,
-  staleTime: Infinity,
-});
-
-const mapStops = computed(() =>
-  (routeStopIds.value ?? [])
-    .map(({ stop_id }) => keyedStops.value?.[stop_id])
-    .filter((stop) => !!stop)
-    .map((stop) => ({
-      stop_id: stop.stop_id,
-      stop_name: stop.stop_name,
-      lat: Number(stop.stop_lat),
-      lon: Number(stop.stop_lon),
-    }))
-    .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
-);
 
 // --- Active GTFS feed trips ---
 const { data: activeFeedData, isLoading: activeFeedLoading } = useQuery({
@@ -99,6 +73,93 @@ const activeTrips = computed(() => {
   });
 });
 
+// --- Direction, which the whole page follows ---
+const directions = computed(() => [...new Set(activeTrips.value.map((t) => t.direction_id))].sort());
+const directionLabels = computed(() => labelDirections(activeTrips.value));
+
+// from ?direction=, e.g. when coming from a trip, and written back so reloads and shared links keep it
+const selectedDirection = ref(String(currentRoute.query.direction ?? ''));
+
+watch(directions, (dirs) => {
+  if (dirs.length && !dirs.includes(selectedDirection.value)) {
+    selectedDirection.value = dirs[0] ?? '';
+  }
+}, { immediate: true });
+
+watch(selectedDirection, (direction) => {
+  if (direction && currentRoute.query.direction !== direction) {
+    router.replace({ query: { ...currentRoute.query, direction } });
+  }
+});
+
+// --- Active buses ---
+/** @type {import('vue').ComputedRef<Map<string, string>>} */
+const directionByTrip = computed(() => new Map((trips.value ?? []).map((t) => [String(t.trip_id), t.direction_id])));
+
+const routeBuses = computed(() =>
+  (buses.value ?? [])
+    .filter((bus) => bus.route_id === props.routeId)
+    .sort((a, b) => Number(a.bus) - Number(b.bus)),
+);
+
+/** @type {import('vue').ComputedRef<Record<string, number>>} */
+const busCounts = computed(() => {
+  /** @type {Record<string, number>} */
+  const counts = {};
+  for (const bus of routeBuses.value) {
+    const direction = directionByTrip.value.get(String(bus.trip));
+    if (direction !== undefined) counts[direction] = (counts[direction] ?? 0) + 1;
+  }
+  return counts;
+});
+
+const activeBuses = computed(() => {
+  if (!buses.value) return handoff.buses ?? [];
+  // shown unsplit until the trips say which way each bus is going
+  if (!trips.value) return routeBuses.value;
+  return routeBuses.value.filter((bus) => directionByTrip.value.get(String(bus.trip)) === selectedDirection.value);
+});
+
+// --- Stops and lines for the direction, from one trip per route shape ---
+const directionTripIds = computed(() =>
+  representativeTrips(activeTrips.value, selectedDirection.value).map((t) => t.trip_id),
+);
+
+const { data: directionStopTimes } = useQuery({
+  queryKey: computed(() => ['route-direction-stops', props.routeId, directionTripIds.value.join(',')]),
+  queryFn: () => getStopTimesByTripIds(directionTripIds.value),
+  enabled: () => directionTripIds.value.length > 0,
+  staleTime: Infinity,
+});
+
+const mapStops = computed(() =>
+  [...new Set((directionStopTimes.value ?? []).map((st) => st.stop_id))]
+    .map((stopId) => keyedStops.value?.[stopId])
+    .filter((stop) => !!stop)
+    .map((stop) => ({
+      stop_id: stop.stop_id,
+      stop_name: stop.stop_name,
+      lat: Number(stop.stop_lat),
+      lon: Number(stop.stop_lon),
+    }))
+    .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
+);
+
+// same key as the trip page and bus cards, so they share the shapes
+const shapeQueries = useQueries({
+  queries: computed(() =>
+    directionTripIds.value.map((tripId) => ({
+      queryKey: ['trip-shape', tripId],
+      queryFn: () => getTrip(tripId),
+      staleTime: Infinity,
+    })),
+  ),
+});
+
+const mapPaths = computed(() =>
+  shapeQueries.value.map((query) => tripPath(query.data)).filter((path) => path.length > 1),
+);
+
 // --- Timetable state ---
 const DAYS = [
   { label: 'Mon', field: 'monday' },
@@ -114,7 +175,6 @@ const DAYS = [
  * @type {import('vue').Ref<'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'>}
  */
 const selectedDay = ref(WEEKDAYS[new Date().getDay()] ?? 'monday');
-const selectedDirection = ref('0');
 const selectedEffectiveDate = ref('');
 
 /**
@@ -162,42 +222,6 @@ watch(effectiveDateOptions, (options) => {
     selectedEffectiveDate.value = options.map((opt) => opt.value).find((value) => !!value) || '';
   }
 }, { immediate: true });
-
-// --- Available directions derived from active trips ---
-const availableDirections = computed(() => {
-  if (!activeTripsForDate.value.length) return [];
-  return [...new Set(activeTripsForDate.value.map((t) => t.direction_id))].sort();
-});
-
-watch(availableDirections, (dirs) => {
-  if (!dirs.length) {
-    selectedDirection.value = '0';
-    return;
-  }
-  if (!dirs.includes(selectedDirection.value)) {
-    selectedDirection.value = dirs.find((dir) => !!dir) || '0';
-  }
-}, { immediate: true });
-
-// Headsign labels per direction (use the most common headsign per direction)
-const directionLabels = computed(() => {
-  if (!activeTripsForDate.value.length) return {};
-  /** @type {Map<string, Map<string, number>>} */
-  const counts = new Map();
-  activeTripsForDate.value.forEach((t) => {
-    const bucket = counts.get(t.direction_id) ?? new Map();
-    const hs = t.trip_headsign || '';
-    bucket.set(hs, (bucket.get(hs) ?? 0) + 1);
-    counts.set(t.direction_id, bucket);
-  });
-  /** @type {Record<string, string>} */
-  const labels = {};
-  counts.forEach((hsMap, dir) => {
-    const top = [...hsMap.entries()].sort((a, b) => b[1] - a[1])[0];
-    labels[dir] = top?.[0] || `Direction ${dir}`;
-  });
-  return labels;
-});
 
 // --- Trips for selected day + direction ---
 const dayTrips = computed(() => {
@@ -395,14 +419,46 @@ function openTripCell(event) {
       <span style="view-transition-name: route-name">{{ routeLongName }}</span>
     </h1>
 
-    <TransitMap :stops="mapStops" :buses="activeBuses" class="mt-6" />
+    <!-- the map, buses and timetable all follow the direction -->
+    <v-btn-toggle
+      v-if="directions.length > 1"
+      v-model="selectedDirection"
+      mandatory
+      color="primary"
+      variant="outlined"
+      divided
+      class="direction-toggle mt-6"
+    >
+      <v-btn
+        v-for="dir in directions"
+        :key="dir"
+        :value="dir"
+        class="text-none"
+      >
+        <span class="text-truncate">{{ directionLabels[dir] }}</span>
+        <v-badge
+          v-if="busCounts[dir]"
+          :content="busCounts[dir]"
+          inline
+          color="primary"
+        />
+      </v-btn>
+    </v-btn-toggle>
+
+    <TransitMap
+      :stops="mapStops"
+      :buses="activeBuses"
+      :paths="mapPaths"
+      :fit-key="selectedDirection"
+      class="mt-4"
+    />
 
     <!-- Active Buses -->
     <h2 class="text-headline-small mt-8 mb-3">
       Active Buses
     </h2>
     <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
-      No buses currently active on this route.
+      {{ routeBuses.length ? 'No buses currently active in this direction.' : 'No buses currently active on this route.' }}
     </div>
     <v-row v-else dense class="mb-4">
       <v-col
@@ -438,24 +494,6 @@ function openTripCell(event) {
           style="max-width: 240px"
         />
       </div>
-
-      <!-- Direction selector -->
-      <v-btn-toggle
-        v-model="selectedDirection"
-        mandatory
-        color="primary"
-        density="compact"
-        class="mb-3"
-      >
-        <v-btn
-          v-for="dir in availableDirections"
-          :key="dir"
-          :value="dir"
-          size="small"
-        >
-          {{ directionLabels[dir] || `Direction ${dir}` }}
-        </v-btn>
-      </v-btn-toggle>
 
       <!-- Day selector -->
       <div class="mb-5">
@@ -541,6 +579,22 @@ function openTripCell(event) {
 </template>
 
 <style scoped>
+.direction-toggle {
+  max-width: 100%;
+}
+
+@media (max-width: 599px) {
+  .direction-toggle {
+    width: 100%;
+  }
+}
+
+/* long headsigns share the width instead of pushing past the screen edge */
+.direction-toggle .v-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .route-heading {
   align-items: center;
   display: flex;

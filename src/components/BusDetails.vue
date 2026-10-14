@@ -37,6 +37,8 @@ const openRoute = (event) => {
     router,
     {
       path: `/routes/${trip.value.route_id}`,
+      // opens the route on the way this bus is going
+      query: { direction: trip.value.direction_id },
       state: {
         routeLongName: routeLongName.value,
         buses: [{ bus: props.bus.bus, trip: String(props.bus.trip) }],
@@ -55,7 +57,7 @@ const openRoute = (event) => {
     <router-link
       v-else-if="trip"
       v-slot="{ href }"
-      :to="`/routes/${trip.route_id}`"
+      :to="{ path: `/routes/${trip.route_id}`, query: { direction: trip.direction_id } }"
       custom
     >
       <a
