@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQueries, useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -12,7 +12,14 @@ import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
 import { directionLabels as labelDirections, representativeTrips } from '../utils/routes';
-import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
+import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
+import {
+  regularServices,
+  sameServices,
+  schedulePeriods,
+  serviceDatesFrom,
+  servicesOnDate,
+} from '../utils/serviceCalendar';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -57,20 +64,20 @@ const activeFeedTripIdSet = computed(() => {
   return new Set(activeFeedData.value.map((t) => t.trip_id));
 });
 
-// Trips filtered to the currently-active GTFS feed, deduplicated by trip_id
-const activeTrips = computed(() => {
-  if (!trips.value) return [];
-  const activeSet = activeFeedTripIdSet.value;
-  const filtered = activeSet
-    ? trips.value.filter((t) => activeSet.has(t.trip_id))
-    : trips.value;
-  // Deduplicate by trip_id
+// the feed can list a trip more than once
+const uniqueTrips = computed(() => {
   const seen = new Set();
-  return filtered.filter((t) => {
+  return (trips.value ?? []).filter((t) => {
     if (seen.has(t.trip_id)) return false;
     seen.add(t.trip_id);
     return true;
   });
+});
+
+// Trips in the currently-active GTFS feed
+const activeTrips = computed(() => {
+  const activeSet = activeFeedTripIdSet.value;
+  return activeSet ? uniqueTrips.value.filter((t) => activeSet.has(t.trip_id)) : uniqueTrips.value;
 });
 
 // --- Direction, which the whole page follows ---
@@ -160,7 +167,7 @@ const mapPaths = computed(() =>
   shapeQueries.value.map((query) => tripPath(query.data)).filter((path) => path.length > 1),
 );
 
-// --- Timetable state ---
+// --- Timetable: a typical week in a schedule period, or an exact date ---
 const DAYS = [
   { label: 'Mon', field: 'monday' },
   { label: 'Tue', field: 'tuesday' },
@@ -171,62 +178,123 @@ const DAYS = [
   { label: 'Sun', field: 'sunday' },
 ];
 
-/**
- * @type {import('vue').Ref<'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'>}
- */
-const selectedDay = ref(WEEKDAYS[new Date().getDay()] ?? 'monday');
-const selectedEffectiveDate = ref('');
+const today = edmontonNow().dateString;
 
-/**
- * Parses YY-MM from service_id format like DX-001-Weekday-1-26-06-1111100.
- * @param {string} serviceId
- * @returns {string|null} YYYY-MM
- */
-function getEffectiveDateKey(serviceId) {
-  const match = serviceId.match(/-(\d{2})-(\d{2})-\d{7}$/);
-  if (!match) return null;
-  const yy = match[1];
-  const mm = match[2];
-  return `20${yy}-${mm}`;
-}
+/** @type {import('vue').Ref<import('../utils/serviceTime').Weekday>} */
+const selectedDay = ref(weekdayOf(today));
+// opens on what's actually running today; null shows a typical selectedDay instead
+/** @type {import('vue').Ref<string | null>} */
+const selectedDate = ref(today);
+const selectedPeriodKey = ref('');
 
-const effectiveDateOptions = computed(() => {
-  if (!activeTrips.value.length) return [];
-  const keys = new Set();
-  for (const trip of activeTrips.value) {
-    const key = getEffectiveDateKey(trip.service_id || '');
-    if (key) keys.add(key);
-  }
-  return [...keys]
-    .sort((a, b) => b.localeCompare(a))
-    .map((key) => ({
-      title: key,
-      value: key,
-    }));
+const routeServiceIds = computed(() => [...new Set(uniqueTrips.value.map((t) => t.service_id))].sort());
+
+const { data: serviceDateRows, isLoading: serviceDatesLoading } = useQuery({
+  queryKey: computed(() => ['service-dates', props.routeId, routeServiceIds.value.join(',')]),
+  queryFn: () => getServiceDates(routeServiceIds.value),
+  enabled: () => routeServiceIds.value.length > 0,
+  staleTime: Infinity,
 });
 
-const activeTripsForDate = computed(() => {
-  if (!activeTrips.value.length) return [];
-  const selected = selectedEffectiveDate.value || effectiveDateOptions.value[0]?.value;
-  if (!selected) return activeTrips.value;
-  return activeTrips.value.filter((trip) => getEffectiveDateKey(trip.service_id || '') === selected);
-});
+// null when the calendar couldn't be loaded, so the days in each service_id are used instead
+const serviceDates = computed(() =>
+  serviceDateRows.value?.length ? serviceDatesFrom(serviceDateRows.value) : null,
+);
 
-watch(effectiveDateOptions, (options) => {
-  if (!options.length) {
-    selectedEffectiveDate.value = '';
-    return;
-  }
-  const exists = options.some((opt) => opt.value === selectedEffectiveDate.value);
-  if (!exists) {
-    selectedEffectiveDate.value = options.map((opt) => opt.value).find((value) => !!value) || '';
-  }
+const periods = computed(() =>
+  serviceDates.value ? schedulePeriods(routeServiceIds.value, serviceDates.value) : [],
+);
+
+/** @param {string} date YYYY-MM-DD */
+const periodOn = (date) => {
+  const running = serviceDates.value ? servicesOnDate(serviceDates.value, date) : new Set();
+  return periods.value.find((p) => p.serviceIds.some((id) => running.has(id)))
+    ?? periods.value.find((p) => p.start <= date && date <= p.end);
+};
+
+watch(periods, (list) => {
+  if (!list.length || list.some((p) => p.key === selectedPeriodKey.value)) return;
+  const period = periodOn(selectedDate.value ?? today)
+    ?? list.find((p) => p.end >= today)
+    ?? list[list.length - 1];
+  selectedPeriodKey.value = period?.key ?? '';
 }, { immediate: true });
+
+const selectedPeriod = computed(() => periods.value.find((p) => p.key === selectedPeriodKey.value) ?? null);
+
+/** @param {string} date YYYY-MM-DD */
+const formatDate = (date, options = /** @type {Intl.DateTimeFormatOptions} */ ({ month: 'short', day: 'numeric' })) =>
+  new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined, { ...options, timeZone: 'UTC' });
+
+const periodOptions = computed(() =>
+  periods.value.map((p) => {
+    const status = p.start > today ? ' (upcoming)' : p.end >= today ? ' (current)' : '';
+    return { title: `${formatDate(p.start)} – ${formatDate(p.end)}${status}`, value: p.key };
+  }),
+);
+
+/** @param {string} key */
+const pickPeriod = (key) => {
+  selectedPeriodKey.value = key;
+  // the date may be outside the new period, so show its typical week
+  selectedDate.value = null;
+};
+
+// the weekday buttons show nothing selected while an exact date is
+const dayToggle = computed({
+  get: () => (selectedDate.value && serviceDates.value ? null : selectedDay.value),
+  /** @param {import('../utils/serviceTime').Weekday | null} day */
+  set: (day) => {
+    if (!day) return;
+    selectedDay.value = day;
+    selectedDate.value = null;
+  },
+});
+
+const datePickerOpen = ref(false);
+
+/** @param {unknown} value the picker's local-midnight Date */
+const pickDate = (value) => {
+  if (!(value instanceof Date)) return;
+  const date = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  selectedDate.value = date;
+  selectedDay.value = weekdayOf(date);
+  const period = periodOn(date);
+  if (period) selectedPeriodKey.value = period.key;
+  datePickerOpen.value = false;
+};
+
+const pickerValue = computed(() => (selectedDate.value ? new Date(`${selectedDate.value}T00:00:00`) : null));
+
+const dateLabel = computed(() => {
+  if (!selectedDate.value) return 'Pick a date';
+  const label = formatDate(selectedDate.value, { weekday: 'short', month: 'short', day: 'numeric' });
+  return selectedDate.value === today ? `Today, ${label}` : label;
+});
+
+// the services the timetable shows, or null to fall back to the days in each service_id
+const dayServices = computed(() => {
+  if (!serviceDates.value) return null;
+  if (selectedDate.value) return servicesOnDate(serviceDates.value, selectedDate.value);
+  return regularServices(serviceDates.value, selectedPeriod.value?.serviceIds ?? [], selectedDay.value);
+});
+
+// e.g. sunday service on thanksgiving monday, or a one-off schedule
+const isSpecialDay = computed(() => {
+  if (!serviceDates.value || !selectedDate.value || !dayServices.value?.size) return false;
+  const typical = regularServices(serviceDates.value, periodOn(selectedDate.value)?.serviceIds ?? [], selectedDay.value);
+  return !sameServices(dayServices.value, typical);
+});
 
 // --- Trips for selected day + direction ---
 const dayTrips = computed(() => {
-  if (!activeTripsForDate.value.length) return [];
-  return activeTripsForDate.value.filter((trip) =>
+  const services = dayServices.value;
+  if (services) {
+    return uniqueTrips.value.filter((trip) =>
+      trip.direction_id === selectedDirection.value && services.has(trip.service_id)
+    );
+  }
+  return activeTrips.value.filter((trip) =>
     trip.direction_id === selectedDirection.value &&
     serviceRunsOnDay(trip.service_id, selectedDay.value)
   );
@@ -318,7 +386,7 @@ const { headHeight: timetableHeadHeight, sizeColumns } = useStickyTableHeader({
 watch([timetableTrips, timetableStops], sizeColumns, { flush: 'post' });
 
 const timetableLoading = computed(
-  () => tripsLoading.value || activeFeedLoading.value || stopTimesLoading.value
+  () => tripsLoading.value || activeFeedLoading.value || serviceDatesLoading.value || stopTimesLoading.value
 );
 
 // --- Time helpers ---
@@ -482,24 +550,24 @@ function openTripCell(event) {
     </div>
 
     <template v-else-if="activeTrips.length > 0">
-      <!-- Effective date selector -->
-      <div v-if="effectiveDateOptions.length > 1" class="mb-3">
-        <v-select
-          v-model="selectedEffectiveDate"
-          :items="effectiveDateOptions"
-          label="Route Effective Date"
-          density="compact"
-          variant="outlined"
-          hide-details
-          style="max-width: 240px"
-        />
-      </div>
+      <!-- schedule periods, e.g. the current one and the next once it's published -->
+      <v-select
+        v-if="periodOptions.length > 1"
+        :model-value="selectedPeriodKey"
+        :items="periodOptions"
+        label="Schedule"
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="mb-3"
+        style="max-width: 320px"
+        @update:model-value="pickPeriod"
+      />
 
-      <!-- Day selector -->
-      <div class="mb-5">
+      <div class="d-flex flex-wrap align-center ga-3 mb-5">
+        <!-- a typical week; not mandatory, so nothing shows selected while an exact date is -->
         <v-btn-toggle
-          v-model="selectedDay"
-          mandatory
+          v-model="dayToggle"
           color="primary"
           density="compact"
         >
@@ -512,6 +580,39 @@ function openTripCell(event) {
             {{ day.label }}
           </v-btn>
         </v-btn-toggle>
+
+        <v-menu
+          v-if="serviceDates"
+          v-model="datePickerOpen"
+          :close-on-content-click="false"
+        >
+          <template #activator="{ props: menuProps }">
+            <v-btn
+              v-bind="menuProps"
+              :variant="selectedDate ? 'tonal' : 'outlined'"
+              color="primary"
+              prepend-icon="mdi-calendar"
+              class="text-none"
+            >
+              {{ dateLabel }}
+            </v-btn>
+          </template>
+          <v-date-picker
+            :model-value="pickerValue"
+            :min="periods[0]?.start"
+            :max="periods[periods.length - 1]?.end"
+            @update:model-value="pickDate"
+          />
+        </v-menu>
+
+        <v-chip
+          v-if="isSpecialDay"
+          color="warning"
+          variant="tonal"
+          prepend-icon="mdi-calendar-alert"
+        >
+          Special schedule on this date
+        </v-chip>
       </div>
 
       <!-- Timetable loading -->
@@ -521,7 +622,7 @@ function openTripCell(event) {
 
       <!-- No trips for day -->
       <div v-else-if="timetableTrips.length === 0" class="text-medium-emphasis py-4">
-        No trips scheduled for this day and direction.
+        {{ selectedDate ? 'No trips scheduled on this date in this direction.' : 'No trips scheduled for this day and direction.' }}
       </div>
 
       <!-- Timetable table -->
