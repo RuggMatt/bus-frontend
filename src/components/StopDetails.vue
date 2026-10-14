@@ -1,4 +1,6 @@
 <script setup>
+import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
+
 defineProps({
   stop: {
     type: Object,
@@ -30,12 +32,6 @@ defineProps({
 
 defineEmits(["close", "bus-click"]);
 
-// route numbers are zero-padded in the feed, e.g. "002"
-/** @param {string} routeId */
-const routeNumber = (routeId) => routeId.replace(/^0+(?=.)/, '');
-
-// regional buses share stops with ETS, so say whose bus it is
-const LOCAL_AGENCY = 'Edmonton Transit Service';
 
 /** @param {number} metres */
 const formatDistance = (metres) =>

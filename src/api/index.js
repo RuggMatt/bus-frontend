@@ -517,6 +517,38 @@ export const getStopSchedule = async (stopId, timeRanges) => {
 };
 
 /**
+ * @typedef {Object} StopRoute
+ * @property {string} route_id
+ * @property {string} route_long_name
+ * @property {string} agency_name
+ */
+
+/**
+ * Fetches the routes that serve a stop in the currently-active GTFS feed.
+ * @param {string} stopId
+ * @returns {Promise<StopRoute[]>}
+ */
+export const getStopRoutes = async (stopId) => {
+  const today = edmontonNow().dateString;
+  // Escape single quotes to prevent SoQL injection
+  const safeStopId = String(stopId).replace(/'/g, "''");
+  const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = '${safeStopId}'`;
+  const fields = "route_id,route_long_name,agency_name";
+  const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&$select=${fields}&$group=${fields}&$order=route_id`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  } else {
+    throw Error(result.status);
+  }
+};
+
+/**
  * Fetches stop times for multiple trips in a single request.
  * @param {string[]} tripIds
  * @returns {Promise<BusStopTime[]>}
