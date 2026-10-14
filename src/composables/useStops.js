@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/vue-query";
 import { getAllBusStops } from "../api";
 import { computed } from "vue";
 
+
 export const useStops = () => {
   const {
     data: stops,
@@ -10,6 +11,7 @@ export const useStops = () => {
   } = useQuery({
     queryKey: ["stops"],
     queryFn: getAllBusStops,
+    staleTime: Infinity,
   });
 
   return {
