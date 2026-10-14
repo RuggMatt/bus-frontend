@@ -7,7 +7,7 @@ import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
 import RouteBadge from '../components/RouteBadge.vue';
 import RouteBusCard from '../components/RouteBusCard.vue';
-import RouteMap from '../components/RouteMap.vue';
+import TransitMap from '../components/TransitMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
@@ -395,7 +395,7 @@ function openTripCell(event) {
       <span style="view-transition-name: route-name">{{ routeLongName }}</span>
     </h1>
 
-    <RouteMap :stops="mapStops" :buses="activeBuses" class="mt-6" />
+    <TransitMap :stops="mapStops" :buses="activeBuses" class="mt-6" />
 
     <!-- Active Buses -->
     <h2 class="text-headline-small mt-8 mb-3">
