@@ -76,6 +76,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['trip-shape', tripId]` | `getTrip`, `staleTime: Infinity` |
 | `['trip-stop-times', tripId]` | `getBusStopTimes`, `staleTime: Infinity` |
 | `['stop-routes', stopId]` | Every route serving a stop, `staleTime: Infinity` |
+| `['route-stops', routeId]` | Every stop a route serves (`getRouteStops`), `staleTime: Infinity` |
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
 
@@ -127,7 +128,11 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
-- An Active Buses chip list, linking to trips.
+- A map (`RouteMap.vue`):
+  - every stop the route serves, in both directions, from `getRouteStops`. Tapping a stop opens `/stops/:id`
+  - the route's live buses as pins with their report age (`createBusIcon`), from `useBuses`. Tapping a bus opens its trip
+  - it fits the stops once, when they first load, so later bus refreshes don't undo the user's panning
+- Active Buses, one `RouteBusCard.vue` per bus, sorted by bus number. Like `BusDetails`, each card shows the headsign, "Bus N · X km/h", the On time / late / early chip, the next stop and its scheduled time (all from `useBusTrip`), and a "Trip details" button. Until `useBuses` loads, the cards show the handed-over buses, which have no position, speed or status yet.
 - A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
 - The timetable's header row sticks to the page just below the app bar, and the stop column sticks to the left. The page scrolls vertically and only the table's box scrolls sideways, so content added below the table scrolls normally.
   - CSS won't let a header inside the box stick to the page. Setting `overflow-x: auto`, `scroll` or `hidden` turns the other axis's `visible` into `auto`. That makes the box a scroll container in both directions, and sticky cells stick to it instead of the page. Only `clip` leaves `overflow-y` alone, but `clip` can't scroll.

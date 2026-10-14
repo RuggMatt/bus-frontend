@@ -1,11 +1,13 @@
 <script setup>
 // @ts-check
 import { useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getRouteStops } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
 import RouteBadge from '../components/RouteBadge.vue';
+import RouteBusCard from '../components/RouteBusCard.vue';
+import RouteMap from '../components/RouteMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
@@ -42,8 +44,31 @@ const { data: trips, isLoading: tripsLoading } = useQuery({
 // --- Active buses ---
 const activeBuses = computed(() => {
   if (!buses.value) return handoff.buses ?? [];
-  return buses.value.filter((bus) => bus.route_id === props.routeId);
+  return buses.value
+    .filter((bus) => bus.route_id === props.routeId)
+    .sort((a, b) => Number(a.bus) - Number(b.bus));
 });
+
+// --- Every stop on the route, both directions, for the map ---
+const { data: routeStopIds } = useQuery({
+  queryKey: ['route-stops', props.routeId],
+  queryFn: () => getRouteStops(props.routeId),
+  enabled: !!props.routeId,
+  staleTime: Infinity,
+});
+
+const mapStops = computed(() =>
+  (routeStopIds.value ?? [])
+    .map(({ stop_id }) => keyedStops.value?.[stop_id])
+    .filter((stop) => !!stop)
+    .map((stop) => ({
+      stop_id: stop.stop_id,
+      stop_name: stop.stop_name,
+      lat: Number(stop.stop_lat),
+      lon: Number(stop.stop_lon),
+    }))
+    .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
+);
 
 // --- Active GTFS feed trips ---
 const { data: activeFeedData, isLoading: activeFeedLoading } = useQuery({
@@ -370,6 +395,8 @@ function openTripCell(event) {
       <span style="view-transition-name: route-name">{{ routeLongName }}</span>
     </h1>
 
+    <RouteMap :stops="mapStops" :buses="activeBuses" class="mt-6" />
+
     <!-- Active Buses -->
     <h2 class="text-headline-small mt-8 mb-3">
       Active Buses
@@ -377,22 +404,17 @@ function openTripCell(event) {
     <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
       No buses currently active on this route.
     </div>
-    <div v-else class="d-flex flex-wrap gap-2 mb-4">
-      <router-link
+    <v-row v-else dense class="mb-4">
+      <v-col
         v-for="bus in activeBuses"
         :key="bus.bus"
-        :to="`/trips/${bus.trip}`"
+        cols="12"
+        sm="6"
+        lg="4"
       >
-        <v-chip
-          color="primary"
-          variant="elevated"
-          prepend-icon="mdi-bus"
-          :style="{ viewTransitionName: `bus-${bus.bus}` }"
-        >
-          {{ bus.bus }}
-        </v-chip>
-      </router-link>
-    </div>
+        <RouteBusCard :bus="bus" />
+      </v-col>
+    </v-row>
 
     <!-- Timetable -->
     <h2 class="text-headline-small mt-8 mb-4">
