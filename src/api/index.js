@@ -438,6 +438,33 @@ export const getActiveTripsByRouteId = async (routeId) => {
 };
 
 /**
+ * Fetches every date the given services run, from the GTFS calendar dates. ETS lists
+ * each date outright, including holidays and one-off schedules.
+ * @param {string[]} serviceIds
+ * @returns {Promise<Array<{service_id: string, date: string, exception_type: string}>>} date is a timestamp
+ */
+export const getServiceDates = async (serviceIds) => {
+  if (!serviceIds.length) return [];
+  // Escape single quotes to prevent SoQL injection
+  const idList = serviceIds.map((id) => `'${String(id).replace(/'/g, "''")}'`).join(",");
+  const params = new URLSearchParams({
+    $select: "service_id,date,exception_type",
+    $where: `service_id IN (${idList})`,
+    $limit: "50000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/f2sy-bth7.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
  * @typedef {Object} StopScheduleEntry
  * @property {string} trip_id
  * @property {string} route_id

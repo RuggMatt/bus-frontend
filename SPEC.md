@@ -48,7 +48,8 @@ Both use `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So e
 | `d577-xky7` | Routes |
 | `ctwr-tvrd` | Trips, including `geometry_line`, the trip's route shape |
 | `greh-g7ac` | Stop times per trip |
-| `4fvt-p2se` | Stop schedule view. It joins stop times with trip and route and has `feed_start_date`/`feed_end_date`. Always filter it to the feed active today |
+| `4fvt-p2se` | Stop schedule view. It joins stop times with trip and route and has `feed_start_date`/`feed_end_date`. Always filter it to the feed active today. It has no `direction_id` |
+| `f2sy-bth7` | Calendar dates: every date each service runs (`exception_type` 1), for every agency. `getServiceDates` |
 
 SODA queries escape single quotes in ids to prevent SoQL injection.
 
@@ -61,7 +62,14 @@ SODA queries escape single quotes in ids to prevent SoQL injection.
   - `scheduleWindow` (adds the previous-day range)
   - `scheduledSecondsNear`
 - **Service days live in `service_id`.** Its last 7 characters say which days the service runs, Monday to Sunday (`DX-008-Weekday-1-26-09-1111100` runs Monday to Friday). Schedule rows are *not* filtered by day, so always check with `serviceRunsOnDay(serviceId, weekday)` and `weekdayOf(dateString, days)`.
-- Weekday service comes in several overlapping variants per route (`Weekday-1`, `-3`, `-4` …). The app doesn't load holiday or school-day exceptions, so schedule-based answers are a best guess.
+- **Service variants are one-off dates.** Weekday service comes in several variants per route (`Weekday-1`, `-3`, `-4` …), but calendar dates show that only one is the regular service. The others run on one or two special days (route 8's `Weekday-5` only on Truth and Reconciliation Day). Holidays reuse other services: Sunday service on Thanksgiving Monday, Saturday service on Remembrance Day. The route timetable uses calendar dates (`src/utils/serviceCalendar.js`). The stop page still goes by the `service_id` days alone, so its schedule-based answers are a best guess.
+- **Schedule periods are in `service_id` too** (`schedulePeriod`). They come in four formats:
+  - ETS: the year and month the schedule starts (`…-26-09-1111100` → `26-09`)
+  - regional agencies: a season (`540-Weekday-1-BT-FAL26-1111100` → `FAL26`)
+  - a few services (route 023R): a start date prefix per service (`20260914-Weekday-1-26-09-…`), which is part of the same `26-09` period
+  - a six-digit `YYMMDD` is read in case the format changes
+  
+  As of October 2026 the feed holds only one period.
 - Route ids are only unique within an agency, and regional buses (St. Albert, Spruce Grove …) share stops. So group by `` `${agency_name}|${route_id}` ``, and show the agency when it isn't `LOCAL_AGENCY` (Edmonton Transit Service).
 
 ### Query keys shared across pages
@@ -79,6 +87,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['route-direction-stops', routeId, tripIds]` | Stop times for one trip per shape in a direction, `staleTime: Infinity` |
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
+| `['service-dates', routeId, serviceIds]` | Calendar dates for a route's services, `staleTime: Infinity` |
 
 ## Pages
 
@@ -138,7 +147,12 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - the direction's live buses as pins (`createBusIcon`), from `useBuses`. They have no report-age badges, because a route's worth of them clutters the map. Tapping a bus opens its trip
   - it fits once per direction (`fitKey`), so bus refreshes don't undo the user's panning
 - Active Buses, one `RouteBusCard.vue` per bus in the direction, sorted by bus number. Like `BusDetails`, each card shows the headsign, "Bus N · X km/h", the On time / late / early chip, the next stop and its scheduled time (all from `useBusTrip`), and a "Trip details" button. Until `useBuses` loads, the cards show the handed-over buses, which have no position, speed or status yet.
-- A timetable for the selected direction, filtered by effective date (YY-MM in `service_id`) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
+- A timetable for the selected direction, from the route's calendar dates (`['service-dates', routeId, serviceIds]`):
+  - **Default: today's exact date** (`servicesOnDate`), so it shows what's actually running. A date button opens a picker limited to the feed's dates. A "Special schedule on this date" chip shows when the date's services differ from a typical week, e.g. holidays.
+  - **Weekday buttons** show a typical week in the selected schedule period (`regularServices`). That leaves out one-off services: a service is kept when it runs on at least half as many of that weekday's dates as the most frequent one. The buttons show nothing selected while an exact date is.
+  - **A "Schedule" select** lists the periods (`schedulePeriods`) by date range, marked current or upcoming. It's hidden when there's only one. Picking a period switches to its typical week, and picking a date selects its period.
+  - If the calendar fails to load, it falls back to the active-feed trips and the days in each `service_id` (`serviceRunsOnDay`), without the date button.
+- In the timetable, PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
 - The timetable's header row sticks to the page just below the app bar, and the stop column sticks to the left. The page scrolls vertically and only the table's box scrolls sideways, so content added below the table scrolls normally.
   - CSS won't let a header inside the box stick to the page. Setting `overflow-x: auto`, `scroll` or `hidden` turns the other axis's `visible` into `auto`. That makes the box a scroll container in both directions, and sticky cells stick to it instead of the page. Only `clip` leaves `overflow-y` alone, but `clip` can't scroll.
   - So `useStickyTableHeader` (`src/composables/`) keeps a copy of the header row (`TimetableHeaderRow.vue`) in a sticky element above the box, at `top: var(--v-layout-top)`. Its columns are sized from the real header, which stays in the table with `visibility: hidden` to keep the layout. The copy's sideways scroll is kept in step with the box in both directions. The box is pulled up under the copy by the copy's height.
