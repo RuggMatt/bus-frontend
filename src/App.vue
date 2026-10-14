@@ -83,3 +83,10 @@ const toggleDrawer = () => {
   }
 };
 </script>
+<style>
+/* shared elements morph between pages, see utils/viewTransition.js */
+::view-transition-group(*) {
+  animation-duration: 300ms;
+  animation-timing-function: ease;
+}
+</style>

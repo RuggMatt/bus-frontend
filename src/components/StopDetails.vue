@@ -1,6 +1,9 @@
 <script setup>
 import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
+import { navigateWithTransition } from '../utils/viewTransition';
 import RouteBadge from './RouteBadge.vue';
+import { nextTick, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 defineProps({
   stop: {
@@ -32,6 +35,46 @@ defineProps({
 });
 
 defineEmits(["close", "bus-click"]);
+
+const router = useRouter();
+
+// only the tapped route's elements are named, as each name must be unique on the page
+/** @type {import('vue').Ref<string | null>} */
+const transitionKey = ref(null);
+
+/**
+ * @param {import('../composables/useStopArrivals').StopRouteGroup} group
+ * @param {string} name
+ */
+const transitionName = (group, name) =>
+  group.key === transitionKey.value ? { viewTransitionName: name } : undefined;
+
+/**
+ * Morphs the route number, name and buses into the route page. The route page's own
+ * data is usually still loading, so what this page knows rides along in history state.
+ *
+ * @param {MouseEvent} event
+ * @param {import('../composables/useStopArrivals').StopRouteGroup} group
+ */
+const openRoute = async (event, group) => {
+  // leave new-tab clicks to the browser
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  transitionKey.value = group.key;
+  // the names must be in the DOM before the old page is captured
+  await nextTick();
+  try {
+    await navigateWithTransition(router, {
+      path: `/routes/${group.route_id}`,
+      state: {
+        routeLongName: group.route_long_name,
+        buses: group.buses.map((bus) => ({ bus: bus.bus, trip: bus.trip_id })),
+      },
+    });
+  } finally {
+    transitionKey.value = null;
+  }
+};
 
 
 /** @param {number} metres */
@@ -105,23 +148,30 @@ const scheduleStatus = (offsetMinutes) => {
         class="mx-4 mb-3"
       >
         <router-link
+          v-slot="{ href }"
           :to="`/routes/${group.route_id}`"
-          class="route-header d-flex align-center pa-3"
-          :aria-label="`Timetable for route ${routeNumber(group.route_id)}`"
+          custom
         >
-          <RouteBadge :route-id="group.route_id" />
-          <div class="ml-3">
-            <div class="text-title-medium">
-              {{ group.route_long_name }}
+          <a
+            :href="href"
+            class="route-header d-flex align-center pa-3"
+            :aria-label="`Timetable for route ${routeNumber(group.route_id)}`"
+            @click="openRoute($event, group)"
+          >
+            <RouteBadge :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
+            <div class="ml-3">
+              <div class="text-title-medium" :style="transitionName(group, 'route-name')">
+                {{ group.route_long_name }}
+              </div>
+              <div
+                v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
+                class="text-body-small text-medium-emphasis"
+              >
+                {{ group.agency_name }}
+              </div>
             </div>
-            <div
-              v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
-              class="text-body-small text-medium-emphasis"
-            >
-              {{ group.agency_name }}
-            </div>
-          </div>
-          <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
+            <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
+          </a>
         </router-link>
         <v-divider />
         <v-list density="compact" lines="two" class="py-0">
@@ -138,7 +188,7 @@ const scheduleStatus = (offsetMinutes) => {
                 <div class="flex-grow-1 min-width-0">
                   <v-list-item-title>{{ bus.headsign }}</v-list-item-title>
                   <v-list-item-subtitle>
-                    Bus {{ bus.bus }} · {{ positionLabel(bus) }}
+                    <span :style="transitionName(group, `bus-${bus.bus}`)">Bus {{ bus.bus }}</span> · {{ positionLabel(bus) }}
                   </v-list-item-subtitle>
                 </div>
                 <div v-if="bus.etaMinutes !== null" class="text-right flex-shrink-0 ml-2">

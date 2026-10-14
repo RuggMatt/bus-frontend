@@ -21,6 +21,12 @@ const { keyedStops } = useStops();
 
 const route = computed(() => keyedroutes.value?.[props.routeId] ?? null);
 
+// handed over by the stop page so the header and buses can show (and morph in) before their data loads
+/** @type {{ routeLongName?: string, buses?: Array<{ bus: number | string, trip: string }> }} */
+const handoff = window.history.state ?? {};
+
+const routeLongName = computed(() => route.value?.route_long_name ?? handoff.routeLongName ?? '');
+
 // --- Trips for this route ---
 const { data: trips, isLoading: tripsLoading } = useQuery({
   queryKey: ['route-trips', props.routeId],
@@ -30,7 +36,7 @@ const { data: trips, isLoading: tripsLoading } = useQuery({
 
 // --- Active buses ---
 const activeBuses = computed(() => {
-  if (!buses.value) return [];
+  if (!buses.value) return handoff.buses ?? [];
   return buses.value.filter((bus) => bus.route_id === props.routeId);
 });
 
@@ -350,153 +356,152 @@ function cellIsPM(tripId, stopId) {
       All Routes
     </v-btn>
 
-    <div v-if="!route" class="text-center py-8">
+    <h1 class="route-heading text-headline-large">
+      <RouteBadge :route-id="routeId" size="large" style="view-transition-name: route-number" />
+      <span style="view-transition-name: route-name">{{ routeLongName }}</span>
+    </h1>
+
+    <!-- Active Buses -->
+    <h2 class="text-headline-small mt-8 mb-3">
+      Active Buses
+    </h2>
+    <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
+      No buses currently active on this route.
+    </div>
+    <div v-else class="d-flex flex-wrap gap-2 mb-4">
+      <router-link
+        v-for="bus in activeBuses"
+        :key="bus.bus"
+        :to="`/trips/${bus.trip}`"
+      >
+        <v-chip
+          color="primary"
+          variant="elevated"
+          prepend-icon="mdi-bus"
+          :style="{ viewTransitionName: `bus-${bus.bus}` }"
+        >
+          {{ bus.bus }}
+        </v-chip>
+      </router-link>
+    </div>
+
+    <!-- Timetable -->
+    <h2 class="text-headline-small mt-8 mb-4">
+      Timetable
+    </h2>
+
+    <div v-if="tripsLoading || activeFeedLoading" class="d-flex justify-center py-8">
       <v-progress-circular indeterminate color="primary" />
     </div>
 
-    <template v-else>
-      <h1 class="route-heading text-headline-large">
-        <RouteBadge :route-id="routeId" size="large" />
-        <span>{{ route.route_long_name }}</span>
-      </h1>
-
-      <!-- Active Buses -->
-      <h2 class="text-headline-small mt-8 mb-3">
-        Active Buses
-      </h2>
-      <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
-        No buses currently active on this route.
+    <template v-else-if="activeTrips.length > 0">
+      <!-- Effective date selector -->
+      <div v-if="effectiveDateOptions.length > 1" class="mb-3">
+        <v-select
+          v-model="selectedEffectiveDate"
+          :items="effectiveDateOptions"
+          label="Route Effective Date"
+          density="compact"
+          variant="outlined"
+          hide-details
+          style="max-width: 240px"
+        />
       </div>
-      <div v-else class="d-flex flex-wrap gap-2 mb-4">
-        <router-link
-          v-for="bus in activeBuses"
-          :key="bus.bus"
-          :to="`/trips/${bus.trip}`"
+
+      <!-- Direction selector -->
+      <v-btn-toggle
+        v-model="selectedDirection"
+        mandatory
+        color="primary"
+        density="compact"
+        class="mb-3"
+      >
+        <v-btn
+          v-for="dir in availableDirections"
+          :key="dir"
+          :value="dir"
+          size="small"
         >
-          <v-chip color="primary" variant="elevated" prepend-icon="mdi-bus">
-            {{ bus.bus }}
-          </v-chip>
-        </router-link>
-      </div>
+          {{ directionLabels[dir] || `Direction ${dir}` }}
+        </v-btn>
+      </v-btn-toggle>
 
-      <!-- Timetable -->
-      <h2 class="text-headline-small mt-8 mb-4">
-        Timetable
-      </h2>
-
-      <div v-if="tripsLoading || activeFeedLoading" class="d-flex justify-center py-8">
-        <v-progress-circular indeterminate color="primary" />
-      </div>
-
-      <template v-else-if="activeTrips.length > 0">
-        <!-- Effective date selector -->
-        <div v-if="effectiveDateOptions.length > 1" class="mb-3">
-          <v-select
-            v-model="selectedEffectiveDate"
-            :items="effectiveDateOptions"
-            label="Route Effective Date"
-            density="compact"
-            variant="outlined"
-            hide-details
-            style="max-width: 240px"
-          />
-        </div>
-
-        <!-- Direction selector -->
+      <!-- Day selector -->
+      <div class="mb-5">
         <v-btn-toggle
-          v-model="selectedDirection"
+          v-model="selectedDay"
           mandatory
           color="primary"
           density="compact"
-          class="mb-3"
         >
           <v-btn
-            v-for="dir in availableDirections"
-            :key="dir"
-            :value="dir"
+            v-for="day in DAYS"
+            :key="day.field"
+            :value="day.field"
             size="small"
           >
-            {{ directionLabels[dir] || `Direction ${dir}` }}
+            {{ day.label }}
           </v-btn>
         </v-btn-toggle>
+      </div>
 
-        <!-- Day selector -->
-        <div class="mb-5">
-          <v-btn-toggle
-            v-model="selectedDay"
-            mandatory
-            color="primary"
-            density="compact"
-          >
-            <v-btn
-              v-for="day in DAYS"
-              :key="day.field"
-              :value="day.field"
-              size="small"
-            >
-              {{ day.label }}
-            </v-btn>
-          </v-btn-toggle>
-        </div>
+      <!-- Timetable loading -->
+      <div v-if="timetableLoading" class="d-flex justify-center py-8">
+        <v-progress-circular indeterminate color="primary" />
+      </div>
 
-        <!-- Timetable loading -->
-        <div v-if="timetableLoading" class="d-flex justify-center py-8">
-          <v-progress-circular indeterminate color="primary" />
-        </div>
+      <!-- No trips for day -->
+      <div v-else-if="timetableTrips.length === 0" class="text-medium-emphasis py-4">
+        No trips scheduled for this day and direction.
+      </div>
 
-        <!-- No trips for day -->
-        <div v-else-if="timetableTrips.length === 0" class="text-medium-emphasis py-4">
-          No trips scheduled for this day and direction.
-        </div>
-
-        <!-- Timetable table -->
-        <div v-else class="timetable-scroll">
-          <table class="timetable-table">
-            <thead>
-              <tr>
-                <th class="stop-col">
-                  Stop
-                </th>
-                <th
-                  v-for="trip in timetableTrips"
-                  :key="trip.trip_id"
-                  class="time-col"
-                >
-                  <router-link :to="`/trips/${trip.trip_id}`" class="trip-header-link">
-                    <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
-                    <span v-else>{{ trip.headerTime }}</span>
-                  </router-link>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="stop in timetableStops" :key="stop.stop_id">
-                <td class="stop-col">
-                  {{ stop.stop_name }}
-                </td>
-                <td
-                  v-for="trip in timetableTrips"
-                  :key="trip.trip_id"
-                  class="time-col"
-                >
-                  <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
-                    {{ cellTime(trip.trip_id, stop.stop_id) }}
-                  </strong>
-                  <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p class="text-body-small mt-3">
-            <strong>Bold</strong> times are P.M.
-          </p>
-        </div>
-      </template>
-
-      <div v-else class="text-medium-emphasis">
-        No trips found for this route.
+      <!-- Timetable table -->
+      <div v-else class="timetable-scroll">
+        <table class="timetable-table">
+          <thead>
+            <tr>
+              <th class="stop-col">
+                Stop
+              </th>
+              <th
+                v-for="trip in timetableTrips"
+                :key="trip.trip_id"
+                class="time-col"
+              >
+                <router-link :to="`/trips/${trip.trip_id}`" class="trip-header-link">
+                  <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
+                  <span v-else>{{ trip.headerTime }}</span>
+                </router-link>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="stop in timetableStops" :key="stop.stop_id">
+              <td class="stop-col">
+                {{ stop.stop_name }}
+              </td>
+              <td
+                v-for="trip in timetableTrips"
+                :key="trip.trip_id"
+                class="time-col"
+              >
+                <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
+                  {{ cellTime(trip.trip_id, stop.stop_id) }}
+                </strong>
+                <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="text-body-small mt-3">
+          <strong>Bold</strong> times are P.M.
+        </p>
       </div>
     </template>
+
+    <div v-else class="text-medium-emphasis">
+      No trips found for this route.
+    </div>
   </v-container>
 </template>
 
