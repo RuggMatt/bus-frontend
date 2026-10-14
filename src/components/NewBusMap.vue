@@ -7,11 +7,13 @@ import { useQuery } from '@tanstack/vue-query';
 import { getTrip, getBusStopTimes, getTrips } from '../api';
 import { useStops } from '../composables/useStops';
 import { chunk } from '../utils/chunk';
+import { nextBusRefreshDelay } from '../utils/busRefresh';
 // import 'leaflet/dist/leaflet.css'
 let map = null
 const ROUTE_PANE_Z_INDEX = 350;
 
-let interval = null;
+let refreshTimeout = null;
+let unmounted = false;
 
 /**
  * @type {Record<string, import("../api/index").Bus>}
@@ -63,9 +65,12 @@ const removeOldBuses = (newBuses) => {
     }
 }
 
+/**
+ * @returns {Promise<import("../api/index").Bus[] | null>} the buses fetched, or null when skipped
+ */
 const updateBuses = async () => {
     if (document.visibilityState == "hidden") {
-        return;
+        return null;
     }
     /** @type {{}[]} */
     let newBuses = await fetch(`${import.meta.env.VITE_APP_API_URL}/bus/now`).then(r => r.json());
@@ -95,6 +100,7 @@ const updateBuses = async () => {
         }
     }
     applyRouteHighlighting();
+    return newBuses;
 }
 
 const { data: trip } = useQuery({
@@ -279,18 +285,27 @@ const createMap = () => {
     }).addTo(map)
 }
 
-const setUpInterval = () => {
-    interval = setInterval(() => updateBuses(), 1000 * 60);
+// fetches again when the backend's next snapshot should be ready
+const refreshBuses = async () => {
+    let newBuses = null;
+    try {
+        newBuses = await updateBuses();
+    } catch (error) {
+        console.error("Could not update buses", error);
+    }
+    if (!unmounted) {
+        refreshTimeout = setTimeout(refreshBuses, nextBusRefreshDelay(newBuses));
+    }
 }
 
 onMounted(() => {
     createMap();
-    updateBuses();
-    setUpInterval()
+    refreshBuses();
 })
 
 onBeforeUnmount(() => {
-    clearInterval(interval)
+    unmounted = true;
+    clearTimeout(refreshTimeout)
     map?.off("click", clearRouteSelection);
 })
 </script>
