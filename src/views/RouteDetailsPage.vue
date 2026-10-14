@@ -5,6 +5,7 @@ import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId } fro
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
+import RouteBadge from '../components/RouteBadge.vue';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -354,12 +355,10 @@ function cellIsPM(tripId, stopId) {
     </div>
 
     <template v-else>
-      <h1 class="text-headline-large mb-1">
-        Route {{ route.route_short_name || route.route_id }}
+      <h1 class="route-heading text-headline-large">
+        <RouteBadge :route-id="routeId" size="large" />
+        <span>{{ route.route_long_name }}</span>
       </h1>
-      <p class="text-body-large text-medium-emphasis">
-        {{ route.route_long_name }}
-      </p>
 
       <!-- Active Buses -->
       <h2 class="text-headline-small mt-8 mb-3">
@@ -502,6 +501,12 @@ function cellIsPM(tripId, stopId) {
 </template>
 
 <style scoped>
+.route-heading {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+}
+
 .timetable-scroll {
   overflow-x: auto;
   max-width: 100%;

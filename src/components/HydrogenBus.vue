@@ -26,7 +26,7 @@
         <template v-for="bus in buses" :key="bus.bus">
           <v-list-item>
             <v-list-item-title>
-              <b>{{ bus.route?.route_id }}</b>
+              <RouteBadge v-if="bus.route" :route-id="bus.route.route_id" size="small" />
             </v-list-item-title>
             <v-list-item-subtitle>{{ bus.route?.trip_headsign }} - {{ bus.bus }}</v-list-item-subtitle>
             <template #append>
@@ -54,6 +54,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { getHydrogenBuses } from '../api/index.js';
 import { getTrip } from '../api/index.js';
 import MapOnly from './MapOnly.vue';
+import RouteBadge from './RouteBadge.vue';
 
 const REFRESH_INTERVAL = 60000;
 
