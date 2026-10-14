@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatClockTime, formatTripTimes, tripDayLabel } from "../src/utils/tripTimes";
+import { formatClockTime, formatTripDuration, formatTripTimes, tripDayLabel } from "../src/utils/tripTimes";
 
 // noon on Wednesday 2026-10-14 in Edmonton (UTC-6)
 const NOW = Date.parse("2026-10-14T18:00:00Z");
@@ -37,5 +37,14 @@ describe("formatTripTimes", () => {
 
   it("gives one time for a trip seen once", () => {
     expect(formatTripTimes(at("2026-10-14T13:32:00Z"), at("2026-10-14T13:32:20Z"))).toBe("7:32 AM");
+  });
+});
+
+describe("formatTripDuration", () => {
+  it("gives minutes, then hours and minutes", () => {
+    expect(formatTripDuration(0, 20)).toBe("Under a minute");
+    expect(formatTripDuration(0, 43 * 60)).toBe("43 min");
+    expect(formatTripDuration(0, 65 * 60)).toBe("1 h 5 min");
+    expect(formatTripDuration(0, 120 * 60)).toBe("2 h");
   });
 });

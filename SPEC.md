@@ -189,9 +189,11 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Bus details (`/buses/:busId`, `BusDetailsPage.vue`)
 - Reached from any bus id (`BusLink`, see Shared UI).
 - **Heading:** "Bus N", a "Live" chip while `active`, otherwise "Last seen 3h 5m ago" (amber, grey past an hour), an Electric chip for 8000–8999, and "Tracked since" the first sighting.
-- A map (`TransitMap` with `showAge` and `followBus`) of the bus's latest position, with the route line and stops of its current trip, or the last trip it ran if it's out of service. It centres on the bus at zoom 16 and flies to it whenever the position changes. The pin's age badge goes amber past 5 minutes, and past an hour the badge and pin go grey.
+- A map (`TransitMap` with `showAge` and `followBus`) of the bus's latest position, with the route line and stops of its current trip, or the last trip it ran if it's out of service (or the expanded trip, see below). It centres on the bus at zoom 16 and flies to it whenever the position changes. The pin's age badge goes amber past 5 minutes, and past an hour the badge and pin go grey.
 - `['bus', busId]` refetches with `nextBusRefreshDelay` while the bus is active, and every 60 s otherwise. Recent trips refetch when `lastSeen` changes.
-- **Recent trips:** the last week (`hours=168`), grouped under Today / Yesterday / "Monday, Oct 12" (`tripDayLabel`, Edmonton days). Each row is a route badge and long name, the headsign, and the first-to-last seen times (`formatTripTimes`). The running trip ends in "now" with a Now chip. Rows open `/trips/:id`, which shows the trip's latest run, not necessarily this one. Trips not in the current feed show "Trip N", and out-of-service stretches show "Not in service" without a link.
+- **Recent trips:** the last week (`hours=168`), grouped under Today / Yesterday / "Monday, Oct 12" (`tripDayLabel`, Edmonton days). Each row is a route badge and long name, the headsign, and the first-to-last seen times (`formatTripTimes`). The running trip ends in "now" with a Now chip. Trips not in the current feed show "Trip N", and out-of-service stretches show "Not in service".
+  - The rows are in outlined cards like the trip page's stops, with no chevron. Tapping one expands it (one at a time, kept open through refreshes by `rowKey`, the trip and start time). It shows how long the bus was seen on it (`formatTripDuration`, "so far" while running), the average and top speed in km/h, how many positions were recorded, the trip id, and a full-width "View trip" button to `/trips/:id`. The trip page shows the trip's latest run, not necessarily this one.
+  - While a trip with an id is expanded, the map shows that trip's route line and stops, and stops following the bus to fit them (`fitKey` is the trip). Collapsing it goes back to following the bus on its own trip.
 - No record of the bus shows "Bus N hasn't been seen".
 
 ### Others
@@ -205,7 +207,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - `paths`: route lines, under the stops
   - `fitKey`: the map fits the stops and lines once per key, so data refreshes don't undo the user's panning
   - `showAge`: label pins with their report age, ticking every second
-  - `followBus`: centre on the first bus and fly to it as it moves, instead of fitting the stops
+  - `followBus`: centre on the first bus and fly to it as it moves, instead of fitting the stops. Turning it off fits the stops and lines, and turning it back on re-centres on the bus
 
   Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
