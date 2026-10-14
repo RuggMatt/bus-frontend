@@ -361,10 +361,6 @@ const mapPaths = computed(() => {
                 </v-chip>
               </template>
             </div>
-            <v-icon
-              :icon="expandedSequence === row.stop.stop_sequence ? 'mdi-chevron-up' : 'mdi-chevron-down'"
-              class="ml-2 flex-shrink-0"
-            />
           </div>
           <v-expand-transition>
             <div v-if="expandedSequence === row.stop.stop_sequence" class="text-body-medium px-3 pb-3">
