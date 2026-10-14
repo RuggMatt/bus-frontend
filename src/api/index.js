@@ -387,12 +387,19 @@ export const getAllRoutes = async () => {
 };
 
 /**
- * Fetches trips for a specific route from the Edmonton open data API
+ * Fetches every trip for a specific route from the Edmonton open data API, without
+ * their shapes. A busy route has over a thousand trips, and with shapes 500 of them
+ * were nearly 10 MB.
  * @param {string} routeId
- * @returns {Promise<Trip[]>}
+ * @returns {Promise<Array<Pick<Trip, "trip_id" | "route_id" | "service_id" | "trip_headsign" | "direction_id" | "shape_id">>>}
  */
 export const getTripsByRouteId = async (routeId) => {
-  const url = `https://data.edmonton.ca/resource/ctwr-tvrd.json?route_id=${encodeURIComponent(routeId)}&$limit=500`;
+  const params = new URLSearchParams({
+    route_id: routeId,
+    $select: "trip_id,route_id,service_id,trip_headsign,direction_id,shape_id",
+    $limit: "50000",
+  });
+  const url = `https://data.edmonton.ca/resource/ctwr-tvrd.json?${params}`;
   const result = await fetch(url, {
     headers: {
       Accept: "application/json",
