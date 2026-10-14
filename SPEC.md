@@ -96,6 +96,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
 - Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away.
+- A locate button at the bottom right (same style as the stops map's) centres the map on the user at zoom 16 and draws a blue dot. A snackbar shows if the location can't be found.
 - Tapping a bus highlights its route and opens `BusDetails.vue`. On desktop that's a left panel, on mobile a bottom sheet.
 - **BusDetails** shows:
   - a route header: the badge, route name and a chevron to `/routes/:id`

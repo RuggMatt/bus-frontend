@@ -9,6 +9,8 @@ import { useStops } from '../composables/useStops';
 import { useBuses } from '../composables/useBuses';
 // import 'leaflet/dist/leaflet.css'
 let map = null
+/** @type {import('leaflet').CircleMarker | null} */
+let userMarker = null;
 const ROUTE_PANE_Z_INDEX = 350;
 
 /**
@@ -243,6 +245,40 @@ watch(tripStops, () => {
     }
 })
 
+const locating = ref(false);
+const showLocationError = ref(false);
+
+const locate = () => {
+    if (!navigator.geolocation) {
+        showLocationError.value = true;
+        return;
+    }
+    locating.value = true;
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            locating.value = false;
+            if (!map) {
+                return;
+            }
+            const latlng = [position.coords.latitude, position.coords.longitude];
+            userMarker?.remove();
+            userMarker = L.circleMarker(latlng, {
+                radius: 8,
+                color: "#ffffff",
+                fillColor: "#1a73e8",
+                fillOpacity: 1,
+                weight: 3,
+                interactive: false,
+            }).addTo(map);
+            map.setView(latlng, 16);
+        },
+        () => {
+            showLocationError.value = true;
+            locating.value = false;
+        },
+    );
+}
+
 const createMap = () => {
     map = L.map('test', {
         center: [53.5150, -113.4757],
@@ -271,16 +307,45 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     map?.off("click", clearRouteSelection);
+    userMarker?.remove();
+    userMarker = null;
 })
 </script>
 <template>
-  <div>
+  <div class="map-wrapper">
     <div id="test" class="map" />
+    <v-btn
+      class="locate-button"
+      icon="mdi-crosshairs-gps"
+      size="small"
+      elevation="2"
+      aria-label="Show my location"
+      :loading="locating"
+      @click="locate"
+    />
+    <v-snackbar v-model="showLocationError" location="bottom" :timeout="3000" color="error">
+      Your location could not be determined
+    </v-snackbar>
   </div>
 </template>
 <style scoped>
+.map-wrapper {
+    height: 100%;
+    position: relative;
+    width: 100%;
+}
+
 .map {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    height: 100%;
+    /* keeps leaflet's panes underneath the app bar and navigation drawer */
+    z-index: 0;
+}
+
+.locate-button {
+    bottom: 24px;
+    position: absolute;
+    right: 12px;
+    z-index: 1;
 }
 </style>
