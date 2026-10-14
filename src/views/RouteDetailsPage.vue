@@ -8,6 +8,7 @@ import { useStops } from '../composables/useStops';
 import RouteBadge from '../components/RouteBadge.vue';
 import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
 import { computed, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 const props = defineProps({
   routeId: {
@@ -16,6 +17,7 @@ const props = defineProps({
   },
 });
 
+const router = useRouter();
 const { keyedroutes } = useRoutes();
 const { buses } = useBuses();
 const { keyedStops } = useStops();
@@ -317,6 +319,19 @@ function cellTime(tripId, stopId) {
 function cellIsPM(tripId, stopId) {
   return isPMRaw(stopTimeMap.value.get(tripId)?.get(stopId) ?? '');
 }
+
+/**
+ * Opens a time cell's trip in the app rather than reloading the page. New-tab
+ * clicks are left to the browser.
+ * @param {MouseEvent} event
+ */
+function openTripCell(event) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const link = /** @type {HTMLElement} */ (event.target).closest('a[data-trip-link]');
+  if (!link) return;
+  event.preventDefault();
+  router.push(/** @type {string} */ (link.getAttribute('href')));
+}
 </script>
 
 <template>
@@ -430,49 +445,54 @@ function cellIsPM(tripId, stopId) {
       </div>
 
       <!-- Timetable table -->
-      <div v-else class="timetable-scroll">
-        <table class="timetable-table">
-          <thead>
-            <tr>
-              <th class="stop-col">
-                Stop
-              </th>
-              <th
-                v-for="trip in timetableTrips"
-                :key="trip.trip_id"
-                class="time-col"
-              >
-                <router-link :to="`/trips/${trip.trip_id}`" class="timetable-link">
-                  <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
-                  <span v-else>{{ trip.headerTime }}</span>
-                </router-link>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="stop in timetableStops" :key="stop.stop_id">
-              <td class="stop-col">
-                <router-link :to="`/stops/${encodeURIComponent(stop.stop_id)}`" class="timetable-link">
-                  {{ stop.stop_name }}
-                </router-link>
-              </td>
-              <td
-                v-for="trip in timetableTrips"
-                :key="trip.trip_id"
-                class="time-col"
-              >
-                <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
-                  {{ cellTime(trip.trip_id, stop.stop_id) }}
-                </strong>
-                <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="text-body-small mt-3">
+      <template v-else>
+        <p class="text-body-small mb-2">
           <strong>Bold</strong> times are P.M.
         </p>
-      </div>
+        <div class="timetable-scroll">
+          <table class="timetable-table">
+            <thead>
+              <tr>
+                <th class="stop-col">
+                  Stop
+                </th>
+                <th
+                  v-for="trip in timetableTrips"
+                  :key="trip.trip_id"
+                  class="time-col"
+                >
+                  <router-link :to="`/trips/${trip.trip_id}`" class="timetable-link">
+                    <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
+                    <span v-else>{{ trip.headerTime }}</span>
+                  </router-link>
+                </th>
+              </tr>
+            </thead>
+            <tbody @click="openTripCell">
+              <tr v-for="stop in timetableStops" :key="stop.stop_id">
+                <td class="stop-col">
+                  <router-link :to="`/stops/${encodeURIComponent(stop.stop_id)}`" class="timetable-link">
+                    {{ stop.stop_name }}
+                  </router-link>
+                </td>
+                <td
+                  v-for="trip in timetableTrips"
+                  :key="trip.trip_id"
+                  class="time-col"
+                >
+                  <!-- plain links, as a router-link per cell is thousands of components; openTripCell routes them -->
+                  <a :href="`/trips/${trip.trip_id}`" class="timetable-link" data-trip-link>
+                    <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
+                      {{ cellTime(trip.trip_id, stop.stop_id) }}
+                    </strong>
+                    <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
+                  </a>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </template>
 
     <div v-else class="text-medium-emphasis">
@@ -488,13 +508,24 @@ function cellIsPM(tripId, stopId) {
   gap: 16px;
 }
 
+/*
+ * A scroll container in both directions, as one that scrolls sideways is also what
+ * sticky positioning measures against, so the header can't stick to the page.
+ * Capped to the screen below the app bar, and last on the page, so its top (and the
+ * header row) can never sit under the app bar.
+ */
 .timetable-scroll {
-  overflow-x: auto;
+  overflow: auto;
   max-width: 100%;
+  max-height: calc(100dvh - var(--v-layout-top, 64px) - 32px);
 }
 
+/* separate borders, as collapsed ones don't travel with sticky cells */
 .timetable-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.12);
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
   font-size: 0.8rem;
   white-space: nowrap;
 }
@@ -503,7 +534,8 @@ function cellIsPM(tripId, stopId) {
 .timetable-table td {
   padding: 4px 12px;
   text-align: center;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
 
 .timetable-table .stop-col {
@@ -518,10 +550,14 @@ function cellIsPM(tripId, stopId) {
 .timetable-table thead th {
   background: rgb(var(--v-theme-surface-variant));
   font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
+/* the corner stays above both the header row and the stop column */
 .timetable-table thead .stop-col {
-  z-index: 2;
+  z-index: 3;
 }
 
 /* trip times and stop names link to their pages */
@@ -541,6 +577,5 @@ function cellIsPM(tripId, stopId) {
 
 .timetable-table tbody tr:hover .stop-col {
   background: rgb(var(--v-theme-surface));
-  z-index: 3;
 }
 </style>
