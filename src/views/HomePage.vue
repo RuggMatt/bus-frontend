@@ -1,19 +1,16 @@
 <script setup>
 import NewBusMap from '../components/NewBusMap.vue';
+import BusDetails from '../components/BusDetails.vue';
 import { ref, watch } from 'vue';
-import { useQuery } from '@tanstack/vue-query';
-import { getTrip } from '../api';
+import { useBusTrip } from '../composables/useBusTrip';
 import { useDisplay } from 'vuetify';
 
 const { mdAndUp } = useDisplay();
 const showBottomSheet = ref(false);
-/** @type {{bus: number, id: number, heading: number, speed: number}} */
+/** @type {import('vue').Ref<import('../api').Bus | null>} */
 const bus = ref(null);
 
-const { data: trip, isError } = useQuery({
-  queryKey: ['buses', bus],
-  queryFn: () => bus.value ? getTrip(bus.value.trip) : []
-})
+const { trip, isError } = useBusTrip(bus);
 
 const showRouteNotFound = ref(false);
 // getTrip resolves to null when the open data API has no matching trip
@@ -33,21 +30,7 @@ const viewBusDetails = (clickedBus) => {
     <!-- Desktop: Left Sidebar -->
     <div v-if="bus && mdAndUp" class="bus-details-panel">
       <VCard class="rounded-0 h-100">
-        <VCardTitle>
-          {{ bus.bus }}
-        </VCardTitle>
-        <VCardSubtitle>
-          {{ trip?.trip_headsign }}
-        </VCardSubtitle>
-        <VCardText>
-          On Time<br>
-          <b>{{ Math.round(bus.speed * 3.6) }}</b> km/h
-        </VCardText>
-        <VCardActions>
-          <VBtn v-if="trip" :to="`/trips/${trip.trip_id}`">
-            View Trip Details
-          </VBtn>
-        </VCardActions>
+        <BusDetails :bus="bus" />
       </VCard>
     </div>
 
@@ -59,21 +42,7 @@ const viewBusDetails = (clickedBus) => {
     <!-- Mobile: Bottom Sheet -->
     <VBottomSheet v-model="showBottomSheet">
       <VCard width="360" class="mx-auto rounded-t-lg">
-        <VCardTitle>
-          {{ bus?.bus }}
-        </VCardTitle>
-        <VCardSubtitle>
-          {{ trip?.trip_headsign }}
-        </VCardSubtitle>
-        <VCardText>
-          On Time<br>
-          <b>{{ Math.round(bus?.speed * 3.6) }}</b> km/h
-        </VCardText>
-        <VCardActions>
-          <VBtn v-if="trip" :to="`/trips/${trip.trip_id}`">
-            View Trip Details
-          </VBtn>
-        </VCardActions>
+        <BusDetails v-if="bus" :bus="bus" />
       </VCard>
     </VBottomSheet>
 

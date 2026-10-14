@@ -1,8 +1,9 @@
 <script setup>
 import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
-import { navigateWithTransition } from '../utils/viewTransition';
+import { transitionLinkClick } from '../utils/viewTransition';
+import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from './RouteBadge.vue';
-import { nextTick, ref } from 'vue';
+import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 defineProps({
@@ -56,25 +57,19 @@ const transitionName = (group, name) =>
  * @param {MouseEvent} event
  * @param {import('../composables/useStopArrivals').StopRouteGroup} group
  */
-const openRoute = async (event, group) => {
-  // leave new-tab clicks to the browser
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  transitionKey.value = group.key;
-  // the names must be in the DOM before the old page is captured
-  await nextTick();
-  try {
-    await navigateWithTransition(router, {
+const openRoute = (event, group) =>
+  transitionLinkClick(
+    event,
+    router,
+    {
       path: `/routes/${group.route_id}`,
       state: {
         routeLongName: group.route_long_name,
         buses: group.buses.map((bus) => ({ bus: bus.bus, trip: bus.trip_id })),
       },
-    });
-  } finally {
-    transitionKey.value = null;
-  }
-};
+    },
+    (named) => { transitionKey.value = named ? group.key : null; },
+  );
 
 
 /** @param {number} metres */
@@ -88,23 +83,9 @@ const positionLabel = (bus) => {
   return bus.passed ? `Passed ${distance} ago` : `${distance} away`;
 };
 
-/** @param {string} time HH:MM:SS, where HH may be 24 or more */
-const formatScheduledTime = (time) => {
-  const [hours = 0, minutes = 0] = time.split(':').map(Number);
-  const hour = hours % 24;
-  return `${hour % 12 || 12}:${String(minutes).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
-};
-
 /** @param {number} stopsAway */
 // "Next stop" would read twice beside the next stop's name
 const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : `${stopsAway} stops away`);
-
-/** @param {number} offsetMinutes */
-const scheduleStatus = (offsetMinutes) => {
-  if (offsetMinutes >= 2) return { label: `${offsetMinutes} min late`, color: 'warning' };
-  if (offsetMinutes <= -2) return { label: `${-offsetMinutes} min early`, color: 'info' };
-  return { label: 'On time', color: 'success' };
-};
 </script>
 
 <template>

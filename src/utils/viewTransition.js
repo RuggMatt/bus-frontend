@@ -21,3 +21,27 @@ export const navigateWithTransition = async (router, to) => {
   });
   await transition.finished;
 };
+
+/**
+ * Click handler for a link that should navigate inside a view transition. New-tab
+ * clicks are left to the browser. `setNamed` switches the caller's
+ * view-transition-names on before the old page is captured, and off afterwards,
+ * as each name must be unique on the page.
+ *
+ * @param {MouseEvent} event
+ * @param {import("vue-router").Router} router
+ * @param {import("vue-router").RouteLocationRaw} to
+ * @param {(named: boolean) => void} setNamed
+ */
+export const transitionLinkClick = async (event, router, to, setNamed) => {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  setNamed(true);
+  // the names must be in the DOM before the old page is captured
+  await nextTick();
+  try {
+    await navigateWithTransition(router, to);
+  } finally {
+    setNamed(false);
+  }
+};
