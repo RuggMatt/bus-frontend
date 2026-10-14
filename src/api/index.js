@@ -457,10 +457,9 @@ export const getStopSchedule = async (stopId, timeRanges) => {
     .join(" OR ");
   const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = '${safeStopId}' AND (${timeFilter})`;
   const select = "trip_id,route_id,route_long_name,agency_name,trip_headsign,service_id,arrival_time,stop_sequence";
-  const entries = [];
-  let page;
-  do {
-    const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&$select=${select}&$order=trip_id,stop_sequence&$limit=1000&$offset=${entries.length}`;
+  const pageSize = 1000;
+  const query = async (params) => {
+    const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&${params}`;
     const result = await fetch(url, {
       headers: {
         Accept: "application/json",
@@ -470,9 +469,50 @@ export const getStopSchedule = async (stopId, timeRanges) => {
     if (!result.ok) {
       throw Error(result.status);
     }
-    page = await result.json();
-    entries.push(...page);
-  } while (page.length === 1000);
+    return result.json();
+  };
+  const getPage = (offset) =>
+    query(`$select=${select}&$order=trip_id,stop_sequence&$limit=${pageSize}&$offset=${offset}`);
+  // count alongside the first page so any remaining pages can be fetched in parallel
+  const [countResult, firstResult] = await Promise.allSettled([
+    query("$select=count(*) as count"),
+    getPage(0),
+  ]);
+  // nothing to show without the first page, so let the caller show its error state
+  if (firstResult.status === "rejected") {
+    throw firstResult.reason;
+  }
+  const entries = [...firstResult.value];
+  if (entries.length < pageSize) {
+    return entries;
+  }
+  const count = countResult.status === "fulfilled" ? Number(countResult.value[0]?.count) : NaN;
+  if (!Number.isFinite(count)) {
+    // without a count, page one at a time until a short page or a failure
+    console.warn("Could not count stop schedule rows, paging sequentially", countResult.reason);
+    try {
+      let page;
+      do {
+        page = await getPage(entries.length);
+        entries.push(...page);
+      } while (page.length === pageSize);
+    } catch (error) {
+      console.warn("Could not load the rest of the stop schedule", error);
+    }
+    return entries;
+  }
+  const offsets = [];
+  for (let offset = pageSize; offset < count; offset += pageSize) {
+    offsets.push(offset);
+  }
+  const rest = await Promise.allSettled(offsets.map(getPage));
+  for (const result of rest) {
+    if (result.status === "fulfilled") {
+      entries.push(...result.value);
+    } else {
+      console.warn("Could not load a page of the stop schedule", result.reason);
+    }
+  }
   return entries;
 };
 
