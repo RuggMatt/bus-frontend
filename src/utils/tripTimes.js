@@ -1,0 +1,68 @@
+// @ts-check
+import { edmontonNow } from "./serviceTime";
+
+const TIME_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Edmonton",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+});
+const DAY_FORMAT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Edmonton",
+  weekday: "long",
+  month: "short",
+  day: "numeric",
+});
+
+/**
+ * A time of day in Edmonton, e.g. "7:32 AM"
+ * @param {number} epochSeconds
+ * @returns {string}
+ */
+export const formatClockTime = (epochSeconds) =>
+  // some engines put a narrow no-break space before AM/PM
+  TIME_FORMAT.format(new Date(epochSeconds * 1000)).replace(/\s/g, " ");
+
+/**
+ * The Edmonton date a moment falls on, as YYYY-MM-DD
+ * @param {number} epochSeconds
+ * @returns {string}
+ */
+export const edmontonDate = (epochSeconds) => edmontonNow(new Date(epochSeconds * 1000)).dateString;
+
+/**
+ * @param {string} dateString YYYY-MM-DD
+ * @returns {number} days since the epoch
+ */
+const dayNumber = (dateString) => {
+  const [year, month, day] = dateString.split("-").map(Number);
+  return Date.UTC(year, month - 1, day) / 86_400_000;
+};
+
+/**
+ * Names the Edmonton day a moment falls on: "Today", "Yesterday" or e.g. "Monday, Oct 12"
+ * @param {number} epochSeconds
+ * @param {number} [now] Epoch milliseconds
+ * @returns {string}
+ */
+export const tripDayLabel = (epochSeconds, now = Date.now()) => {
+  const daysAgo = dayNumber(edmontonNow(new Date(now)).dateString) - dayNumber(edmontonDate(epochSeconds));
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  return DAY_FORMAT.format(new Date(epochSeconds * 1000));
+};
+
+/**
+ * When a bus ran a trip, e.g. "7:32 AM – 8:15 AM", or "7:32 AM – now" while it's
+ * still running. A trip seen only once gives just its time.
+ * @param {number} start Unix epoch seconds
+ * @param {number} end Unix epoch seconds
+ * @param {{ongoing?: boolean}} [options]
+ * @returns {string}
+ */
+export const formatTripTimes = (start, end, { ongoing = false } = {}) => {
+  const from = formatClockTime(start);
+  if (ongoing) return `${from} – now`;
+  const to = formatClockTime(end);
+  return from === to ? from : `${from} – ${to}`;
+};

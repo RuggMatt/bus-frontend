@@ -1,6 +1,7 @@
 <script setup>
 import { computed, toRef } from 'vue';
 import { useBusTrip } from '../composables/useBusTrip';
+import BusLink from './BusLink.vue';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 
 const props = defineProps({
@@ -28,7 +29,7 @@ const hasSpeed = computed(() => Number.isFinite(Number(props.bus.speed)));
           <v-skeleton-loader v-else-if="isLoading" type="text" class="headsign-loader" />
         </div>
         <div class="text-medium-emphasis">
-          <span :style="{ viewTransitionName: `bus-${bus.bus}` }">Bus {{ bus.bus }}</span>
+          <BusLink :bus="bus.bus" :style="{ viewTransitionName: `bus-${bus.bus}` }" />
           <template v-if="hasSpeed">
             · {{ Math.round(bus.speed * 3.6) }} km/h
           </template>

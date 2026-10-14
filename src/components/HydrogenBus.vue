@@ -28,7 +28,7 @@
             <v-list-item-title>
               <RouteBadge v-if="bus.route" :route-id="bus.route.route_id" size="small" />
             </v-list-item-title>
-            <v-list-item-subtitle>{{ bus.route?.trip_headsign }} - {{ bus.bus }}</v-list-item-subtitle>
+            <v-list-item-subtitle>{{ bus.route?.trip_headsign }} - <BusLink :bus="bus.bus" /></v-list-item-subtitle>
             <template #append>
               <div style="text-align: center;">
                 <span style="font-size: 2em;">{{ Number(bus.dist / 0.005).toFixed(0) }}</span>
@@ -55,6 +55,7 @@ import { getHydrogenBuses } from '../api/index.js';
 import { getTrip } from '../api/index.js';
 import MapOnly from './MapOnly.vue';
 import RouteBadge from './RouteBadge.vue';
+import BusLink from './BusLink.vue';
 
 const REFRESH_INTERVAL = 60000;
 

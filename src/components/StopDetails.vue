@@ -5,6 +5,7 @@ import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import { describeNextArrival } from '../utils/nextArrival';
 import { edmontonNow } from '../utils/serviceTime';
 import RouteBadge from './RouteBadge.vue';
+import BusLink from './BusLink.vue';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -183,7 +184,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
                 <div class="flex-grow-1 min-width-0">
                   <v-list-item-title>{{ bus.headsign }}</v-list-item-title>
                   <v-list-item-subtitle>
-                    <span :style="transitionName(group, `bus-${bus.bus}`)">Bus {{ bus.bus }}</span> · {{ positionLabel(bus) }}
+                    <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" /> · {{ positionLabel(bus) }}
                   </v-list-item-subtitle>
                 </div>
                 <div v-if="bus.etaMinutes !== null" class="text-right flex-shrink-0 ml-2">

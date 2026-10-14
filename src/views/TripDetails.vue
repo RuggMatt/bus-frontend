@@ -9,6 +9,7 @@ import { LOCAL_AGENCY } from '../utils/routes';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
+import BusLink from '../components/BusLink.vue';
 import { tripPath } from '../composables/useStopArrivals';
 import { computed, ref } from 'vue';
 
@@ -316,7 +317,9 @@ const mapPaths = computed(() => {
           {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
         </div>
         <div class="text-body-small">
-          Trip {{ tripId }}
+          Trip {{ tripId }}<template v-if="latestTripPoint">
+            &middot; <BusLink :bus="latestTripPoint.bus" />
+          </template>
         </div>
       </div>
       <TransitMap

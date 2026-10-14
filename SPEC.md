@@ -16,6 +16,8 @@ Scripts:
 - `npm run lint`, which lints `src/` and `tests/`
 - `npm test`, which runs `vitest run`
 
+The dev server proxies `/bus/…` and `/bus.db` to production (`vite.config.js`). Its pattern must not catch the app's own `/buses/…` pages.
+
 Environment, from `.env` (see `.env.example`):
 - `VITE_APP_API_URL`: the bus-data-collection backend
 - `VITE_APP_SODA_APP_TOKEN`: the City of Edmonton open data token
@@ -25,12 +27,17 @@ Environment, from `.env` (see `.env.example`):
 
 ### Backend (`VITE_APP_API_URL`)
 
+The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://localhost:3000/openapi.json`). Check it before adding a backend call, as it has endpoints the app doesn't use yet. Errors are plain text. CORS only allows `bus.mattschlosser.me` and `localhost`.
+
 | Endpoint | Used for |
 | --- | --- |
 | `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `timestamp` (epoch s), `bearing`, `speed` (m/s) |
 | `/bus/trips/:tripId` | Recent recorded positions for a trip (trip page) |
 | `/bus/electric`, `/bus/hydrogen` | Bus finders |
 | `/bus/stats/{electric,hydrogen}/{hourly,daily}`, `/bus/stats/disk` | Stats and status pages |
+| `/bus/:busId` | One bus (bus page): `latest` position, `firstSeen`/`lastSeen` (epoch s), and `active` (reported in the last 2 minutes). 404 if never seen. Bus ids are usually numbers, but not always |
+| `/bus/:busId/recent-trips?hours=&limit=` | A bus's trips, newest first (bus page): `trip`, `start`/`end` (first and last position, epoch s), `points`, `avgSpeed`/`maxSpeed`. `hours` up to 168 (default 24), `limit` up to 200 (default 50). A trip splits after a 30 min gap, so a trip id run on several days appears once per day. Out-of-service stretches have an empty or null `trip` |
+| `/bus/:date/:time[/:spread]`, `/bus/stats/speed[/:bus]`, `/bus.db` | Not used yet: positions around an Edmonton time, daily speeds, and the whole SQLite database |
 
 `/bus/now` is a snapshot the backend takes about every 60 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
 
@@ -88,6 +95,9 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
 | `['service-dates', routeId, serviceIds]` | Calendar dates for a route's services, `staleTime: Infinity` |
+| `['bus', busId]` | `/bus/:busId` |
+| `['bus-recent-trips', busId]` | `/bus/:busId/recent-trips`, a week back |
+| `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
 
 ## Pages
 
@@ -96,7 +106,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - One `navSections` list feeds both menus. Items with a `tab` (Buses, Stops, Routes) are the main sections. The rest go under More on mobile.
 - **Desktop:** a permanent sidebar, collapsed to icons (a rail) by default, with tooltips while railed. A Collapse/expand item at the bottom toggles it.
 - **Mobile:** bottom tabs (Buses, Stops, Routes, More) with large 32px icons in a 76px bar and no sidebar. More opens a bottom sheet with the other pages. The Status page stays out of both menus.
-- The selected tab comes from the path, so detail pages light up their section: `/stops/:id` → Stops, `/routes/:id` and `/trips/:id` → Routes, anything else but `/` → More. Buttons and items with `to` get an explicit `active`, because Vuetify otherwise uses the link's exact match.
+- The selected tab comes from the path, so detail pages light up their section: `/buses/:id` → Buses, `/stops/:id` → Stops, `/routes/:id` and `/trips/:id` → Routes, anything else but `/` → More. Buttons and items with `to` get an explicit `active`, because Vuetify otherwise uses the link's exact match.
 - Detail pages have no back button. Mobile relies on the browser's back gesture.
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
@@ -168,13 +178,21 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - There are no summary cards. The route id, the type (always bus) and the active-bus count were redundant and were removed.
 
 ### Trip details (`/trips/:tripId`, `TripDetails.vue`)
-- **Heading:** the route header pattern (a large badge, the route's long name as the title, and a chevron), linking to `/routes/:id?direction=` with the trip's direction. Under it, small subtext: the headsign, the service days, the start and end times, and "Trip N".
+- **Heading:** the route header pattern (a large badge, the route's long name as the title, and a chevron), linking to `/routes/:id?direction=` with the trip's direction. Under it, small subtext: the headsign, the service days, the start and end times, and "Trip N · Bus N" (the bus from the latest recorded position, linking to the bus page).
 - A map (`TransitMap.vue`) with the route shape, stops coloured by lateness (tooltip: name, time, status), and the bus's latest recorded position as a bus pin. Stop colours follow `scheduleStatus`, so they match the chips. It fits once per trip, so the 60 s refetch doesn't re-zoom it. Tapping a stop opens its stop page.
 - **Stops** are rows in one outlined card, like the stop page's cards (no `v-list`, so nothing gets clamped on mobile):
   - left: the stop name (wraps) and "Stop N"
   - right: the scheduled time, large, and when there's a recorded position within 1 km, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
   - Tapping a row expands it to show the other routes serving the stop (as badge chips) and a full-width "Stop details" button.
 - Each stop's estimate is worked out once per render in `stopRows`, which the list and the map share.
+
+### Bus details (`/buses/:busId`, `BusDetailsPage.vue`)
+- Reached from any bus id (`BusLink`, see Shared UI).
+- **Heading:** "Bus N", a "Live" chip while `active`, otherwise "Last seen 3h 5m ago" (amber, grey past an hour), an Electric chip for 8000–8999, and "Tracked since" the first sighting.
+- A map (`TransitMap` with `showAge` and `followBus`) of the bus's latest position, with the route line and stops of its current trip, or the last trip it ran if it's out of service. It centres on the bus at zoom 16 and flies to it whenever the position changes. The pin's age badge goes amber past 5 minutes, and past an hour the badge and pin go grey.
+- `['bus', busId]` refetches with `nextBusRefreshDelay` while the bus is active, and every 60 s otherwise. Recent trips refetch when `lastSeen` changes.
+- **Recent trips:** the last week (`hours=168`), grouped under Today / Yesterday / "Monday, Oct 12" (`tripDayLabel`, Edmonton days). Each row is a route badge and long name, the headsign, and the first-to-last seen times (`formatTripTimes`). The running trip ends in "now" with a Now chip. Rows open `/trips/:id`, which shows the trip's latest run, not necessarily this one. Trips not in the current feed show "Trip N", and out-of-service stretches show "Not in service" without a link.
+- No record of the bus shows "Bus N hasn't been seen".
 
 ### Others
 - Electric and hydrogen bus finders and stats, the status page (disk stats), and About.
@@ -183,11 +201,15 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 - **`TransitMap.vue`**: the Leaflet map for the route and trip pages. Props:
   - `stops`: `{ stop_id, stop_name, lat, lon, color?, tooltip? }`. Drawn on a canvas, and tapping one opens `/stops/:id`
-  - `buses`: `Bus[]` as `createBusIcon` pins, with no age badges. Tapping one opens its trip
+  - `buses`: `Bus[]` as `createBusIcon` pins, with no age badges. Tapping one opens its trip, if it's on one
   - `paths`: route lines, under the stops
   - `fitKey`: the map fits the stops and lines once per key, so data refreshes don't undo the user's panning
+  - `showAge`: label pins with their report age, ticking every second
+  - `followBus`: centre on the first bus and fly to it as it moves, instead of fitting the stops
 
   Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
+- **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
+- **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).
 - **`RouteBadge.vue`**: the only way to show a route number. A filled primary pill showing `routeNumber(routeId)`, in sizes `small`, `default` and `large`. Attributes pass through to the root, so callers can add `style` and `class`.
 - **Full-width actions** use `<v-btn block variant="tonal" color="primary">`, as with "Trip details" and "Stop details".
 - **Route header pattern:** a badge, the long name, and an `mdi-chevron-right` to the route page, in a `.route-header` link with a hover tint.
