@@ -1,20 +1,10 @@
 <template>
   <v-app>
-    <v-app-bar app>
-      <v-app-bar-nav-icon variant="text" @click.stop="toggleDrawer" />
-      <v-app-bar-title>
-        Edmonton Bus Data
-      </v-app-bar-title>
-    </v-app-bar>
-    <v-navigation-drawer
-      :model-value="mobile ? drawer : true"
-      :rail="railed"
-      @update:model-value="drawer = $event"
-    >
+    <v-navigation-drawer v-if="!mobile" permanent :rail="rail">
       <v-list nav>
         <template v-for="(section, index) in navSections" :key="index">
           <v-divider v-if="index > 0" />
-          <v-list-subheader v-if="section.title && !railed">
+          <v-list-subheader v-if="section.title && !rail">
             {{ section.title }}
           </v-list-subheader>
           <v-list-item
@@ -23,37 +13,93 @@
             nav
             :to="item.to"
             :prepend-icon="item.icon"
+            :title="item.title"
+            :active="item.tab ? activeTab === item.tab : undefined"
           >
-            {{ item.title }}
-            <v-tooltip activator="parent" location="end" :disabled="!railed">
+            <v-tooltip activator="parent" location="end" :disabled="!rail">
               {{ item.title }}
             </v-tooltip>
           </v-list-item>
         </template>
       </v-list>
+      <template #append>
+        <v-list nav>
+          <v-list-item
+            nav
+            :prepend-icon="rail ? 'mdi-chevron-right' : 'mdi-chevron-left'"
+            title="Collapse"
+            @click="rail = !rail"
+          >
+            <v-tooltip activator="parent" location="end" :disabled="!rail">
+              Expand
+            </v-tooltip>
+          </v-list-item>
+        </v-list>
+      </template>
     </v-navigation-drawer>
-    <v-main app>
+    <v-main>
       <router-view />
     </v-main>
+    <template v-if="mobile">
+      <v-bottom-navigation grow :model-value="activeTab">
+        <v-btn
+          v-for="item in tabItems"
+          :key="item.tab"
+          :value="item.tab"
+          :to="item.to"
+          :active="activeTab === item.tab"
+        >
+          <v-icon :icon="item.icon" />
+          {{ item.title }}
+        </v-btn>
+        <v-btn value="more" :active="activeTab === 'more'" @click="moreOpen = true">
+          <v-icon icon="mdi-dots-horizontal" />
+          More
+        </v-btn>
+      </v-bottom-navigation>
+      <v-bottom-sheet v-model="moreOpen">
+        <v-card class="rounded-t-lg">
+          <v-list nav>
+            <template v-for="(section, index) in moreSections" :key="index">
+              <v-divider v-if="index > 0" />
+              <v-list-subheader v-if="section.title">
+                {{ section.title }}
+              </v-list-subheader>
+              <v-list-item
+                v-for="item in section.items"
+                :key="item.to"
+                nav
+                :to="item.to"
+                :prepend-icon="item.icon"
+                :title="item.title"
+                @click="moreOpen = false"
+              />
+            </template>
+          </v-list>
+        </v-card>
+      </v-bottom-sheet>
+    </template>
   </v-app>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { useDisplay } from 'vuetify';
 
 const { mobile } = useDisplay();
-// mobile slides the drawer in and out, desktop keeps it open and collapses it to icons
-const drawer = ref(false);
+const route = useRoute();
+// desktop keeps the drawer open and collapses it to icons, mobile uses bottom tabs instead
 const rail = ref(true);
-const railed = computed(() => !mobile.value && rail.value);
+const moreOpen = ref(false);
 
+// items with a tab are the main sections, the rest go under "More" on mobile
 const navSections = [
   {
     items: [
-      { title: 'Home', to: '/', icon: 'mdi-home' },
-      { title: 'Bus Routes', to: '/routes', icon: 'mdi-bus' },
-      { title: 'Bus Stops', to: '/stops', icon: 'mdi-bus-stop' },
+      { title: 'Buses', to: '/', icon: 'mdi-bus', tab: 'buses' },
+      { title: 'Stops', to: '/stops', icon: 'mdi-bus-stop', tab: 'stops' },
+      { title: 'Routes', to: '/routes', icon: 'mdi-routes', tab: 'routes' },
     ],
   },
   {
@@ -75,13 +121,19 @@ const navSections = [
   },
 ];
 
-const toggleDrawer = () => {
-  if (mobile.value) {
-    drawer.value = !drawer.value;
-  } else {
-    rail.value = !rail.value;
-  }
-};
+const tabItems = navSections.flatMap((section) => section.items).filter((item) => item.tab);
+const moreSections = navSections
+  .map((section) => ({ ...section, items: section.items.filter((item) => !item.tab) }))
+  .filter((section) => section.items.length > 0);
+
+// by path, so detail pages light up their section's tab (trips belong to routes)
+const activeTab = computed(() => {
+  const path = route.path;
+  if (path === '/') return 'buses';
+  if (path.startsWith('/stops')) return 'stops';
+  if (path.startsWith('/routes') || path.startsWith('/trips')) return 'routes';
+  return 'more';
+});
 </script>
 <style>
 /* shared elements morph between pages, see utils/viewTransition.js */
