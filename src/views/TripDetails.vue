@@ -1,8 +1,11 @@
 <script setup>
 // @ts-check
 import { useQuery } from '@tanstack/vue-query';
-import { getRecentTripData, getTrip, getBusStopTimes } from '../api';
+import { getRecentTripData, getTrip, getBusStopTimes, getStopRoutes } from '../api';
 import { useStops } from '../composables/useStops';
+import { useRoutes } from '../composables/useRoutes';
+import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
+import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import 'leaflet/dist/leaflet';
 import 'leaflet';
@@ -35,6 +38,7 @@ const props = defineProps({
 })
 
 const { keyedStops } = useStops();
+const { keyedroutes } = useRoutes();
 
 const { data, error, isLoading } = useQuery({
     queryKey: ['trip', props.tripId],
@@ -206,7 +210,8 @@ function formatSubtitle(stop) {
 function convertUnixEpochToTime(unixEpoch) {
     if (!unixEpoch) return null;
     const date = new Date(unixEpoch * 1000);
-    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    // schedules are in Edmonton time, so show estimates the same way wherever the viewer is
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'America/Edmonton' });
 }
 
 const startTime = computed(() => {
@@ -235,17 +240,11 @@ const weekdayLabel = computed(() => {
 function getTimeDiffMinutes(stop) {
     const estimatedEpoch = estimatedActualArrivalTime(stop.stop_id);
     if (estimatedEpoch === null) return null;
-    if (!stop.arrival_time_fixed) return null;
-    const parts = stop.arrival_time_fixed.split(':');
-    const scheduledSecondsFromMidnight =
-        parseInt(parts[0] || '0', 10) * 3600 +
-        parseInt(parts[1] || '0', 10) * 60 +
-        parseInt(parts[2] || '0', 10);
-    const estimatedDate = new Date(estimatedEpoch * 1000);
-    const midnight = new Date(estimatedDate);
-    midnight.setHours(0, 0, 0, 0);
-    const scheduledEpoch = midnight.getTime() / 1000 + scheduledSecondsFromMidnight;
-    return Math.round((estimatedEpoch - scheduledEpoch) / 60);
+    if (!stop.arrival_time) return null;
+    // compare in Edmonton time, as the viewer's midnight can be hours off the schedule's
+    const estimatedSeconds = edmontonNow(new Date(estimatedEpoch * 1000)).secondsSinceMidnight;
+    const scheduledSeconds = scheduledSecondsNear(stop.arrival_time, estimatedSeconds);
+    return Math.round((estimatedSeconds - scheduledSeconds) / 60);
 }
 
 /**
@@ -263,6 +262,30 @@ function hasTimeDiff(stop) {
 function getTimeDiffValue(stop) {
     return getTimeDiffMinutes(stop) ?? 0;
 }
+
+// a loop can visit the same stop twice, so rows are told apart by their sequence
+/** @type {import('vue').Ref<string | null>} */
+const expandedSequence = ref(null);
+
+const expandedStopId = computed(
+    () => routeData.value?.find((stop) => stop.stop_sequence === expandedSequence.value)?.stop_id ?? null,
+);
+
+/** @param {BusStopTime} stop */
+function toggleStop(stop) {
+    expandedSequence.value = expandedSequence.value === stop.stop_sequence ? null : stop.stop_sequence;
+}
+
+const { data: stopRoutes, isLoading: stopRoutesLoading, isError: stopRoutesError } = useQuery({
+    queryKey: computed(() => ['stop-routes', expandedStopId.value]),
+    queryFn: () => getStopRoutes(/** @type {string} */ (expandedStopId.value)),
+    enabled: () => !!expandedStopId.value,
+    staleTime: Infinity,
+});
+
+const otherRoutes = computed(() =>
+    (stopRoutes.value ?? []).filter((route) => route.route_id !== tripData.value?.route_id),
+);
 
 /** @type {import('leaflet').Map | null} */
 let map = null;
@@ -439,13 +462,28 @@ onBeforeUnmount(() => {
     </div>
     <div v-else>
       <h1>{{ tripData?.trip_headsign }} &mdash; {{ weekdayLabel }}<span v-if="startTime && endTime">, {{ startTime }} &ndash; {{ endTime }}</span></h1>
+      <v-btn
+        v-if="tripData?.route_id"
+        :to="`/routes/${tripData.route_id}`"
+        variant="tonal"
+        color="primary"
+        prepend-icon="mdi-bus"
+        append-icon="mdi-chevron-right"
+        class="route-link mt-2"
+      >
+        <span class="text-truncate">
+          Route {{ routeNumber(tripData.route_id) }}<template v-if="keyedroutes[tripData.route_id]">&nbsp;&middot; {{ keyedroutes[tripData.route_id].route_long_name }}</template>
+        </span>
+      </v-btn>
       <div ref="tripMapEl" class="trip-map mt-3" />
       <v-list class="mt-3">
         <v-list-item
           v-for="stop in routeData"
-          :key="stop.stop_id"
+          :key="stop.stop_sequence"
           :title="keyedStops[stop.stop_id]?.stop_name || stop.stop_id"
+          :active="expandedSequence === stop.stop_sequence"
           prepend-icon="mdi-bus-stop"
+          @click="toggleStop(stop)"
         >
           <template #subtitle>
             {{ formatSubtitle(stop) }}
@@ -455,6 +493,56 @@ onBeforeUnmount(() => {
               <span v-else class="text-info ml-1">On Time</span>
             </template>
           </template>
+          <template #append>
+            <v-icon :icon="expandedSequence === stop.stop_sequence ? 'mdi-chevron-up' : 'mdi-chevron-down'" />
+          </template>
+          <v-expand-transition>
+            <div v-if="expandedSequence === stop.stop_sequence" class="text-body-medium pt-2" @click.stop>
+              <div class="text-medium-emphasis">
+                Stop {{ keyedStops[stop.stop_id]?.stop_code || stop.stop_id }}
+              </div>
+              <div class="mt-2">
+                Also served by
+              </div>
+              <v-progress-circular
+                v-if="stopRoutesLoading"
+                indeterminate
+                size="20"
+                width="2"
+                class="mt-1"
+              />
+              <div v-else-if="stopRoutesError" class="text-error">
+                Routes for this stop could not be loaded.
+              </div>
+              <div v-else-if="!otherRoutes.length" class="text-medium-emphasis">
+                No other routes
+              </div>
+              <div v-else class="mt-1">
+                <v-chip
+                  v-for="route in otherRoutes"
+                  :key="route.route_id"
+                  :to="`/routes/${route.route_id}`"
+                  size="small"
+                  class="mr-2 mb-2"
+                >
+                  <b class="mr-1">{{ routeNumber(route.route_id) }}</b>
+                  {{ route.route_long_name }}
+                  <span v-if="route.agency_name && route.agency_name !== LOCAL_AGENCY" class="text-medium-emphasis ml-1">
+                    &middot; {{ route.agency_name }}
+                  </span>
+                </v-chip>
+              </div>
+              <v-btn
+                :to="`/stops/${encodeURIComponent(stop.stop_id)}`"
+                block
+                variant="tonal"
+                color="primary"
+                class="mt-2"
+              >
+                Stop details
+              </v-btn>
+            </div>
+          </v-expand-transition>
         </v-list-item>
       </v-list>
     </div>
@@ -462,6 +550,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* long route names truncate instead of pushing past the screen edge */
+.route-link {
+    max-width: 100%;
+}
+
+.route-link :deep(.v-btn__content) {
+    min-width: 0;
+}
+
 .trip-map {
     width: 100%;
     height: 45vh;
