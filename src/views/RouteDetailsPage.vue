@@ -720,7 +720,7 @@ function openTripCell(event) {
   overflow-x: auto;
   position: sticky;
   scrollbar-width: none;
-  top: var(--v-layout-top, 64px);
+  top: var(--v-layout-top, 0px);
   z-index: 2;
 }
 

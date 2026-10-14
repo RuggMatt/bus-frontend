@@ -92,7 +92,12 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ## Pages
 
 ### App shell (`App.vue`)
-- On mobile, the nav drawer slides in and out. On desktop it stays open and the menu button collapses it to icons (a rail), with tooltips while railed.
+- There's no app bar, so `--v-layout-top` is 0. Pages that size to the screen subtract `--v-layout-top` and `--v-layout-bottom`.
+- One `navSections` list feeds both menus. Items with a `tab` (Buses, Stops, Routes) are the main sections. The rest go under More on mobile.
+- **Desktop:** a permanent sidebar, collapsed to icons (a rail) by default, with tooltips while railed. A Collapse/expand item at the bottom toggles it.
+- **Mobile:** bottom tabs (Buses, Stops, Routes, More) and no sidebar. More opens a bottom sheet with the other pages. The Status page stays out of both menus.
+- The selected tab comes from the path, so detail pages light up their section: `/stops/:id` → Stops, `/routes/:id` and `/trips/:id` → Routes, anything else but `/` → More. Buttons and items with `to` get an explicit `active`, because Vuetify otherwise uses the link's exact match.
+- Detail pages have no back button. Mobile relies on the browser's back gesture.
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
 - Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away.
@@ -156,7 +161,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - In the timetable, PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
 - The timetable's header row sticks to the page just below the app bar, and the stop column sticks to the left. The page scrolls vertically and only the table's box scrolls sideways, so content added below the table scrolls normally.
   - CSS won't let a header inside the box stick to the page. Setting `overflow-x: auto`, `scroll` or `hidden` turns the other axis's `visible` into `auto`. That makes the box a scroll container in both directions, and sticky cells stick to it instead of the page. Only `clip` leaves `overflow-y` alone, but `clip` can't scroll.
-  - So `useStickyTableHeader` (`src/composables/`) keeps a copy of the header row (`TimetableHeaderRow.vue`) in a sticky element above the box, at `top: var(--v-layout-top)`. Its columns are sized from the real header, which stays in the table with `visibility: hidden` to keep the layout. The copy's sideways scroll is kept in step with the box in both directions. The box is pulled up under the copy by the copy's height.
+  - So `useStickyTableHeader` (`src/composables/`) keeps a copy of the header row (`TimetableHeaderRow.vue`) in a sticky element above the box, at `top: var(--v-layout-top)` (0, as there's no app bar). Its columns are sized from the real header, which stays in the table with `visibility: hidden` to keep the layout. The copy's sideways scroll is kept in step with the box in both directions. The box is pulled up under the copy by the copy's height.
   - The copy and the box share a wrapper, so the header stops sticking where the table ends.
   - The columns are re-measured when the table resizes, or when its trips or stops change.
   - The table uses separate borders, because collapsed borders don't move with sticky cells. Its styles are in an unscoped `<style>` block under `.timetable-` classes, so they reach the header row component.

@@ -321,7 +321,7 @@ const nearbyStops = computed(() => {
 <style scoped>
 .stops-layout {
   display: flex;
-  height: calc(100dvh - var(--v-layout-top, 64px));
+  height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
   overflow: hidden;
   width: 100%;
 }
