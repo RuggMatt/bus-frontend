@@ -168,10 +168,13 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - There are no summary cards. The route id, the type (always bus) and the active-bus count were redundant and were removed.
 
 ### Trip details (`/trips/:tripId`, `TripDetails.vue`)
-- The headsign, the service days and the start and end times.
-- A route button: a small badge and the long name, linking to `/routes/:id`.
-- A map (`TransitMap.vue`) with the route shape, stops coloured by lateness (tooltip: name, time, status), and the bus's latest recorded position as a bus pin. It fits once per trip, so the 60 s refetch doesn't re-zoom it. Tapping a stop opens its stop page.
-- A stop list with scheduled and estimated times. Tapping a stop expands it to show its code, the other routes serving it (as badge chips), and a "Stop details" button.
+- **Heading:** the route header pattern (a large badge, the route's long name as the title, and a chevron), linking to `/routes/:id?direction=` with the trip's direction. Under it, small subtext: the headsign, the service days, the start and end times, and "Trip N".
+- A map (`TransitMap.vue`) with the route shape, stops coloured by lateness (tooltip: name, time, status), and the bus's latest recorded position as a bus pin. Stop colours follow `scheduleStatus`, so they match the chips. It fits once per trip, so the 60 s refetch doesn't re-zoom it. Tapping a stop opens its stop page.
+- **Stops** are rows in one outlined card, like the stop page's cards (no `v-list`, so nothing gets clamped on mobile):
+  - left: the stop name (wraps) and "Stop N"
+  - right: the scheduled time, large, and when there's a recorded position within 1 km, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
+  - Tapping a row expands it to show the other routes serving the stop (as badge chips) and a full-width "Stop details" button.
+- Each stop's estimate is worked out once per render in `stopRows`, which the list and the map share.
 
 ### Others
 - Electric and hydrogen bus finders and stats, the status page (disk stats), and About.
