@@ -6,6 +6,7 @@ import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
 import RouteBadge from '../components/RouteBadge.vue';
+import { serviceRunsOnDay, WEEKDAYS } from '../utils/serviceTime';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -81,13 +82,9 @@ const DAYS = [
 ];
 
 /**
- * @type {Array<'sunday'|'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'>}
- */
-const DAY_JS_INDEX = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-/**
  * @type {import('vue').Ref<'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'>}
  */
-const selectedDay = ref(DAY_JS_INDEX[new Date().getDay()] ?? 'monday');
+const selectedDay = ref(WEEKDAYS[new Date().getDay()] ?? 'monday');
 const selectedDirection = ref('0');
 const selectedEffectiveDate = ref('');
 
@@ -172,29 +169,6 @@ const directionLabels = computed(() => {
   });
   return labels;
 });
-
-// --- Day-of-week filtering via service_id encoding (last 7 digits = MTWRFSU, 1=active 0=inactive) ---
-const DAY_TO_SERVICE_ID_INDEX = {
-  monday:    0,
-  tuesday:   1,
-  wednesday: 2,
-  thursday:  3,
-  friday:    4,
-  saturday:  5,
-  sunday:    6,
-};
-
-/**
- * Returns true if the given service_id indicates the service runs on the given day.
- * The last 7 characters encode MTWRFSU as '1' (runs) or '0' (doesn't run).
- * @param {string} serviceId
- * @param {'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'} day - e.g. 'monday'
- */
-function serviceRunsOnDay(serviceId, day) {
-  const index = DAY_TO_SERVICE_ID_INDEX[day];
-  if (index === undefined || serviceId.length < 7) return true; // fallback: show if we can't determine
-  return serviceId[serviceId.length - 7 + index] === '1';
-}
 
 // --- Trips for selected day + direction ---
 const dayTrips = computed(() => {

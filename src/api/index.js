@@ -549,6 +549,46 @@ export const getStopRoutes = async (stopId) => {
 };
 
 /**
+ * @typedef {Object} StopNextArrival
+ * @property {string} route_id
+ * @property {string} agency_name
+ * @property {string} service_id
+ * @property {string} next_time HH:MM:SS, the earliest arrival for this route and service from the given time
+ */
+
+/**
+ * Fetches the earliest arrival at a stop from a time of day, for each route and
+ * service pattern in the currently-active GTFS feed. Which days each service runs
+ * is left to the caller.
+ * @param {string} stopId
+ * @param {string} fromTime HH:MM:SS, where HH may be 24 or more
+ * @returns {Promise<StopNextArrival[]>}
+ */
+export const getStopNextArrivals = async (stopId, fromTime) => {
+  const today = edmontonNow().dateString;
+  // Escape single quotes to prevent SoQL injection
+  const safeStopId = String(stopId).replace(/'/g, "''");
+  const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = '${safeStopId}' AND arrival_time >= '${fromTime}'`;
+  const group = "route_id,agency_name,service_id";
+  const params = new URLSearchParams({
+    $where: where,
+    $select: `${group},min(arrival_time) as next_time`,
+    $group: group,
+    $limit: "1000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
  * Fetches stop times for multiple trips in a single request.
  * @param {string[]} tripIds
  * @returns {Promise<BusStopTime[]>}

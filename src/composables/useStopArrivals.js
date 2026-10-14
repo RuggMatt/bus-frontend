@@ -1,8 +1,9 @@
 import { useQueries, useQuery } from "@tanstack/vue-query";
 import { computed, ref } from "vue";
-import { getAllBuses, getStopSchedule, getTrip } from "../api";
+import { getAllBuses, getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
 import { alongRouteMetres, distanceMetres } from "../utils/geo";
-import { edmontonNow, scheduledSecondsNear, scheduleWindow } from "../utils/serviceTime";
+import { edmontonNow, scheduledSecondsNear, scheduleWindow, secondsToTime } from "../utils/serviceTime";
+import { nextArrivalByRoute } from "../utils/nextArrival";
 import { nextBusRefreshDelay } from "../utils/busRefresh";
 
 // how far either side of now a trip can be scheduled and still be matched to a live bus
@@ -13,6 +14,9 @@ const WINDOW_STEP_SECONDS = 15 * 60;
 const PASSED_LIMIT_METRES = 500;
 // average pace including stops, used to turn a distance into a time
 export const AVERAGE_SPEED_METRES_PER_SECOND = 20 / 3.6;
+const DAY_SECONDS = 24 * 60 * 60;
+// trips from the previous service day can run until 30:00:00, i.e. 6 AM
+const LATEST_PREVIOUS_DAY_SECONDS = 6 * 60 * 60;
 
 /**
  * @typedef {Object} StopBus
@@ -37,7 +41,9 @@ export const AVERAGE_SPEED_METRES_PER_SECOND = 20 / 3.6;
  * @property {string} route_id
  * @property {string} route_long_name
  * @property {string} agency_name
- * @property {StopBus[]} buses Nearest first
+ * @property {StopBus[]} buses Nearest first; empty for a route with no bus on the way
+ * @property {import("../utils/nextArrival").NextArrival | null} nextArrival When the next bus is
+ *   scheduled, for a route with no bus on the way; null when live, or nothing is scheduled in the coming week
  */
 
 /**
@@ -53,7 +59,8 @@ const byNearest = (a, b) =>
   Number(a.passed === true) - Number(b.passed === true) || a.distance - b.distance;
 
 /**
- * The buses currently running a trip that serves a stop, grouped by route.
+ * Every route serving a stop: those with buses currently on the way first, nearest
+ * first, then the rest by when their next bus is scheduled.
  *
  * @param {import("vue").Ref<import("../api").BusStop | null>} stop
  * @param {import("vue").Ref<Date | null>} at The moment to look at. Only null (now) is supported.
@@ -138,7 +145,7 @@ export const useStopArrivals = (stop, at = ref(null)) => {
   });
 
   /** @type {import("vue").ComputedRef<StopRouteGroup[]>} */
-  const routeGroups = computed(() => {
+  const liveGroups = computed(() => {
     if (!stop.value) return [];
     const stopPoint = [Number(stop.value.stop_lat), Number(stop.value.stop_lon)];
     const nowSeconds = edmontonNow().secondsSinceMidnight;
@@ -180,6 +187,7 @@ export const useStopArrivals = (stop, at = ref(null)) => {
         route_long_name: entry.route_long_name,
         agency_name: entry.agency_name,
         buses: [],
+        nextArrival: null,
       };
       group.buses.push({
         bus: bus.bus,
@@ -203,6 +211,77 @@ export const useStopArrivals = (stop, at = ref(null)) => {
       .map((group) => ({ ...group, buses: group.buses.sort(byNearest) }))
       .sort((a, b) => byNearest(a.buses[0], b.buses[0]));
   });
+
+  // --- routes with no bus on the way ---
+
+  const { data: stopRoutes } = useQuery({
+    // shared with the trip page
+    queryKey: computed(() => ["stop-routes", stopId.value]),
+    queryFn: () => getStopRoutes(stopId.value),
+    enabled: () => !!stopId.value && isLive.value,
+    staleTime: Infinity,
+  });
+
+  const minute = computed(() => Math.floor(now.value.secondsSinceMidnight / 60) * 60);
+
+  /**
+   * @param {() => string} fromTime
+   * @param {() => boolean} [enabled]
+   * @param {() => unknown[]} [keyParts] what the time depends on, beyond the stop and the date
+   */
+  const nextArrivalsFrom = (fromTime, enabled = () => true, keyParts = () => [fromTime()]) =>
+    useQuery({
+      queryKey: computed(() => ["stop-next-arrivals", stopId.value, now.value.dateString, ...keyParts()]),
+      queryFn: () => getStopNextArrivals(stopId.value, fromTime()),
+      enabled: () => !!stopId.value && isLive.value && enabled(),
+      staleTime: Infinity,
+      // keep the times on screen while the next minute loads
+      placeholderData: (previous, previousQuery) =>
+        previousQuery?.queryKey[1] === stopId.value ? previous : undefined,
+    });
+
+  const { data: todayRows } = nextArrivalsFrom(() => secondsToTime(minute.value));
+  const { data: afterMidnightRows } = nextArrivalsFrom(
+    () => secondsToTime(minute.value + DAY_SECONDS),
+    () => minute.value < LATEST_PREVIOUS_DAY_SECONDS,
+  );
+  const { data: firstOfDayRows } = nextArrivalsFrom(() => "00:00:00", undefined, () => []);
+
+  const nextArrivals = computed(() =>
+    nextArrivalByRoute(
+      {
+        today: todayRows.value,
+        afterMidnight: minute.value < LATEST_PREVIOUS_DAY_SECONDS ? afterMidnightRows.value : [],
+        firstOfDay: firstOfDayRows.value,
+      },
+      now.value.dateString,
+    ),
+  );
+
+  /** @type {import("vue").ComputedRef<StopRouteGroup[]>} */
+  const quietGroups = computed(() => {
+    const liveKeys = new Set(liveGroups.value.map((group) => group.key));
+    return (stopRoutes.value || [])
+      .map((route) => {
+        const key = `${route.agency_name}|${route.route_id}`;
+        return {
+          key,
+          route_id: route.route_id,
+          route_long_name: route.route_long_name,
+          agency_name: route.agency_name,
+          buses: [],
+          nextArrival: nextArrivals.value.get(key) ?? null,
+        };
+      })
+      .filter((group) => !liveKeys.has(group.key))
+      .sort(
+        (a, b) =>
+          (a.nextArrival?.seconds ?? Infinity) - (b.nextArrival?.seconds ?? Infinity) ||
+          a.route_id.localeCompare(b.route_id, undefined, { numeric: true }),
+      );
+  });
+
+  const routeGroups = computed(() => [...liveGroups.value, ...quietGroups.value]);
 
   return {
     routeGroups,

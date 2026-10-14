@@ -82,3 +82,42 @@ export const scheduledSecondsNear = (time, referenceSeconds) => {
     ? today
     : yesterday;
 };
+
+/** @typedef {'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'} Weekday */
+
+/** @type {Weekday[]} indexed like Date.getDay() */
+export const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+// service_ids end in 7 digits for Monday to Sunday, 1 where the service runs
+const DAY_TO_SERVICE_ID_INDEX = {
+  monday: 0,
+  tuesday: 1,
+  wednesday: 2,
+  thursday: 3,
+  friday: 4,
+  saturday: 5,
+  sunday: 6,
+};
+
+/**
+ * Whether a service runs on a day, from its service_id, e.g. DX-008-Weekday-1-26-09-1111100.
+ * Services whose days can't be read are assumed to run.
+ * @param {string} serviceId
+ * @param {Weekday} day
+ */
+export const serviceRunsOnDay = (serviceId, day) => {
+  const index = DAY_TO_SERVICE_ID_INDEX[day];
+  if (index === undefined || serviceId.length < 7) return true;
+  return serviceId[serviceId.length - 7 + index] === "1";
+};
+
+/**
+ * @param {string} dateString YYYY-MM-DD
+ * @param {number} [days] Days to move forward, or back when negative
+ * @returns {Weekday}
+ */
+export const weekdayOf = (dateString, days = 0) => {
+  const date = new Date(`${dateString}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return WEEKDAYS[date.getUTCDay()];
+};

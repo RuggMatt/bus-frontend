@@ -2,8 +2,10 @@
 import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
 import { transitionLinkClick } from '../utils/viewTransition';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
+import { describeNextArrival } from '../utils/nextArrival';
+import { edmontonNow } from '../utils/serviceTime';
 import RouteBadge from './RouteBadge.vue';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 defineProps({
@@ -38,6 +40,9 @@ defineProps({
 defineEmits(["close", "bus-click"]);
 
 const router = useRouter();
+
+// the day the next-bus labels count from
+const today = computed(() => edmontonNow().dateString);
 
 // only the tapped route's elements are named, as each name must be unique on the page
 /** @type {import('vue').Ref<string | null>} */
@@ -155,7 +160,16 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
           </a>
         </router-link>
         <v-divider />
-        <v-list density="compact" lines="two" class="py-0">
+        <div v-if="!group.buses.length" class="d-flex align-start pa-3 text-body-medium text-medium-emphasis">
+          <v-icon icon="mdi-clock-outline" size="small" class="mr-2 mt-1" />
+          <div>
+            <div>No upcoming arrivals</div>
+            <div class="text-body-small">
+              {{ describeNextArrival(group.nextArrival, today) }}
+            </div>
+          </div>
+        </div>
+        <v-list v-else density="compact" lines="two" class="py-0">
           <TransitionGroup name="arrival">
             <v-list-item
               v-for="bus in group.buses"
