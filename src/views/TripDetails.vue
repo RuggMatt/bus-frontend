@@ -8,8 +8,7 @@ import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
 import { LOCAL_AGENCY } from '../utils/routes';
 import RouteBadge from '../components/RouteBadge.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import 'leaflet/dist/leaflet';
-import 'leaflet';
+import L from '../plugins/leaflet';
 
 /** @typedef {import('../api/index').BusStopTime} BusStopTime */
 

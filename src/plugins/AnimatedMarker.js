@@ -1,3 +1,6 @@
+// extend the app's leaflet instance, not whichever one last set the global L
+import L from './leaflet';
+
 L.AnimatedMarker = L.Marker.extend({
     options: {
       // meters
