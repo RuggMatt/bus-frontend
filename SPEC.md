@@ -95,7 +95,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - There's no app bar, so `--v-layout-top` is 0. Pages that size to the screen subtract `--v-layout-top` and `--v-layout-bottom`.
 - One `navSections` list feeds both menus. Items with a `tab` (Buses, Stops, Routes) are the main sections. The rest go under More on mobile.
 - **Desktop:** a permanent sidebar, collapsed to icons (a rail) by default, with tooltips while railed. A Collapse/expand item at the bottom toggles it.
-- **Mobile:** bottom tabs (Buses, Stops, Routes, More) and no sidebar. More opens a bottom sheet with the other pages. The Status page stays out of both menus.
+- **Mobile:** bottom tabs (Buses, Stops, Routes, More) with large 32px icons in a 76px bar and no sidebar. More opens a bottom sheet with the other pages. The Status page stays out of both menus.
 - The selected tab comes from the path, so detail pages light up their section: `/stops/:id` → Stops, `/routes/:id` and `/trips/:id` → Routes, anything else but `/` → More. Buttons and items with `to` get an explicit `active`, because Vuetify otherwise uses the link's exact match.
 - Detail pages have no back button. Mobile relies on the browser's back gesture.
 

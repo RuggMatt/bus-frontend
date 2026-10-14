@@ -41,7 +41,7 @@
       <router-view />
     </v-main>
     <template v-if="mobile">
-      <v-bottom-navigation grow :model-value="activeTab">
+      <v-bottom-navigation grow :height="76" :model-value="activeTab">
         <v-btn
           v-for="item in tabItems"
           :key="item.tab"
@@ -49,11 +49,11 @@
           :to="item.to"
           :active="activeTab === item.tab"
         >
-          <v-icon :icon="item.icon" />
+          <v-icon :icon="item.icon" size="32" />
           {{ item.title }}
         </v-btn>
         <v-btn value="more" :active="activeTab === 'more'" @click="moreOpen = true">
-          <v-icon icon="mdi-dots-horizontal" />
+          <v-icon icon="mdi-dots-horizontal" size="32" />
           More
         </v-btn>
       </v-bottom-navigation>
