@@ -4,8 +4,18 @@ import { createBusIcon } from '../plugins/busIcon';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
+/**
+ * @typedef {Object} MapStop
+ * @property {string} stop_id
+ * @property {string} stop_name
+ * @property {number} lat
+ * @property {number} lon
+ * @property {string} [color] Outline and fill, e.g. how late the bus was there
+ * @property {string} [tooltip] Defaults to the stop name
+ */
+
 const props = defineProps({
-    /** @type {import('vue').PropType<{stop_id: string, stop_name: string, lat: number, lon: number}[]>} */
+    /** @type {import('vue').PropType<MapStop[]>} */
     stops: {
         type: Array,
         default: () => [],
@@ -14,6 +24,16 @@ const props = defineProps({
     buses: {
         type: Array,
         default: () => [],
+    },
+    /** @type {import('vue').PropType<[number, number][][]>} route lines, as [lat, lon] points */
+    paths: {
+        type: Array,
+        default: () => [],
+    },
+    // the map fits its stops once per key, so refreshes don't undo the user's panning
+    fitKey: {
+        type: [String, Number],
+        default: null,
     },
 });
 
@@ -24,6 +44,13 @@ const STOP_STYLE = {
     fillOpacity: 1,
     weight: 2,
 };
+const PATH_STYLE = {
+    color: "#3f51b5",
+    opacity: 0.6,
+    weight: 4,
+};
+// under the stops and buses
+const PATH_PANE_Z_INDEX = 350;
 
 const router = useRouter();
 const mapElement = ref(null);
@@ -31,11 +58,23 @@ const mapElement = ref(null);
 let map = null;
 let stopRenderer = null;
 let stopLayer = null;
+let pathLayer = null;
 let busLayer = null;
 /** @type {Map<number | string, {marker: import('leaflet').Marker, bus: import('../api').Bus}>} */
 const busMarkers = new Map();
-// the map is only fitted to the stops once, so refreshes don't undo the user's panning
 let fitted = false;
+
+const fit = () => {
+    if (fitted || !props.stops.length) {
+        return;
+    }
+    const points = [
+        ...props.stops.map((stop) => [stop.lat, stop.lon]),
+        ...props.paths.flat(),
+    ];
+    map.fitBounds(points, { padding: [24, 24] });
+    fitted = true;
+}
 
 const drawStops = () => {
     if (!map) {
@@ -43,14 +82,24 @@ const drawStops = () => {
     }
     stopLayer.clearLayers();
     for (const stop of props.stops) {
-        L.circleMarker([stop.lat, stop.lon], { ...STOP_STYLE, renderer: stopRenderer })
-            .bindTooltip(stop.stop_name)
+        const color = stop.color ? { color: stop.color, fillColor: stop.color, fillOpacity: 0.95 } : {};
+        L.circleMarker([stop.lat, stop.lon], { ...STOP_STYLE, ...color, renderer: stopRenderer })
+            .bindTooltip(stop.tooltip ?? stop.stop_name)
             .on("click", () => router.push(`/stops/${encodeURIComponent(stop.stop_id)}`))
             .addTo(stopLayer);
     }
-    if (!fitted && props.stops.length) {
-        map.fitBounds(props.stops.map((stop) => [stop.lat, stop.lon]), { padding: [24, 24] });
-        fitted = true;
+    fit();
+}
+
+const drawPaths = () => {
+    if (!map) {
+        return;
+    }
+    pathLayer.clearLayers();
+    for (const path of props.paths) {
+        if (path.length > 1) {
+            L.polyline(path, { ...PATH_STYLE, pane: "pathPane", interactive: false }).addTo(pathLayer);
+        }
     }
 }
 
@@ -78,7 +127,7 @@ const drawBuses = () => {
             busMarkers.set(bus.bus, entry);
         } else {
             entry.marker.setLatLng([bus.lat, bus.long]);
-            // picks up the new bearing and report time
+            // picks up the new bearing
             entry.marker.setIcon(createBusIcon(bus));
         }
         entry.bus = bus;
@@ -98,6 +147,9 @@ const createMap = () => {
     });
     // a long route has a few hundred stops, which are quicker on a canvas
     stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 });
+    map.createPane("pathPane");
+    map.getPane("pathPane").style.zIndex = PATH_PANE_Z_INDEX;
+    pathLayer = L.layerGroup().addTo(map);
     stopLayer = L.layerGroup().addTo(map);
     busLayer = L.layerGroup().addTo(map);
     L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}/?{accessToken}', {
@@ -111,11 +163,17 @@ const createMap = () => {
     }).addTo(map)
 }
 
+// registered first, so a new key's stops are fitted when they're drawn below, not the old ones
+watch(() => props.fitKey, () => {
+    fitted = false;
+});
 watch(() => props.stops, drawStops);
+watch(() => props.paths, drawPaths);
 watch(() => props.buses, drawBuses);
 
 onMounted(() => {
     createMap();
+    drawPaths();
     drawStops();
     drawBuses();
 })
@@ -128,21 +186,22 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="mapElement" class="route-map" />
+  <div ref="mapElement" class="transit-map" />
 </template>
 
 <style scoped>
-.route-map {
+.transit-map {
     border-radius: 12px;
-    height: 360px;
+    /* pages can set their own height */
+    height: var(--transit-map-height, 360px);
     width: 100%;
     /* keeps leaflet's panes underneath the app bar and navigation drawer */
     z-index: 0;
 }
 
 @media (max-width: 599px) {
-    .route-map {
-        height: 280px;
+    .transit-map {
+        height: var(--transit-map-height, 280px);
     }
 }
 </style>

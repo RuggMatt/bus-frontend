@@ -128,7 +128,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
-- A map (`RouteMap.vue`):
+- A map (`TransitMap.vue`, see Shared UI):
   - every stop the route serves, in both directions, from `getRouteStops`. Tapping a stop opens `/stops/:id`
   - the route's live buses as pins (`createBusIcon`), from `useBuses`. They have no report-age badges, because a route's worth of them clutters the map. Tapping a bus opens its trip
   - it fits the stops once, when they first load, so later bus refreshes don't undo the user's panning
@@ -145,7 +145,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Trip details (`/trips/:tripId`, `TripDetails.vue`)
 - The headsign, the service days and the start and end times.
 - A route button: a small badge and the long name, linking to `/routes/:id`.
-- A map with the route shape, stops coloured by lateness, and the bus's latest position.
+- A map (`TransitMap.vue`) with the route shape, stops coloured by lateness (tooltip: name, time, status), and the bus's latest recorded position as a bus pin. It fits once per trip, so the 60 s refetch doesn't re-zoom it. Tapping a stop opens its stop page.
 - A stop list with scheduled and estimated times. Tapping a stop expands it to show its code, the other routes serving it (as badge chips), and a "Stop details" button.
 
 ### Others
@@ -153,6 +153,13 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ## Shared UI
 
+- **`TransitMap.vue`**: the Leaflet map for the route and trip pages. Props:
+  - `stops`: `{ stop_id, stop_name, lat, lon, color?, tooltip? }`. Drawn on a canvas, and tapping one opens `/stops/:id`
+  - `buses`: `Bus[]` as `createBusIcon` pins, with no age badges. Tapping one opens its trip
+  - `paths`: route lines, under the stops
+  - `fitKey`: the map fits the stops and lines once per key, so data refreshes don't undo the user's panning
+
+  Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
 - **`RouteBadge.vue`**: the only way to show a route number. A filled primary pill showing `routeNumber(routeId)`, in sizes `small`, `default` and `large`. Attributes pass through to the root, so callers can add `style` and `class`.
 - **Full-width actions** use `<v-btn block variant="tonal" color="primary">`, as with "Trip details" and "Stop details".
 - **Route header pattern:** a badge, the long name, and an `mdi-chevron-right` to the route page, in a `.route-header` link with a hover tint.

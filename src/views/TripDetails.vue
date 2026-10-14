@@ -7,13 +7,13 @@ import { useRoutes } from '../composables/useRoutes';
 import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
 import { LOCAL_AGENCY } from '../utils/routes';
 import RouteBadge from '../components/RouteBadge.vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import L from '../plugins/leaflet';
+import TransitMap from '../components/TransitMap.vue';
+import { tripPath } from '../composables/useStopArrivals';
+import { computed, ref } from 'vue';
 
 /** @typedef {import('../api/index').BusStopTime} BusStopTime */
 
 
-const mapboxAccessToken = `access_token=${import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN}`;
 const ACTIVE_TRIP_STALE_SECONDS = 300;
 
 /**
@@ -287,23 +287,6 @@ const otherRoutes = computed(() =>
     (stopRoutes.value ?? []).filter((route) => route.route_id !== tripData.value?.route_id),
 );
 
-/** @type {import('leaflet').Map | null} */
-let map = null;
-/** @type {import('leaflet').CircleMarker[]} */
-let stopMarkers = [];
-/** @type {import('leaflet').Polyline | null} */
-let routePolyline = null;
-/** @type {import('leaflet').Marker | null} */
-let busMarker = null;
-const tripMapEl = ref(null);
-
-const busMarkerIcon = L.divIcon({
-    className: 'trip-bus-marker-icon',
-    html: '<div class="trip-bus-marker-badge">🚌</div>',
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-});
-
 /**
  * @param {BusStopTime} stop
  * @returns {string}
@@ -328,128 +311,30 @@ function getStopStatusLabel(stop) {
     return 'On time';
 }
 
-function clearTripMapLayers() {
-    for (const marker of stopMarkers) {
-        marker.remove();
-    }
-    stopMarkers = [];
-    routePolyline?.remove();
-    routePolyline = null;
-    busMarker?.remove();
-    busMarker = null;
-}
+const mapStops = computed(() =>
+    (routeData.value ?? []).flatMap((stop) => {
+        const stopInfo = keyedStops.value?.[stop.stop_id];
+        const lat = Number(stopInfo?.stop_lat);
+        const lon = Number(stopInfo?.stop_lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+        const stopName = stopInfo?.stop_name || stop.stop_id;
+        return [{
+            stop_id: stop.stop_id,
+            stop_name: stopName,
+            lat,
+            lon,
+            color: getStopMarkerColor(stop),
+            tooltip: `${stopName} • ${formatTime(stop.arrival_time_fixed)} • ${getStopStatusLabel(stop)}`,
+        }];
+    }),
+);
 
-function drawTripMap() {
-    const activeMap = map;
-    if (!activeMap) return;
-    clearTripMapLayers();
+const mapBuses = computed(() => (latestTripPoint.value ? [latestTripPoint.value] : []));
 
-    /** @type {[number, number][]} */
-    const boundsPoints = [];
-    const coordinates = tripData.value?.geometry_line?.coordinates || [];
-    const routePathPoints = coordinates.flatMap((segment) =>
-        segment.map(([lon, lat]) => /** @type {[number, number]} */ ([lat, lon])),
-    );
-    if (routePathPoints.length > 1) {
-        routePolyline = L.polyline(routePathPoints, {
-            color: '#263238',
-            opacity: 0.85,
-            weight: 4,
-        }).addTo(activeMap);
-        boundsPoints.push(...routePathPoints);
-    }
-
-    if (routeData.value && keyedStops.value) {
-        for (const stop of routeData.value) {
-            const stopInfo = keyedStops.value?.[stop.stop_id];
-            const lat = Number(stopInfo?.stop_lat);
-            const lon = Number(stopInfo?.stop_lon);
-            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-                continue;
-            }
-            const color = getStopMarkerColor(stop);
-            const marker = L.circleMarker([lat, lon], {
-                radius: 6,
-                color,
-                fillColor: color,
-                fillOpacity: 0.95,
-                weight: 2,
-            }).addTo(activeMap);
-            marker.bindTooltip(
-                `${stopInfo?.stop_name || stop.stop_id} • ${formatTime(stop.arrival_time_fixed)} • ${getStopStatusLabel(stop)}`,
-            );
-            stopMarkers.push(marker);
-            boundsPoints.push([lat, lon]);
-        }
-    }
-
-    const currentPoint = latestTripPoint.value;
-    if (currentPoint) {
-        const currentLat = Number(currentPoint.lat);
-        const currentLon = Number(currentPoint.long);
-        if (Number.isFinite(currentLat) && Number.isFinite(currentLon)) {
-            busMarker = L.marker([currentLat, currentLon], {
-                icon: busMarkerIcon,
-                title: `Bus ${currentPoint.bus}`,
-            }).addTo(activeMap);
-            busMarker.bindTooltip(`Current position: Bus ${currentPoint.bus}`);
-            boundsPoints.push([currentLat, currentLon]);
-        }
-    }
-
-    if (boundsPoints.length > 0) {
-        activeMap.fitBounds(boundsPoints, { padding: [20, 20] });
-    }
-}
-
-onMounted(() => {
-    maybeInitializeMap();
+const mapPaths = computed(() => {
+    const path = tripPath(tripData.value);
+    return path.length ? [path] : [];
 });
-
-function maybeInitializeMap() {
-    if (map || !tripMapEl.value) {
-        return;
-    }
-    if (!mapboxAccessToken) {
-        console.error('Missing Mapbox access token. Set VITE_APP_MAPBOX_ACCESS_TOKEN in .env');
-    }
-    const createdMap = L.map(tripMapEl.value, {
-        center: [53.5150, -113.4757],
-        zoom: 12,
-    });
-    map = createdMap;
-    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?{accessToken}', {
-        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-        maxZoom: 18,
-        minZoom: 10,
-        bounds: [[53.6, -113.7], [53.33, -113.3]],
-        id: 'mapbox/streets-v11',
-        tileSize: 512,
-        zoomOffset: -1,
-        accessToken: mapboxAccessToken,
-    }).addTo(createdMap);
-}
-
-watch([isLoading, error], async () => {
-    if (isLoading.value || error.value) {
-        return;
-    }
-    await nextTick();
-    maybeInitializeMap();
-    map?.invalidateSize();
-    drawTripMap();
-}, { immediate: true });
-
-watch([routeData, keyedStops, tripData, data], () => {
-    drawTripMap();
-});
-
-onBeforeUnmount(() => {
-    clearTripMapLayers();
-    map?.remove();
-    map = null;
-});
-
 
 </script>
 <template>
@@ -475,7 +360,13 @@ onBeforeUnmount(() => {
           {{ keyedroutes[tripData.route_id].route_long_name }}
         </span>
       </v-btn>
-      <div ref="tripMapEl" class="trip-map mt-3" />
+      <TransitMap
+        :stops="mapStops"
+        :buses="mapBuses"
+        :paths="mapPaths"
+        :fit-key="tripId"
+        class="trip-map mt-3"
+      />
       <v-list class="mt-3">
         <v-list-item
           v-for="stop in routeData"
@@ -560,27 +451,6 @@ onBeforeUnmount(() => {
 }
 
 .trip-map {
-    width: 100%;
-    height: 45vh;
-    min-height: 300px;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-:deep(.trip-bus-marker-icon) {
-    background: transparent;
-    border: 0;
-}
-
-:deep(.trip-bus-marker-badge) {
-    align-items: center;
-    background: #ffffff;
-    border: 2px solid #000000;
-    border-radius: 9999px;
-    display: flex;
-    font-size: 18px;
-    height: 28px;
-    justify-content: center;
-    width: 28px;
+    --transit-map-height: max(45vh, 300px);
 }
 </style>
