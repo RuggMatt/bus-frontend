@@ -14,6 +14,9 @@
         <v-list-item nav to="/routes" prepend-icon="mdi-bus">
           Bus Routes
         </v-list-item>
+        <v-list-item nav to="/stops" prepend-icon="mdi-bus-stop">
+          Bus Stops
+        </v-list-item>
         <v-divider />
         <v-list-subheader>
           Electric

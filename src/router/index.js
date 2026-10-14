@@ -12,6 +12,12 @@ const routes = [
     component: () => import("../views/RoutesPage.vue"),
   },
   {
+    path: "/stops/:stopId?",
+    name: "Stops",
+    component: () => import("../views/StopsPage.vue"),
+    props: true,
+  },
+  {
     path: "/electric",
     name: "Electric Buses",
     component: () => import("../components/ElectricBus.vue"),

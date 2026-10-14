@@ -1,3 +1,5 @@
+import { edmontonNow } from "../utils/serviceTime";
+
 /**
  * @typedef {Object} ElectricBusHourlyStat
  * @property {string} hour ISO8601 hour string (e.g., "2025-11-24T12:00:00Z")
@@ -425,6 +427,53 @@ export const getActiveTripsByRouteId = async (routeId) => {
     return result.json();
   }
   return [];
+};
+
+/**
+ * @typedef {Object} StopScheduleEntry
+ * @property {string} trip_id
+ * @property {string} route_id
+ * @property {string} route_long_name
+ * @property {string} agency_name The transit agency running the route, e.g. "St. Albert Transit"
+ * @property {string} trip_headsign
+ * @property {string} service_id
+ * @property {string} arrival_time HH:MM:SS, 24:00:00 or later for times after midnight on the service day
+ * @property {string} stop_sequence
+ */
+
+/**
+ * Fetches the trips scheduled to serve a stop within the given time ranges, from
+ * the currently-active GTFS feed.
+ * @param {string} stopId
+ * @param {[string, string][]} timeRanges Pairs of HH:MM:SS bounds on the arrival time
+ * @returns {Promise<StopScheduleEntry[]>}
+ */
+export const getStopSchedule = async (stopId, timeRanges) => {
+  const today = edmontonNow().dateString;
+  // Escape single quotes to prevent SoQL injection
+  const safeStopId = String(stopId).replace(/'/g, "''");
+  const timeFilter = timeRanges
+    .map(([from, to]) => `arrival_time between '${from}' and '${to}'`)
+    .join(" OR ");
+  const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = '${safeStopId}' AND (${timeFilter})`;
+  const select = "trip_id,route_id,route_long_name,agency_name,trip_headsign,service_id,arrival_time,stop_sequence";
+  const entries = [];
+  let page;
+  do {
+    const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&$select=${select}&$order=trip_id,stop_sequence&$limit=1000&$offset=${entries.length}`;
+    const result = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+      },
+    });
+    if (!result.ok) {
+      throw Error(result.status);
+    }
+    page = await result.json();
+    entries.push(...page);
+  } while (page.length === 1000);
+  return entries;
 };
 
 /**
