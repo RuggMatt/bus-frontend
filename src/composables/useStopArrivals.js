@@ -12,7 +12,7 @@ const WINDOW_STEP_SECONDS = 15 * 60;
 // buses stay listed for this long after going by the stop
 const PASSED_LIMIT_METRES = 500;
 // average pace including stops, used to turn a distance into a time
-const AVERAGE_SPEED_METRES_PER_SECOND = 20 / 3.6;
+export const AVERAGE_SPEED_METRES_PER_SECOND = 20 / 3.6;
 
 /**
  * @typedef {Object} StopBus
