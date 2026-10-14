@@ -2,6 +2,19 @@
 /** @param {string} routeId */
 export const routeNumber = (routeId) => routeId.replace(/^0+(?=.)/, "");
 
+/**
+ * A headsign without the route number it starts with, e.g. "128 Northgate" → "Northgate",
+ * for showing beside a route badge. Variants such as "109A" or "2-Owl" are kept, as the
+ * badge doesn't say them.
+ * @param {string} headsign
+ * @param {string} routeId
+ * @returns {string}
+ */
+export const headsignWithoutRoute = (headsign, routeId) => {
+  const prefix = `${routeNumber(routeId)} `;
+  return headsign.startsWith(prefix) && headsign.length > prefix.length ? headsign.slice(prefix.length) : headsign;
+};
+
 // regional buses share stops with ETS, so say whose bus it is
 export const LOCAL_AGENCY = "Edmonton Transit Service";
 

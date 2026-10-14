@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directionLabels, representativeTrips, routeNumber } from "../src/utils/routes";
+import { directionLabels, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
 
 const trip = (trip_id, direction_id, shape_id, trip_headsign = "") => ({ trip_id, direction_id, shape_id, trip_headsign });
 
@@ -41,5 +41,19 @@ describe("directionLabels", () => {
 
   it("falls back to the direction number without a headsign", () => {
     expect(directionLabels([trip("1", "1", "a")])).toEqual({ 1: "Direction 1" });
+  });
+});
+
+describe("headsignWithoutRoute", () => {
+  it("drops the route number the headsign starts with", () => {
+    expect(headsignWithoutRoute("4 University", "004")).toBe("University");
+    expect(headsignWithoutRoute("128 Northgate", "128")).toBe("Northgate");
+  });
+
+  it("keeps variants and headsigns without the number", () => {
+    expect(headsignWithoutRoute("109A Castle Downs", "109")).toBe("109A Castle Downs");
+    expect(headsignWithoutRoute("2-Owl Clareview", "002")).toBe("2-Owl Clareview");
+    expect(headsignWithoutRoute("10 Leduc Express", "L10")).toBe("10 Leduc Express");
+    expect(headsignWithoutRoute("Bethel", "411")).toBe("Bethel");
   });
 });
