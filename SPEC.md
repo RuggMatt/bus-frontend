@@ -130,7 +130,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
 - A map (`RouteMap.vue`):
   - every stop the route serves, in both directions, from `getRouteStops`. Tapping a stop opens `/stops/:id`
-  - the route's live buses as pins with their report age (`createBusIcon`), from `useBuses`. Tapping a bus opens its trip
+  - the route's live buses as pins (`createBusIcon`), from `useBuses`. They have no report-age badges, because a route's worth of them clutters the map. Tapping a bus opens its trip
   - it fits the stops once, when they first load, so later bus refreshes don't undo the user's panning
 - Active Buses, one `RouteBusCard.vue` per bus, sorted by bus number. Like `BusDetails`, each card shows the headsign, "Bus N · X km/h", the On time / late / early chip, the next stop and its scheduled time (all from `useBusTrip`), and a "Trip details" button. Until `useBuses` loads, the cards show the handed-over buses, which have no position, speed or status yet.
 - A timetable, filtered by effective date (YY-MM in `service_id`), direction (labelled by the most common headsign) and weekday (`serviceRunsOnDay`). PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.

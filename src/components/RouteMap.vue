@@ -1,6 +1,6 @@
 <script setup>
 import L from '../plugins/leaflet';
-import { createBusIcon, refreshReportAges } from '../plugins/busIcon';
+import { createBusIcon } from '../plugins/busIcon';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -34,7 +34,6 @@ let stopLayer = null;
 let busLayer = null;
 /** @type {Map<number | string, {marker: import('leaflet').Marker, bus: import('../api').Bus}>} */
 const busMarkers = new Map();
-let reportAgeInterval = null;
 // the map is only fitted to the stops once, so refreshes don't undo the user's panning
 let fitted = false;
 
@@ -70,7 +69,8 @@ const drawBuses = () => {
         if (!entry) {
             const marker = L.marker([bus.lat, bus.long], {
                 title: `Bus ${bus.bus}`,
-                icon: createBusIcon(bus, { showAge: true }),
+                // no age badges, as a route's worth of them clutters the map
+                icon: createBusIcon(bus),
             }).addTo(busLayer);
             entry = { marker, bus };
             const created = entry;
@@ -79,7 +79,7 @@ const drawBuses = () => {
         } else {
             entry.marker.setLatLng([bus.lat, bus.long]);
             // picks up the new bearing and report time
-            entry.marker.setIcon(createBusIcon(bus, { showAge: true }));
+            entry.marker.setIcon(createBusIcon(bus));
         }
         entry.bus = bus;
     }
@@ -118,11 +118,9 @@ onMounted(() => {
     createMap();
     drawStops();
     drawBuses();
-    reportAgeInterval = setInterval(() => refreshReportAges(mapElement.value), 1000);
 })
 
 onBeforeUnmount(() => {
-    clearInterval(reportAgeInterval);
     busMarkers.clear();
     map?.remove();
     map = null;
