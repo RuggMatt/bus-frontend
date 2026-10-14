@@ -6,6 +6,7 @@ import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
 import { LOCAL_AGENCY } from '../utils/routes';
+import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import { tripPath } from '../composables/useStopArrivals';
@@ -107,21 +108,6 @@ const latestTripPoint = computed(() => {
 })
 
 /**
- * Converts a HH:MM:SS 24-hour time string to a readable 12-hour format (e.g. "7:32 PM")
- * @param {string} time
- * @returns {string}
- */
-function formatTime(time) {
-    if (!time) return ''
-    const [hourStr, minuteStr] = time.split(':')
-    let hour = parseInt(hourStr ?? '0', 10)
-    const minute = minuteStr ?? '00'
-    const ampm = hour >= 12 ? 'PM' : 'AM'
-    hour = hour % 12 || 12
-    return `${hour}:${minute} ${ampm}`
-}
-
-/**
  *
  * @param {number} lat1
  * @param {number} lon1
@@ -191,19 +177,6 @@ function estimatedActualArrivalTime(stopId) {
 }
 
 /**
- * @param {BusStopTime} stop
- * @returns {string}
- */
-function formatSubtitle(stop) {
-    const scheduledTime = formatTime(stop.arrival_time_fixed);
-    const estimatedActualTime = convertUnixEpochToTime(estimatedActualArrivalTime(stop.stop_id));
-    if (estimatedActualTime === null) {
-        return scheduledTime;
-    }
-    return `${scheduledTime} (Estimated Actual: ${estimatedActualTime || 'N/A'})`;
-}
-
-/**
  * @param {number|null} unixEpoch
  * @returns {string|null}
  */
@@ -216,11 +189,11 @@ function convertUnixEpochToTime(unixEpoch) {
 
 const startTime = computed(() => {
     const stops = routeData.value ?? [];
-    return formatTime(stops[0]?.arrival_time_fixed ?? '');
+    return stops[0] ? formatScheduledTime(stops[0].arrival_time) : '';
 });
 const endTime = computed(() => {
     const stops = routeData.value ?? [];
-    return formatTime(stops.length > 0 ? (stops[stops.length - 1]?.arrival_time_fixed ?? '') : '');
+    return stops.length > 0 ? formatScheduledTime(stops[stops.length - 1]?.arrival_time ?? '') : '';
 });
 
 const weekdayLabel = computed(() => {
@@ -235,32 +208,16 @@ const weekdayLabel = computed(() => {
  * Returns the difference in minutes between estimated and scheduled arrival.
  * Negative = early, positive = late, 0 = on time.
  * @param {BusStopTime} stop
+ * @param {number | null} estimatedEpoch
  * @returns {number|null}
  */
-function getTimeDiffMinutes(stop) {
-    const estimatedEpoch = estimatedActualArrivalTime(stop.stop_id);
+function getTimeDiffMinutes(stop, estimatedEpoch) {
     if (estimatedEpoch === null) return null;
     if (!stop.arrival_time) return null;
     // compare in Edmonton time, as the viewer's midnight can be hours off the schedule's
     const estimatedSeconds = edmontonNow(new Date(estimatedEpoch * 1000)).secondsSinceMidnight;
     const scheduledSeconds = scheduledSecondsNear(stop.arrival_time, estimatedSeconds);
     return Math.round((estimatedSeconds - scheduledSeconds) / 60);
-}
-
-/**
- * @param {BusStopTime} stop
- * @returns {boolean}
- */
-function hasTimeDiff(stop) {
-    return getTimeDiffMinutes(stop) !== null;
-}
-
-/**
- * @param {BusStopTime} stop
- * @returns {number}
- */
-function getTimeDiffValue(stop) {
-    return getTimeDiffMinutes(stop) ?? 0;
 }
 
 // a loop can visit the same stop twice, so rows are told apart by their sequence
@@ -287,44 +244,41 @@ const otherRoutes = computed(() =>
     (stopRoutes.value ?? []).filter((route) => route.route_id !== tripData.value?.route_id),
 );
 
-/**
- * @param {BusStopTime} stop
- * @returns {string}
- */
-function getStopMarkerColor(stop) {
-    const diff = getTimeDiffMinutes(stop);
-    if (diff === null) return '#999999';
-    if (diff === 0) return '#0000f2';
-    if (diff > 0) return '#f20000'; // late
-    return '#19d276'; // early
-}
+// the canvas needs hex, so these mirror the theme colours scheduleStatus picks
+/** @type {Record<string, string>} */
+const STATUS_HEX = { success: '#4caf50', warning: '#fb8c00', info: '#2196f3' };
+const NO_ESTIMATE_HEX = '#999999';
 
-/**
- * @param {BusStopTime} stop
- * @returns {string}
- */
-function getStopStatusLabel(stop) {
-    const diff = getTimeDiffMinutes(stop);
-    if (diff === null) return 'No live estimate';
-    if (diff > 0) return `${diff} min late`;
-    if (diff < 0) return `${Math.abs(diff)} min early`;
-    return 'On time';
-}
+// worked out once per stop, as the estimate scans the trip's recorded positions
+const stopRows = computed(() =>
+    (routeData.value ?? []).map((stop) => {
+        const stopInfo = keyedStops.value?.[stop.stop_id];
+        const estimatedEpoch = estimatedActualArrivalTime(stop.stop_id);
+        const diff = getTimeDiffMinutes(stop, estimatedEpoch);
+        return {
+            stop,
+            stopInfo,
+            name: stopInfo?.stop_name || stop.stop_id,
+            code: stopInfo?.stop_code || stop.stop_id,
+            scheduled: formatScheduledTime(stop.arrival_time),
+            estimated: convertUnixEpochToTime(estimatedEpoch),
+            status: diff === null ? null : scheduleStatus(diff),
+        };
+    }),
+);
 
 const mapStops = computed(() =>
-    (routeData.value ?? []).flatMap((stop) => {
-        const stopInfo = keyedStops.value?.[stop.stop_id];
+    stopRows.value.flatMap(({ stop, stopInfo, name, scheduled, status }) => {
         const lat = Number(stopInfo?.stop_lat);
         const lon = Number(stopInfo?.stop_lon);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
-        const stopName = stopInfo?.stop_name || stop.stop_id;
         return [{
             stop_id: stop.stop_id,
-            stop_name: stopName,
+            stop_name: name,
             lat,
             lon,
-            color: getStopMarkerColor(stop),
-            tooltip: `${stopName} • ${formatTime(stop.arrival_time_fixed)} • ${getStopStatusLabel(stop)}`,
+            color: status ? STATUS_HEX[status.color] ?? NO_ESTIMATE_HEX : NO_ESTIMATE_HEX,
+            tooltip: `${name} • ${scheduled} • ${status?.label ?? 'No live estimate'}`,
         }];
     }),
 );
@@ -346,20 +300,25 @@ const mapPaths = computed(() => {
       Error: {{ error.message }}
     </div>
     <div v-else>
-      <h1>{{ tripData?.trip_headsign }} &mdash; {{ weekdayLabel }}<span v-if="startTime && endTime">, {{ startTime }} &ndash; {{ endTime }}</span></h1>
-      <v-btn
+      <router-link
         v-if="tripData?.route_id"
         :to="{ path: `/routes/${tripData.route_id}`, query: { direction: tripData.direction_id } }"
-        variant="tonal"
-        color="primary"
-        append-icon="mdi-chevron-right"
-        class="route-link mt-2"
+        class="route-header d-flex align-center pa-2"
       >
-        <RouteBadge :route-id="tripData.route_id" size="small" class="mr-2" />
-        <span v-if="keyedroutes[tripData.route_id]" class="text-truncate">
-          {{ keyedroutes[tripData.route_id].route_long_name }}
-        </span>
-      </v-btn>
+        <RouteBadge :route-id="tripData.route_id" size="large" />
+        <h1 class="text-headline-small ml-3 min-width-0">
+          {{ keyedroutes[tripData.route_id]?.route_long_name }}
+        </h1>
+        <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
+      </router-link>
+      <div class="text-body-medium text-medium-emphasis px-2">
+        <div>
+          {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
+        </div>
+        <div class="text-body-small">
+          Trip {{ tripId }}
+        </div>
+      </div>
       <TransitMap
         :stops="mapStops"
         :buses="mapBuses"
@@ -367,32 +326,49 @@ const mapPaths = computed(() => {
         :fit-key="tripId"
         class="trip-map mt-3"
       />
-      <v-list class="mt-3">
-        <v-list-item
-          v-for="stop in routeData"
-          :key="stop.stop_sequence"
-          :title="keyedStops[stop.stop_id]?.stop_name || stop.stop_id"
-          :active="expandedSequence === stop.stop_sequence"
-          prepend-icon="mdi-bus-stop"
-          @click="toggleStop(stop)"
-        >
-          <template #subtitle>
-            {{ formatSubtitle(stop) }}
-            <template v-if="hasTimeDiff(stop)">
-              <span v-if="getTimeDiffValue(stop) < 0" class="text-success ml-1">{{ Math.abs(getTimeDiffValue(stop)) }} min early</span>
-              <span v-else-if="getTimeDiffValue(stop) > 0" class="text-error ml-1">{{ getTimeDiffValue(stop) }} min late</span>
-              <span v-else class="text-info ml-1">On Time</span>
-            </template>
-          </template>
-          <template #append>
-            <v-icon :icon="expandedSequence === stop.stop_sequence ? 'mdi-chevron-up' : 'mdi-chevron-down'" />
-          </template>
-          <v-expand-transition>
-            <div v-if="expandedSequence === stop.stop_sequence" class="text-body-medium pt-2" @click.stop>
-              <div class="text-medium-emphasis">
-                Stop {{ keyedStops[stop.stop_id]?.stop_code || stop.stop_id }}
+      <v-card v-if="stopRows.length" variant="outlined" class="mt-3">
+        <template v-for="(row, index) in stopRows" :key="row.stop.stop_sequence">
+          <v-divider v-if="index > 0" />
+          <div
+            v-ripple
+            class="stop-row d-flex align-center pa-3"
+            :class="{ 'stop-row--expanded': expandedSequence === row.stop.stop_sequence }"
+            role="button"
+            tabindex="0"
+            :aria-expanded="expandedSequence === row.stop.stop_sequence"
+            @click="toggleStop(row.stop)"
+            @keydown.enter.prevent="toggleStop(row.stop)"
+            @keydown.space.prevent="toggleStop(row.stop)"
+          >
+            <div class="flex-grow-1 min-width-0">
+              <div class="text-body-large">
+                {{ row.name }}
               </div>
-              <div class="mt-2">
+              <div class="text-body-small text-medium-emphasis">
+                Stop {{ row.code }}
+              </div>
+            </div>
+            <div class="text-right flex-shrink-0 ml-2">
+              <div class="text-title-medium">
+                {{ row.scheduled }}
+              </div>
+              <template v-if="row.status">
+                <div v-if="row.estimated" class="text-body-small text-medium-emphasis">
+                  Actual &asymp; {{ row.estimated }}
+                </div>
+                <v-chip :color="row.status.color" size="x-small" variant="tonal">
+                  {{ row.status.label }}
+                </v-chip>
+              </template>
+            </div>
+            <v-icon
+              :icon="expandedSequence === row.stop.stop_sequence ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+              class="ml-2 flex-shrink-0"
+            />
+          </div>
+          <v-expand-transition>
+            <div v-if="expandedSequence === row.stop.stop_sequence" class="text-body-medium px-3 pb-3">
+              <div>
                 Also served by
               </div>
               <v-progress-circular
@@ -424,7 +400,7 @@ const mapPaths = computed(() => {
                 </v-chip>
               </div>
               <v-btn
-                :to="`/stops/${encodeURIComponent(stop.stop_id)}`"
+                :to="`/stops/${encodeURIComponent(row.stop.stop_id)}`"
                 block
                 variant="tonal"
                 color="primary"
@@ -434,23 +410,44 @@ const mapPaths = computed(() => {
               </v-btn>
             </div>
           </v-expand-transition>
-        </v-list-item>
-      </v-list>
+        </template>
+      </v-card>
     </div>
   </v-container>
 </template>
 
 <style scoped>
-/* long route names truncate instead of pushing past the screen edge */
-.route-link {
-    max-width: 100%;
+.route-header {
+    border-radius: 4px;
+    color: inherit;
+    text-decoration: none;
 }
 
-.route-link :deep(.v-btn__content) {
+.route-header:hover,
+.stop-row:hover {
+    background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.min-width-0 {
     min-width: 0;
+}
+
+.stop-row {
+    cursor: pointer;
+}
+
+.stop-row--expanded {
+    background: rgba(var(--v-theme-primary), 0.08);
 }
 
 .trip-map {
     --transit-map-height: max(45vh, 300px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .expand-transition-enter-active,
+    .expand-transition-leave-active {
+        transition: none !important;
+    }
 }
 </style>
