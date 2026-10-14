@@ -357,48 +357,9 @@ function cellIsPM(tripId, stopId) {
       <h1 class="text-headline-large mb-1">
         Route {{ route.route_short_name || route.route_id }}
       </h1>
-      <p class="text-body-large text-medium-emphasis mb-6">
+      <p class="text-body-large text-medium-emphasis">
         {{ route.route_long_name }}
       </p>
-
-      <v-row>
-        <v-col cols="12" sm="4">
-          <v-card variant="tonal" color="primary">
-            <v-card-text>
-              <div class="text-label-medium">
-                Route ID
-              </div>
-              <div class="text-title-large">
-                {{ route.route_id }}
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-        <v-col cols="12" sm="4">
-          <v-card variant="tonal" color="secondary">
-            <v-card-text>
-              <div class="text-label-medium">
-                Type
-              </div>
-              <div class="text-title-large">
-                {{ route.route_type_descr || route.route_type }}
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-        <v-col cols="12" sm="4">
-          <v-card variant="tonal" color="success">
-            <v-card-text>
-              <div class="text-label-medium">
-                Active Buses
-              </div>
-              <div class="text-title-large">
-                {{ activeBuses.length }}
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
 
       <!-- Active Buses -->
       <h2 class="text-headline-small mt-8 mb-3">
