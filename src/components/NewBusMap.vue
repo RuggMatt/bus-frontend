@@ -4,40 +4,17 @@ import '../plugins/AnimatedMarker';
 import { createBusIcon } from '../plugins/busIcon';
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
-import { getTrip, getBusStopTimes, getTrips } from '../api';
+import { getTrip, getBusStopTimes } from '../api';
 import { useStops } from '../composables/useStops';
-import { chunk } from '../utils/chunk';
-import { nextBusRefreshDelay } from '../utils/busRefresh';
+import { useBuses } from '../composables/useBuses';
 // import 'leaflet/dist/leaflet.css'
 let map = null
 const ROUTE_PANE_Z_INDEX = 350;
-
-let refreshTimeout = null;
-let unmounted = false;
 
 /**
  * @type {Record<string, import("../api/index").Bus>}
  */
 const buses = {};
-
-const assignRouteToEachBus = async (newBuses) => {
-    const tripIds = newBuses.map((bus) => bus.trip);
-    const uniqueTrips = [...new Set(tripIds)];
-    const tripBatches = chunk(uniqueTrips, 50);
-    const routes = [];
-    await Promise.allSettled(
-        tripBatches.map((batch) =>
-            getTrips(batch).then((batchTrips) => routes.push(...batchTrips)),
-        ),
-    );
-    const routeMap = {};
-    routes.forEach((route) => {
-        routeMap[route.trip_id] = route.route_id;
-    });
-    newBuses.forEach((bus) => {
-        bus.route_id = routeMap[bus.trip] || null;
-    });
-}
 
 /** @type {import("vue").Ref<{bus: string, lat: string, long: string, trip: string}|null>} */
 const selectedBus = ref(null);
@@ -66,15 +43,13 @@ const removeOldBuses = (newBuses) => {
 }
 
 /**
- * @returns {Promise<import("../api/index").Bus[] | null>} the buses fetched, or null when skipped
+ * Moves the markers to the latest snapshot, adding and removing buses as needed
+ * @param {import("../api/index").Bus[] | undefined} newBuses
  */
-const updateBuses = async () => {
-    if (document.visibilityState == "hidden") {
-        return null;
+const renderBuses = (newBuses) => {
+    if (!map || !newBuses) {
+        return;
     }
-    /** @type {{}[]} */
-    let newBuses = await fetch(`${import.meta.env.VITE_APP_API_URL}/bus/now`).then(r => r.json());
-    await assignRouteToEachBus(newBuses);
     removeOldBuses(newBuses);
     for (let bus of newBuses) {
         // add new ones
@@ -100,8 +75,11 @@ const updateBuses = async () => {
         }
     }
     applyRouteHighlighting();
-    return newBuses;
 }
+
+// shared with the other pages, and refetched when the backend's next snapshot should be ready
+const { buses: liveBuses } = useBuses();
+watch(liveBuses, renderBuses);
 
 const { data: trip } = useQuery({
     queryKey: ['bus', selectedBus],
@@ -285,27 +263,13 @@ const createMap = () => {
     }).addTo(map)
 }
 
-// fetches again when the backend's next snapshot should be ready
-const refreshBuses = async () => {
-    let newBuses = null;
-    try {
-        newBuses = await updateBuses();
-    } catch (error) {
-        console.error("Could not update buses", error);
-    }
-    if (!unmounted) {
-        refreshTimeout = setTimeout(refreshBuses, nextBusRefreshDelay(newBuses));
-    }
-}
-
 onMounted(() => {
     createMap();
-    refreshBuses();
+    // a cached snapshot from an earlier visit shows straight away
+    renderBuses(liveBuses.value);
 })
 
 onBeforeUnmount(() => {
-    unmounted = true;
-    clearTimeout(refreshTimeout)
     map?.off("click", clearRouteSelection);
 })
 </script>

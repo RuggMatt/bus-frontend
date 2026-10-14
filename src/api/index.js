@@ -322,7 +322,8 @@ export const getTrip = async (tripId) => {
  * @returns {Promise<{route_id: string, trip_id: string}[]>}
  */
 export const getTrips = async (tripIds) => {
-  const tripIdParams = tripIds.map((tripId) => `'${tripId}'`).join(",");
+  // Escape single quotes to prevent SoQL injection
+  const tripIdParams = tripIds.map((tripId) => `'${String(tripId).replace(/'/g, "''")}'`).join(",");
   let result = await fetch(
     `https://data.edmonton.ca/resource/ctwr-tvrd.json?$select=trip_id,route_id&$where=trip_id IN (${tripIdParams})`,
     {
@@ -335,7 +336,7 @@ export const getTrips = async (tripIds) => {
   if (result.ok) {
     return result.json();
   }
-  return [];
+  throw Error(result.status);
 };
 
 /**
