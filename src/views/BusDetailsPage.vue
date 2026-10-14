@@ -9,6 +9,7 @@ import { tripPath } from '../composables/useStopArrivals';
 import { nextBusRefreshDelay } from '../utils/busRefresh';
 import { formatReportAge, reportAgeLevel } from '../utils/reportAge';
 import { formatTripDuration, formatTripTimes, tripDayLabel } from '../utils/tripTimes';
+import { headsignWithoutRoute } from '../utils/routes';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 
@@ -287,10 +288,10 @@ const tripDays = computed(() => {
                 <template v-else-if="row.trip">
                   <div class="d-flex align-center text-body-large">
                     <RouteBadge :route-id="row.trip.route_id" size="small" class="mr-2" />
-                    <span class="text-truncate">{{ keyedroutes[row.trip.route_id]?.route_long_name }}</span>
+                    <span class="text-truncate">{{ headsignWithoutRoute(row.trip.trip_headsign, row.trip.route_id) }}</span>
                   </div>
                   <div class="text-body-small text-medium-emphasis text-truncate">
-                    {{ row.trip.trip_headsign }}
+                    {{ keyedroutes[row.trip.route_id]?.route_long_name }}
                   </div>
                 </template>
                 <v-skeleton-loader v-else-if="summariesLoading" type="text" class="trip-loader" />
