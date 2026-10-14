@@ -5,7 +5,8 @@ import { getRecentTripData, getTrip, getBusStopTimes, getStopRoutes } from '../a
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
-import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
+import { LOCAL_AGENCY } from '../utils/routes';
+import RouteBadge from '../components/RouteBadge.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import 'leaflet/dist/leaflet';
 import 'leaflet';
@@ -467,12 +468,12 @@ onBeforeUnmount(() => {
         :to="`/routes/${tripData.route_id}`"
         variant="tonal"
         color="primary"
-        prepend-icon="mdi-bus"
         append-icon="mdi-chevron-right"
         class="route-link mt-2"
       >
-        <span class="text-truncate">
-          Route {{ routeNumber(tripData.route_id) }}<template v-if="keyedroutes[tripData.route_id]">&nbsp;&middot; {{ keyedroutes[tripData.route_id].route_long_name }}</template>
+        <RouteBadge :route-id="tripData.route_id" size="small" class="mr-2" />
+        <span v-if="keyedroutes[tripData.route_id]" class="text-truncate">
+          {{ keyedroutes[tripData.route_id].route_long_name }}
         </span>
       </v-btn>
       <div ref="tripMapEl" class="trip-map mt-3" />
@@ -525,7 +526,7 @@ onBeforeUnmount(() => {
                   size="small"
                   class="mr-2 mb-2"
                 >
-                  <b class="mr-1">{{ routeNumber(route.route_id) }}</b>
+                  <RouteBadge :route-id="route.route_id" size="small" class="mr-2" />
                   {{ route.route_long_name }}
                   <span v-if="route.agency_name && route.agency_name !== LOCAL_AGENCY" class="text-medium-emphasis ml-1">
                     &middot; {{ route.agency_name }}

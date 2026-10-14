@@ -3,6 +3,7 @@ import { useRoutes } from '../composables/useRoutes';
 import { ref, computed } from 'vue';
 import { useBuses } from '../composables/useBuses';
 import { RouterLink } from 'vue-router';
+import RouteBadge from '../components/RouteBadge.vue';
 
 const { routes } = useRoutes();
 const { buses } = useBuses();
@@ -47,7 +48,9 @@ const filteredRoutes = computed(() => {
           <template v-for="route in filteredRoutes" :key="route.route">
             <v-list-item>
               <v-list-item-content>
-                <v-list-item-title>{{ route.route_id }} - {{ route.route_long_name }}</v-list-item-title>
+                <v-list-item-title>
+                  <RouteBadge :route-id="route.route_id" size="small" class="mr-2" />{{ route.route_long_name }}
+                </v-list-item-title>
                 <v-list-item-subtitle>
                   <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/trips/${bus.trip}`">
                     <v-chip class="ma-1" color="primary" text-color="white" small>

@@ -1,5 +1,6 @@
 <script setup>
 import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
+import RouteBadge from './RouteBadge.vue';
 
 defineProps({
   stop: {
@@ -108,9 +109,7 @@ const scheduleStatus = (offsetMinutes) => {
           class="route-header d-flex align-center pa-3"
           :aria-label="`Timetable for route ${routeNumber(group.route_id)}`"
         >
-          <div class="route-number">
-            {{ routeNumber(group.route_id) }}
-          </div>
+          <RouteBadge :route-id="group.route_id" />
           <div class="ml-3">
             <div class="text-title-medium">
               {{ group.route_long_name }}
@@ -193,19 +192,6 @@ const scheduleStatus = (offsetMinutes) => {
 /* anchors the cards while they fade out */
 .stop-details {
   position: relative;
-}
-
-.route-number {
-  background: rgb(var(--v-theme-primary));
-  border-radius: 8px;
-  color: rgb(var(--v-theme-on-primary));
-  flex-shrink: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1.2;
-  min-width: 56px;
-  padding: 6px 10px;
-  text-align: center;
 }
 
 .route-header {
