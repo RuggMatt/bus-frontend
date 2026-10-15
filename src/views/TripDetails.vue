@@ -55,7 +55,7 @@ const { data, error, isLoading } = useQuery({
     refetchIntervalInBackground: true,
 })
 
-const { data: tripData } = useQuery({
+const { data: tripData, isLoading: tripLoading } = useQuery({
     queryKey: ['trip-data', props.tripId],
     queryFn: () => getTrip(props.tripId),
     enabled: !!props.tripId,
@@ -294,9 +294,12 @@ const mapPaths = computed(() => {
 </script>
 <template>
   <v-container>
-    <div v-if="isLoading">
+    <div v-if="isLoading || tripLoading">
       Loading...
     </div>
+    <v-alert v-else-if="tripData === null" type="info" variant="tonal">
+      Trip {{ tripId }} not found.
+    </v-alert>
     <div v-else-if="error">
       Error: {{ error.message }}
     </div>
