@@ -125,6 +125,10 @@ watch(selectedWeek, () => {
     selectedKey.value = null;
 });
 
+// the lookup has finished and the feed doesn't have the trip, so its page would only say not found
+/** @param {TripRow} row */
+const notInSchedule = (row) => !!row.tripId && !row.trip && !summariesLoading.value && !!tripSummaries.value;
+
 /** @param {string} key */
 const toggleRow = (key) => {
     selectedKey.value = selectedKey.value === key ? null : key;
@@ -374,6 +378,7 @@ const tripDays = computed(() => {
                 <v-btn
                   v-if="row.tripId"
                   :to="`/trips/${encodeURIComponent(row.tripId)}`"
+                  :disabled="notInSchedule(row)"
                   block
                   variant="tonal"
                   color="primary"
