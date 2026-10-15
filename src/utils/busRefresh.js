@@ -1,5 +1,5 @@
 // the backend collects a new /bus/now snapshot about this often
-const SNAPSHOT_PERIOD_SECONDS = 60;
+const SNAPSHOT_PERIOD_SECONDS = 30;
 // allowance for the viewer's clock disagreeing with the backend's
 const CLOCK_DRIFT_SECONDS = 5;
 // a fetch can land just before the new snapshot does, so don't retry faster than this
