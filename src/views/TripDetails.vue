@@ -1,6 +1,6 @@
 <script setup>
 // @ts-check
-import { useQuery } from '@tanstack/vue-query';
+import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
@@ -19,7 +19,7 @@ import { nearestByStart, sortByStart, tripsOnDate } from '../utils/dayTrips';
 import { chunk } from '../utils/chunk';
 import { edmontonDate } from '../utils/tripTimes';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch, watchEffect } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 /** @typedef {import('../api/index').BusStopTime} BusStopTime */
@@ -90,10 +90,16 @@ const openTrip = (id) => {
 // a day still to come only has its schedule
 const isFuture = computed(() => !!selectedDate.value && selectedDate.value > today);
 
-const { data, error: latestError, isLoading: latestLoading } = useQuery({
+// switching trip or day keeps the last data on screen (placeholderData) until the new data
+// arrives. `switching` below says which parts are still the old ones
+const latestEnabled = computed(() => !!props.tripId && !selectedDate.value);
+const runEnabled = computed(() => !!props.tripId && !!selectedDate.value && !isFuture.value);
+
+const { data, error: latestError, isLoading: latestLoading, isPlaceholderData: latestPlaceholder } = useQuery({
     queryKey: computed(() => ['trip', props.tripId]),
     queryFn: () => getRecentTripData(props.tripId),
-    enabled: () => !!props.tripId && !selectedDate.value,
+    enabled: latestEnabled,
+    placeholderData: keepPreviousData,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: (query) => {
@@ -103,10 +109,11 @@ const { data, error: latestError, isLoading: latestLoading } = useQuery({
     refetchIntervalInBackground: true,
 })
 
-const { data: runData, error: runError, isLoading: runLoading } = useQuery({
+const { data: runData, error: runError, isLoading: runLoading, isPlaceholderData: runPlaceholder } = useQuery({
     queryKey: computed(() => ['trip-run', props.tripId, selectedDate.value]),
     queryFn: () => getTripRun(props.tripId, /** @type {string} */ (selectedDate.value)),
-    enabled: () => !!props.tripId && !!selectedDate.value && !isFuture.value,
+    enabled: runEnabled,
+    placeholderData: keepPreviousData,
     // a day with no run won't gain one on a retry
     retry: (count, error) => /** @type {any} */ (error).status !== 404 && count < 3,
     // a run that started yesterday can still be going past midnight
@@ -120,20 +127,31 @@ const isLoading = computed(() => (selectedDate.value ? !isFuture.value && runLoa
 const error = computed(() => (selectedDate.value ? (runMissing.value ? null : runError.value) : latestError.value));
 
 // the bus cards share these keys, so coming from one the heading and map show straight away
-const { data: tripData, isLoading: tripLoading } = useQuery({
+const { data: tripData, isLoading: tripLoading, isPlaceholderData: tripPlaceholder } = useQuery({
     queryKey: computed(() => ['trip-shape', props.tripId]),
     queryFn: () => getTrip(props.tripId),
     enabled: () => !!props.tripId,
+    placeholderData: keepPreviousData,
     staleTime: Infinity,
 })
 
 // route data is a list of stops along this trip
-const { data: routeData } = useQuery({
+const { data: routeData, isPlaceholderData: stopsPlaceholder } = useQuery({
     queryKey: computed(() => ['trip-stop-times', props.tripId]),
     queryFn: () => getBusStopTimes(props.tripId),
     enabled: () => !!props.tripId,
+    placeholderData: keepPreviousData,
     staleTime: Infinity,
 })
+
+// part of what's shown is still the last trip's or day's. The pieces that depend on it wait,
+// while the route header, pickers and map stay
+const switching = computed(
+    () => tripPlaceholder.value
+        || stopsPlaceholder.value
+        || (latestEnabled.value && latestPlaceholder.value)
+        || (runEnabled.value && runPlaceholder.value),
+);
 
 const groupedTripData = computed(() => {
     if (!data.value) return [];
@@ -401,6 +419,13 @@ const mapPaths = computed(() => {
     return path.length ? [path] : [];
 });
 
+// the map keeps drawing the last trip while the next loads, then fits the new one once
+const shownMap = shallowRef({ stops: mapStops.value, buses: mapBuses.value, paths: mapPaths.value, fitKey: String(tripData.value?.trip_id ?? props.tripId) });
+watchEffect(() => {
+    if (switching.value) return;
+    shownMap.value = { stops: mapStops.value, buses: mapBuses.value, paths: mapPaths.value, fitKey: String(tripData.value?.trip_id ?? props.tripId) };
+});
+
 </script>
 <template>
   <v-container>
@@ -428,7 +453,8 @@ const mapPaths = computed(() => {
           </h1>
           <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
         </router-link>
-        <div class="text-body-medium text-medium-emphasis px-2">
+        <v-skeleton-loader v-if="switching" type="text, text" class="px-2" />
+        <div v-else class="text-body-medium text-medium-emphasis px-2">
           <div>
             {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
           </div>
@@ -467,13 +493,13 @@ const mapPaths = computed(() => {
         </v-alert>
       </template>
       <TransitMap
-        :stops="mapStops"
-        :buses="mapBuses"
-        :paths="mapPaths"
-        :fit-key="tripId"
+        :stops="shownMap.stops"
+        :buses="shownMap.buses"
+        :paths="shownMap.paths"
+        :fit-key="shownMap.fitKey"
         class="trip-map mt-3"
       />
-      <div v-if="isLoading" class="mt-3">
+      <div v-if="isLoading || switching" class="mt-3">
         Loading...
       </div>
       <v-card v-else-if="stopRows.length" variant="outlined" class="mt-3">
