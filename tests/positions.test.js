@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compassPoint, nearestStop, thinPositions } from "../src/utils/positions";
+import { compassPoint, groupPositions, nearestStop, thinPositions } from "../src/utils/positions";
 
 describe("compassPoint", () => {
   it("rounds to the nearest of eight points", () => {
@@ -58,5 +58,35 @@ describe("thinPositions", () => {
   it("drops points stacked on one spot", () => {
     const stacked = [{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 0 }, { x: 100, y: 0 }];
     expect(thinPositions(stacked, 50)).toEqual([0, 3]);
+  });
+});
+
+describe("groupPositions", () => {
+  // about 11 m per 0.0001° of latitude
+  const at = (id, metresNorth) => ({ id, lat: 53.5 + metresNorth / 111195, long: -113.5 });
+  const ids = (groups) => groups.map((group) => group.map((position) => position.id));
+
+  it("groups consecutive positions within the distance", () => {
+    const positions = [at("a", 0), at("b", 10), at("c", 40), at("d", 200), at("e", 210)];
+    expect(ids(groupPositions(positions, 50))).toEqual([["a", "b", "c"], ["d", "e"]]);
+  });
+
+  it("measures from the group's first position, so a slow crawl splits", () => {
+    const positions = [at("a", 0), at("b", 30), at("c", 60), at("d", 90)];
+    expect(ids(groupPositions(positions, 50))).toEqual([["a", "b"], ["c", "d"]]);
+  });
+
+  it("doesn't group a spot that's passed again later", () => {
+    const positions = [at("a", 0), at("b", 500), at("c", 0)];
+    expect(ids(groupPositions(positions, 50))).toEqual([["a"], ["b"], ["c"]]);
+  });
+
+  it("keeps positions without a location on their own", () => {
+    const positions = [at("a", 0), { id: "x", lat: "", long: "nope" }, at("b", 0)];
+    expect(ids(groupPositions(positions, 50))).toEqual([["a"], ["x"], ["b"]]);
+  });
+
+  it("handles no positions", () => {
+    expect(groupPositions([], 50)).toEqual([]);
   });
 });

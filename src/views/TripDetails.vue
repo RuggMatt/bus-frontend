@@ -11,6 +11,7 @@ import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import BusLink from '../components/BusLink.vue';
+import PositionRow from '../components/PositionRow.vue';
 import DayPicker from '../components/DayPicker.vue';
 import TripPicker from '../components/TripPicker.vue';
 import { tripPath } from '../composables/useStopArrivals';
@@ -19,7 +20,7 @@ import { schedulePeriod, serviceDatesFrom, servicesOnDate } from '../utils/servi
 import { nearestByStart, sortByStart, tripsOnDate } from '../utils/dayTrips';
 import { chunk } from '../utils/chunk';
 import { edmontonDate, formatClockTime, formatClockTimeWithSeconds } from '../utils/tripTimes';
-import { compassPoint, nearestStop } from '../utils/positions';
+import { compassPoint, groupPositions, nearestStop } from '../utils/positions';
 import { prefersReducedMotion } from '../utils/viewTransition';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from 'vue';
@@ -35,6 +36,8 @@ const RECENT_RUN_SECONDS = 600;
 const NEAR_STOP_METRES = 150;
 // reports come about every 30 s, so a longer wait means positions are missing
 const POSITION_GAP_SECONDS = 120;
+// positions this close together read as the bus staying put, so they share a row
+const GROUP_POSITION_METRES = 50;
 // how far back the picker goes, about as far as the backend keeps positions
 const PAST_DAYS = 366;
 // how far ahead the picker goes when the calendar can't be loaded
@@ -483,6 +486,14 @@ const positionRows = computed(() => {
     });
 });
 
+// runs of positions in one spot, one row each, opening to their positions
+const positionGroups = computed(() =>
+    groupPositions(
+        positionRows.value.map((row) => ({ ...row, lat: row.position.lat, long: row.position.long })),
+        GROUP_POSITION_METRES,
+    ).map((rows) => ({ key: rows[0].key, first: rows[0], rows })),
+);
+
 const mapPositions = computed(() =>
     view.value === 'positions'
         ? positionRows.value.map(({ key, position }) => ({ ...position, key, label: formatClockTime(position.timestamp) }))
@@ -491,8 +502,11 @@ const mapPositions = computed(() =>
 
 /** @type {import('vue').Ref<string | null>} */
 const selectedPositionKey = ref(null);
+/** @type {import('vue').Ref<string | null>} */
+const expandedGroupKey = ref(null);
 watch([() => props.tripId, selectedDate, view], () => {
     selectedPositionKey.value = null;
+    expandedGroupKey.value = null;
 });
 
 const selectedPosition = computed(
@@ -505,12 +519,27 @@ const tripMap = ref(null);
 const selectPosition = (key) => {
     selectedPositionKey.value = selectedPositionKey.value === key ? null : key;
     if (selectedPositionKey.value) {
+        // a pin tapped on the map opens its group, so its row shows
+        const group = positionGroups.value.find(({ rows }) => rows.some((row) => row.key === key));
+        if (group && group.rows.length > 1) expandedGroupKey.value = group.key;
         // the list runs well below the map, so bring it back to see the pin
         /** @type {any} */ (tripMap.value)?.$el?.scrollIntoView({
             block: 'nearest',
             behavior: prefersReducedMotion() ? 'auto' : 'smooth',
         });
     }
+};
+
+/** @param {{key: string, first: {key: string}, rows: Array<{key: string}>}} group */
+const toggleGroup = (group) => {
+    if (expandedGroupKey.value === group.key) {
+        expandedGroupKey.value = null;
+        // its rows are hidden now, so don't leave one of them picked
+        if (group.rows.some((row) => row.key === selectedPositionKey.value)) selectedPositionKey.value = null;
+        return;
+    }
+    expandedGroupKey.value = group.key;
+    if (selectedPositionKey.value !== group.first.key) selectPosition(group.first.key);
 };
 
 const mapPaths = computed(() => {
@@ -637,58 +666,62 @@ watchEffect(() => {
           No recorded positions
         </div>
         <v-card v-else variant="outlined" class="mt-3">
-          <template v-for="(row, index) in positionRows" :key="row.key">
+          <template v-for="(group, index) in positionGroups" :key="group.key">
             <v-divider v-if="index > 0" />
             <div
+              v-if="group.rows.length === 1"
               v-ripple
               class="stop-row d-flex align-center pa-3"
-              :class="{ 'stop-row--expanded': selectedPositionKey === row.key }"
+              :class="{ 'stop-row--expanded': selectedPositionKey === group.key }"
               role="button"
               tabindex="0"
-              :aria-pressed="selectedPositionKey === row.key"
-              @click="selectPosition(row.key)"
-              @keydown.enter.prevent="selectPosition(row.key)"
-              @keydown.space.prevent="selectPosition(row.key)"
+              :aria-pressed="selectedPositionKey === group.key"
+              @click="selectPosition(group.key)"
+              @keydown.enter.prevent="selectPosition(group.key)"
+              @keydown.space.prevent="selectPosition(group.key)"
             >
-              <div class="flex-grow-1 min-width-0">
-                <div class="text-body-large">
-                  {{ row.time }}
-                  <v-chip
-                    v-if="row.gapMinutes"
-                    size="x-small"
-                    variant="tonal"
-                    color="warning"
-                    class="ml-1"
-                  >
-                    {{ row.gapMinutes }} min gap
-                  </v-chip>
-                </div>
-                <div class="text-body-small text-medium-emphasis">
-                  <template v-if="row.nearStop">
-                    Near {{ row.nearStop }}
-                  </template>
-                  <template v-else>
-                    Between stops
-                  </template>
-                  <template v-if="row.bus !== null">
-                    &middot; <BusLink :bus="row.bus" />
-                  </template>
-                </div>
-              </div>
-              <div class="text-right flex-shrink-0 ml-2">
-                <div class="text-title-medium">
-                  {{ row.speed === null ? '–' : row.speed === 0 ? 'Stopped' : `${row.speed} km/h` }}
-                </div>
-                <div v-if="row.direction" class="text-body-small text-medium-emphasis">
-                  <v-icon
-                    icon="mdi-navigation"
-                    size="x-small"
-                    :style="{ transform: `rotate(${row.bearing}deg)` }"
-                  />
-                  {{ row.direction }}
-                </div>
-              </div>
+              <PositionRow :row="group.first" />
             </div>
+            <template v-else>
+              <div
+                v-ripple
+                class="stop-row d-flex align-center pa-3"
+                :class="{ 'stop-row--expanded': expandedGroupKey === group.key }"
+                role="button"
+                tabindex="0"
+                :aria-expanded="expandedGroupKey === group.key"
+                @click="toggleGroup(group)"
+                @keydown.enter.prevent="toggleGroup(group)"
+                @keydown.space.prevent="toggleGroup(group)"
+              >
+                <PositionRow :row="group.first" :more="group.rows.length - 1" />
+                <v-icon
+                  icon="mdi-chevron-down"
+                  class="group-chevron flex-shrink-0 ml-1"
+                  :class="{ 'group-chevron--open': expandedGroupKey === group.key }"
+                />
+              </div>
+              <v-expand-transition>
+                <div v-if="expandedGroupKey === group.key">
+                  <template v-for="row in group.rows" :key="row.key">
+                    <v-divider class="ml-6" />
+                    <div
+                      v-ripple
+                      class="stop-row d-flex align-center py-2 pr-3 pl-9"
+                      :class="{ 'stop-row--expanded': selectedPositionKey === row.key }"
+                      role="button"
+                      tabindex="0"
+                      :aria-pressed="selectedPositionKey === row.key"
+                      @click="selectPosition(row.key)"
+                      @keydown.enter.prevent="selectPosition(row.key)"
+                      @keydown.space.prevent="selectPosition(row.key)"
+                    >
+                      <PositionRow :row="row" />
+                    </div>
+                  </template>
+                </div>
+              </v-expand-transition>
+            </template>
           </template>
         </v-card>
       </template>
@@ -802,13 +835,22 @@ watchEffect(() => {
     background: rgba(var(--v-theme-primary), 0.08);
 }
 
+.group-chevron {
+    transition: transform 0.2s;
+}
+
+.group-chevron--open {
+    transform: rotate(180deg);
+}
+
 .trip-map {
     --transit-map-height: max(45vh, 300px);
 }
 
 @media (prefers-reduced-motion: reduce) {
     .expand-transition-enter-active,
-    .expand-transition-leave-active {
+    .expand-transition-leave-active,
+    .group-chevron {
         transition: none !important;
     }
 }

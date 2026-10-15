@@ -81,3 +81,33 @@ export const thinPositions = (points, minSpacing) => {
   kept.push(last);
   return kept;
 };
+
+/**
+ * Groups runs of consecutive positions that stay within maxMetres of the first of them,
+ * as when a bus waits at a stop. Measuring from the first rather than the last keeps a
+ * slow crawl from chaining into one long group, and only grouping neighbours keeps the
+ * groups in time order, so a loop passing the same spot twice gives two groups.
+ * @template {{lat: number|string, long: number|string}} P
+ * @param {P[]} positions in time order
+ * @param {number} maxMetres
+ * @returns {P[][]}
+ */
+export const groupPositions = (positions, maxMetres) => {
+  const pointOf = (/** @type {P} */ position) =>
+    /** @type {[number, number]} */ ([Number(position.lat), Number(position.long)]);
+  /** @type {P[][]} */
+  const groups = [];
+  /** @type {[number, number] | null} */
+  let anchor = null;
+  for (const position of positions) {
+    const point = pointOf(position);
+    const valid = point.every(Number.isFinite);
+    if (anchor && valid && distanceMetres(anchor, point) <= maxMetres) {
+      groups[groups.length - 1].push(position);
+    } else {
+      groups.push([position]);
+      anchor = valid ? point : null;
+    }
+  }
+  return groups;
+};
