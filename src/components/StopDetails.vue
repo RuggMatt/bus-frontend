@@ -6,10 +6,13 @@ import { describeNextArrival } from '../utils/nextArrival';
 import { edmontonNow } from '../utils/serviceTime';
 import RouteBadge from './RouteBadge.vue';
 import BusLink from './BusLink.vue';
+import ServiceAlertCard from './ServiceAlertCard.vue';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
+import { alertsForStop } from '../utils/serviceAlerts';
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-defineProps({
+const props = defineProps({
   stop: {
     type: Object,
     required: true,
@@ -41,6 +44,14 @@ defineProps({
 defineEmits(["close", "bus-click"]);
 
 const router = useRouter();
+
+// closures and detours naming this stop, in effect now or still to come
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+const stopAlerts = computed(() => {
+  const { active, upcoming } = alertsForStop(serviceAlerts.value, props.stop.stop_id, nowLocal.value);
+  return [...active, ...upcoming];
+});
 
 // the day the next-bus labels count from
 const today = computed(() => edmontonNow().dateString);
@@ -113,6 +124,15 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
         @click="$emit('close')"
       />
     </div>
+
+    <ServiceAlertCard
+      v-for="timing in stopAlerts"
+      :key="timing.alert.id"
+      :timing="timing"
+      :now="nowLocal"
+      show-routes
+      class="mx-4 mb-3"
+    />
 
     <v-alert v-if="isError" type="error" variant="tonal" class="mx-4 mb-3">
       Buses for this stop could not be loaded.

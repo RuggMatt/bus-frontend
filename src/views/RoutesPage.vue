@@ -5,6 +5,8 @@ import { useBuses } from '../composables/useBuses';
 import { RouterLink, useRouter } from 'vue-router';
 import RouteBadge from '../components/RouteBadge.vue';
 import { transitionLinkClick } from '../utils/viewTransition';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
+import { routesWithActiveAlerts } from '../utils/serviceAlerts';
 
 const { routes } = useRoutes();
 const { buses } = useBuses();
@@ -19,6 +21,10 @@ const getCurrentBusesOnRoute = (routeId) => {
 };
 
 const router = useRouter();
+
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+const disruptedRoutes = computed(() => routesWithActiveAlerts(serviceAlerts.value, nowLocal.value));
 
 // only the tapped route's elements are named, as each name must be unique on the page
 /** @type {import('vue').Ref<string | null>} */
@@ -83,7 +89,16 @@ const filteredRoutes = computed(() => {
                     size="small"
                     class="mr-2"
                     :style="transitionName(route.route_id, 'route-number')"
-                  /><span :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span>
+                  /><span :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span><v-icon
+                    v-if="disruptedRoutes.has(route.route_id)"
+                    v-tooltip="'Service disruption'"
+                    icon="mdi-alert"
+                    color="warning"
+                    size="small"
+                    class="ml-2"
+                    aria-label="Service disruption"
+                    role="img"
+                  />
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/buses/${encodeURIComponent(bus.bus)}`">

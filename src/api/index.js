@@ -1,4 +1,5 @@
 import { edmontonNow } from "../utils/serviceTime";
+import { addDays } from "../utils/weeks";
 
 /**
  * @typedef {Object} ElectricBusHourlyStat
@@ -889,4 +890,29 @@ export const getDiskStats = async () => {
   } else {
     throw Error(result.status);
   }
+};
+
+/**
+ * Fetches the City's service disruption alerts that ended in the last week or haven't
+ * ended, one row per alert, route and period. The whole dataset is a few hundred rows.
+ * @returns {Promise<import('../utils/serviceAlerts').ServiceAlertRow[]>}
+ */
+export const getServiceAlerts = async () => {
+  // times are Edmonton local time without a zone
+  const since = `${addDays(edmontonNow().dateString, -7)}T00:00:00`;
+  const params = new URLSearchParams({
+    $select: "alert_id,start_dttm,end_dttm,route_id,stop_id,cause,effect,header_text,description_text",
+    $where: `is_deleted = false AND end_dttm >= '${since}'`,
+    $limit: "5000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/5yvt-mcye.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
 };
