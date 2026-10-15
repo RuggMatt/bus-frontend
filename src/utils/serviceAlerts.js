@@ -53,6 +53,14 @@ export const EFFECT_LABELS = {
   ADDITIONAL_SERVICE: "Additional service",
 };
 
+// amber, like the alert cards. A ring rather than a fill, so it sits around the trip page's lateness colours
+export const DISRUPTION_RING_STYLE = {
+  color: "#fb8c00",
+  weight: 3,
+  fill: false,
+  interactive: false,
+};
+
 /** @param {string} effect */
 export const effectLabel = (effect) => EFFECT_LABELS[effect] ?? "Service change";
 
@@ -262,4 +270,23 @@ export const formatAlertPeriod = ({ alert, period, more }, now) => {
   const daily = alert.periods.every((p) => p.end !== null && p.start.slice(0, 10) === p.end.slice(0, 10));
   const unit = daily ? (more === 1 ? "day" : "days") : more === 1 ? "time" : "times";
   return `${text} + ${more} more ${unit}`;
+};
+
+/**
+ * The stops named by alerts in effect now, and the effect on each, for marking them on maps
+ * @param {ServiceAlert[]} alerts
+ * @param {string} now local time
+ * @param {string} [routeId] only this route's alerts
+ * @returns {Map<string, string>} stop id to effect
+ */
+export const disruptedStops = (alerts, now, routeId) => {
+  const stops = new Map();
+  for (const alert of alerts) {
+    if (routeId && !alert.routeIds.has(routeId)) continue;
+    if (alertStatus(alert, now).state !== "active") continue;
+    for (const stopId of alert.stopIds) {
+      if (!stops.has(stopId)) stops.set(stopId, alert.effect);
+    }
+  }
+  return stops;
 };

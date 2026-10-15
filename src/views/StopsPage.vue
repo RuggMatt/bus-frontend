@@ -9,6 +9,8 @@ import { useQuery } from '@tanstack/vue-query';
 import { getBusStopTimes, getTrip } from '../api';
 import { tripPath, useStopArrivals } from '../composables/useStopArrivals';
 import { alongRouteMetres, distanceMetres } from '../utils/geo';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
+import { disruptedStops as stopsWithAlerts } from '../utils/serviceAlerts';
 
 const props = defineProps({
   stopId: {
@@ -18,6 +20,11 @@ const props = defineProps({
 });
 
 const NEARBY_STOP_COUNT = 20;
+
+// stops closed, moved or detoured around by an alert in effect, ringed on the map
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+const disruptedStops = computed(() => stopsWithAlerts(serviceAlerts.value, nowLocal.value));
 
 const router = useRouter();
 const { mdAndUp } = useDisplay();
@@ -240,6 +247,7 @@ const nearbyStops = computed(() => {
         :selected-bus-id="selectedBusId"
         :following="following"
         :trip-route="tripRoute"
+        :disrupted-stops="disruptedStops"
         @stop-click="selectStop"
         @bus-click="selectBus"
         @map-click="clearBus"

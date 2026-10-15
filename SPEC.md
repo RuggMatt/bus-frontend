@@ -73,6 +73,7 @@ SODA queries escape single quotes in ids to prevent SoQL injection.
 - `direction_id` is always 0, `severity_level` always `WARNING` and `is_deleted` always false, so they're ignored. A direction is told apart by its stops instead: an alert naming stops only applies to directions serving one of them.
 - `effect` is `DETOUR`, `STOP_MOVED` or `MODIFIED_SERVICE` (`effectLabel`).
 - Expired alerts drop out of the dataset after a while, so past days on the trip page may show none.
+- **Stops on maps:** a stop named by an alert in effect gets an amber ring (`DISRUPTION_RING_STYLE`) and the effect in its tooltip. On the route page that's the route's own alerts (`disruptedStops(alerts, now, routeId)`), on the stops map any route's, and on the trip page the trip's (`alertsForTrip`). It's a ring rather than a fill so it sits around the trip page's lateness colours.
 
 ### GTFS quirks
 
@@ -249,7 +250,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ## Shared UI
 
 - **`TransitMap.vue`**: the Leaflet map for the route and trip pages. Props:
-  - `stops`: `{ stop_id, stop_name, lat, lon, color?, tooltip? }`. Drawn on a canvas, and tapping one opens `/stops/:id`
+  - `stops`: `{ stop_id, stop_name, lat, lon, color?, tooltip?, disruption? }`. Drawn on a canvas, and tapping one opens `/stops/:id`. A `disruption` label draws an amber ring around the stop
   - `buses`: `Bus[]` as `createBusIcon` pins, with no age badges. Tapping one opens its trip, if it's on one
   - `paths`: route lines, under the stops
   - `fitKey`: the map fits the stops and lines once per key, so data refreshes don't undo the user's panning

@@ -16,7 +16,7 @@ import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
 import { directionLabels as labelDirections, representativeTrips } from '../utils/routes';
 import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
-import { alertsForRoute } from '../utils/serviceAlerts';
+import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
 import {
   regularServices,
   sameServices,
@@ -143,19 +143,6 @@ const { data: directionStopTimes } = useQuery({
   staleTime: Infinity,
 });
 
-const mapStops = computed(() =>
-  [...new Set((directionStopTimes.value ?? []).map((st) => st.stop_id))]
-    .map((stopId) => keyedStops.value?.[stopId])
-    .filter((stop) => !!stop)
-    .map((stop) => ({
-      stop_id: stop.stop_id,
-      stop_name: stop.stop_name,
-      lat: Number(stop.stop_lat),
-      lon: Number(stop.stop_lon),
-    }))
-    .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
-);
-
 // --- Service disruptions in this direction, in effect now and still to come ---
 const serviceAlerts = useServiceAlerts();
 const nowLocal = useNowLocal();
@@ -167,6 +154,27 @@ const directionStopIds = computed(() =>
 
 const routeAlerts = computed(() => alertsForRoute(serviceAlerts.value, props.routeId, nowLocal.value, directionStopIds.value));
 const showUpcomingAlerts = ref(false);
+
+// stops this route's alerts in effect name, ringed on the map
+const routeDisruptedStops = computed(() => disruptedStops(serviceAlerts.value, nowLocal.value, props.routeId));
+
+const mapStops = computed(() =>
+  [...new Set((directionStopTimes.value ?? []).map((st) => st.stop_id))]
+    .map((stopId) => keyedStops.value?.[stopId])
+    .filter((stop) => !!stop)
+    .map((stop) => {
+      const effect = routeDisruptedStops.value.get(stop.stop_id);
+      return {
+        stop_id: stop.stop_id,
+        stop_name: stop.stop_name,
+        lat: Number(stop.stop_lat),
+        lon: Number(stop.stop_lon),
+        disruption: effect ? effectLabel(effect) : null,
+        tooltip: effect ? `${stop.stop_name} • ${effectLabel(effect)}` : undefined,
+      };
+    })
+    .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
+);
 
 // same key as the trip page and bus cards, so they share the shapes
 const shapeQueries = useQueries({

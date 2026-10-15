@@ -4,6 +4,7 @@ import {
   alertsForRoute,
   alertsForStop,
   alertsForTrip,
+  disruptedStops,
   edmontonLocal,
   formatAlertPeriod,
   groupAlerts,
@@ -136,6 +137,18 @@ describe("alertsForStop and routesWithActiveAlerts", () => {
 
   it("lists the routes with an alert in effect", () => {
     expect([...routesWithActiveAlerts(alerts, WED_NOON)].sort()).toEqual(["051", "106", "669", "718", "A6"]);
+  });
+});
+
+describe("disruptedStops", () => {
+  it("maps the stops of alerts in effect to their effect", () => {
+    expect([...disruptedStops(alerts, WED_NOON)]).toEqual([
+      ["9607", "STOP_MOVED"],
+      ["A0292", "DETOUR"],
+      ["A0294", "DETOUR"],
+    ]);
+    expect([...disruptedStops(alerts, "2026-10-15T12:00:00", "008")]).toEqual([["1271", "DETOUR"]]);
+    expect(disruptedStops(alerts, WED_NOON, "008").size).toBe(0);
   });
 });
 

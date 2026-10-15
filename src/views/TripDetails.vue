@@ -467,6 +467,7 @@ const mapStops = computed(() =>
             lat,
             lon,
             color: status ? STATUS_HEX[status.color] ?? NO_ESTIMATE_HEX : NO_ESTIMATE_HEX,
+            disruption,
             tooltip: `${name} • ${scheduled} • ${status?.label ?? 'No live estimate'}${disruption ? ` • ${disruption}` : ''}`,
         }];
     }),
