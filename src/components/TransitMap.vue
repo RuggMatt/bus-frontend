@@ -3,6 +3,8 @@ import L from '../plugins/leaflet';
 import { createBusIcon, refreshReportAges } from '../plugins/busIcon';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { attachSharedMap, detachSharedMap, ROUTE_PANE } from '../plugins/sharedMap';
+import { prefersReducedMotion } from '../utils/viewTransition';
 
 /**
  * @typedef {Object} MapStop
@@ -59,8 +61,8 @@ const PATH_STYLE = {
     opacity: 0.6,
     weight: 4,
 };
-// under the stops and buses
-const PATH_PANE_Z_INDEX = 350;
+// long enough to follow the zoom between pages, short enough not to hold the page up
+const FLY_DURATION_SECONDS = 0.8;
 // close enough to see which street the bus is on
 const FOLLOW_ZOOM = 16;
 
@@ -68,6 +70,10 @@ const router = useRouter();
 const mapElement = ref(null);
 
 let map = null;
+/** @type {object | null} the shared map's owner token */
+let mapToken = null;
+// the map came from another page, so the first fit flies there instead of jumping
+let flyIn = false;
 let stopRenderer = null;
 let stopLayer = null;
 let pathLayer = null;
@@ -87,7 +93,12 @@ const fit = () => {
         ...props.stops.map((stop) => [stop.lat, stop.lon]),
         ...props.paths.flat(),
     ];
-    map.fitBounds(points, { padding: [24, 24] });
+    if (flyIn) {
+        map.flyToBounds(points, { padding: [24, 24], duration: FLY_DURATION_SECONDS });
+    } else {
+        map.fitBounds(points, { padding: [24, 24] });
+    }
+    flyIn = false;
     fitted = true;
 }
 
@@ -113,7 +124,7 @@ const drawPaths = () => {
     pathLayer.clearLayers();
     for (const path of props.paths) {
         if (path.length > 1) {
-            L.polyline(path, { ...PATH_STYLE, pane: "pathPane", interactive: false }).addTo(pathLayer);
+            L.polyline(path, { ...PATH_STYLE, pane: ROUTE_PANE, interactive: false }).addTo(pathLayer);
         }
     }
 }
@@ -170,37 +181,36 @@ const follow = () => {
     if (!position.every(Number.isFinite)) {
         return;
     }
-    if (!followed) {
+    if (!followed && !flyIn) {
         map.setView(position, FOLLOW_ZOOM);
-    } else if (followed[0] !== position[0] || followed[1] !== position[1]) {
+    } else if (!followed || followed[0] !== position[0] || followed[1] !== position[1]) {
         map.flyTo(position, FOLLOW_ZOOM, {
-            animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+            animate: !prefersReducedMotion(),
+            duration: flyIn ? FLY_DURATION_SECONDS : undefined,
         });
     }
+    flyIn = false;
     followed = position;
 }
 
+const removeLayers = () => {
+    for (const layer of [pathLayer, stopLayer, busLayer, stopRenderer]) {
+        layer?.remove();
+    }
+    busMarkers.clear();
+    map = null;
+}
+
 const createMap = () => {
-    map = L.map(mapElement.value, {
-        center: [53.5444, -113.4909],
-        zoom: 12,
-    });
+    const attached = attachSharedMap(mapElement.value, removeLayers);
+    map = attached.map;
+    mapToken = attached.token;
+    flyIn = attached.handedOver && !prefersReducedMotion();
     // a long route has a few hundred stops, which are quicker on a canvas
-    stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 });
-    map.createPane("pathPane");
-    map.getPane("pathPane").style.zIndex = PATH_PANE_Z_INDEX;
+    stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 }).addTo(map);
     pathLayer = L.layerGroup().addTo(map);
     stopLayer = L.layerGroup().addTo(map);
     busLayer = L.layerGroup().addTo(map);
-    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}/?{accessToken}', {
-        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-        maxZoom: 18,
-        minZoom: 9,
-        id: 'mapbox/streets-v11',
-        tileSize: 512,
-        zoomOffset: -1,
-        accessToken: `access_token=${import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN}`
-    }).addTo(map)
 }
 
 // registered first, so a new key's stops are fitted when they're drawn below, not the old ones
@@ -236,9 +246,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     clearInterval(reportAgeInterval);
-    busMarkers.clear();
-    map?.remove();
-    map = null;
+    removeLayers();
+    detachSharedMap(mapToken);
 })
 </script>
 
@@ -249,11 +258,18 @@ onBeforeUnmount(() => {
 <style scoped>
 .transit-map {
     border-radius: 12px;
+    overflow: hidden;
+    position: relative;
     /* pages can set their own height */
     height: var(--transit-map-height, 360px);
     width: 100%;
     /* keeps leaflet's panes underneath the app bar and navigation drawer */
     z-index: 0;
+}
+
+.transit-map :deep(.shared-map) {
+    height: 100%;
+    width: 100%;
 }
 
 @media (max-width: 599px) {

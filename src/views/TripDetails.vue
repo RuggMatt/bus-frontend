@@ -107,21 +107,20 @@ const runMissing = computed(() => /** @type {any} */ (runError.value)?.status ==
 const isLoading = computed(() => (selectedDate.value ? !isFuture.value && runLoading.value : latestLoading.value));
 const error = computed(() => (selectedDate.value ? (runMissing.value ? null : runError.value) : latestError.value));
 
+// the bus cards share these keys, so coming from one the heading and map show straight away
 const { data: tripData, isLoading: tripLoading } = useQuery({
-    queryKey: ['trip-data', props.tripId],
+    queryKey: ['trip-shape', props.tripId],
     queryFn: () => getTrip(props.tripId),
     enabled: !!props.tripId,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    staleTime: Infinity,
 })
 
 // route data is a list of stops along this trip
 const { data: routeData } = useQuery({
-    queryKey: ['route-data', props.tripId],
+    queryKey: ['trip-stop-times', props.tripId],
     queryFn: () => getBusStopTimes(props.tripId),
     enabled: () => !!props.tripId,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    staleTime: Infinity,
 })
 
 const groupedTripData = computed(() => {
@@ -337,58 +336,61 @@ const mapPaths = computed(() => {
 </script>
 <template>
   <v-container>
-    <div v-if="isLoading || tripLoading">
-      Loading...
-    </div>
-    <v-alert v-else-if="tripData === null" type="info" variant="tonal">
+    <v-alert v-if="tripData === null" type="info" variant="tonal">
       Trip {{ tripId }} not found.
     </v-alert>
     <div v-else-if="error">
       Error: {{ error.message }}
     </div>
+    <!-- the map shows while loading, so it's there for the view transition from the main map -->
     <div v-else>
-      <router-link
-        v-if="tripData?.route_id"
-        :to="{ path: `/routes/${tripData.route_id}`, query: { direction: tripData.direction_id } }"
-        class="route-header d-flex align-center pa-2"
-      >
-        <RouteBadge :route-id="tripData.route_id" size="large" />
-        <h1 class="text-headline-small ml-3 min-width-0">
-          {{ keyedroutes[tripData.route_id]?.route_long_name }}
-        </h1>
-        <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
-      </router-link>
-      <div class="text-body-medium text-medium-emphasis px-2">
-        <div>
-          {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
-        </div>
-        <div class="text-body-small">
-          Trip {{ tripId }}<template v-if="isFuture">
-            &middot; Not run yet
-          </template><template v-else-if="latestTripPoint">
-            &middot; <BusLink :bus="latestTripPoint.bus" />
-          </template>
-        </div>
+      <div v-if="tripLoading">
+        Loading...
       </div>
-      <div class="d-flex align-center flex-wrap ga-2 mt-2 px-1">
-        <DayPicker
-          :model-value="pickerDate"
-          :min="pickerMin"
-          :max="pickerMax"
-          :today="today"
-          :allowed="isPickable"
-          @update:model-value="pickDate"
-        />
-      </div>
-      <v-alert
-        v-if="runMissing"
-        type="info"
-        variant="tonal"
-        density="compact"
-        class="mt-2"
-      >
-        {{ pickerDate === today ? "Hasn't run yet today" : `Not recorded on ${pickerDateLabel}` }}
-      </v-alert>
+      <template v-else>
+        <router-link
+          v-if="tripData?.route_id"
+          :to="{ path: `/routes/${tripData.route_id}`, query: { direction: tripData.direction_id } }"
+          class="route-header d-flex align-center pa-2"
+        >
+          <RouteBadge :route-id="tripData.route_id" size="large" />
+          <h1 class="text-headline-small ml-3 min-width-0">
+            {{ keyedroutes[tripData.route_id]?.route_long_name }}
+          </h1>
+          <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
+        </router-link>
+        <div class="text-body-medium text-medium-emphasis px-2">
+          <div>
+            {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
+          </div>
+          <div class="text-body-small">
+            Trip {{ tripId }}<template v-if="isFuture">
+              &middot; Not run yet
+            </template><template v-else-if="latestTripPoint">
+              &middot; <BusLink :bus="latestTripPoint.bus" />
+            </template>
+          </div>
+        </div>
+        <div class="d-flex align-center flex-wrap ga-2 mt-2 px-1">
+          <DayPicker
+            :model-value="pickerDate"
+            :min="pickerMin"
+            :max="pickerMax"
+            :today="today"
+            :allowed="isPickable"
+            @update:model-value="pickDate"
+          />
+        </div>
+        <v-alert
+          v-if="runMissing"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mt-2"
+        >
+          {{ pickerDate === today ? "Hasn't run yet today" : `Not recorded on ${pickerDateLabel}` }}
+        </v-alert>
+      </template>
       <TransitMap
         :stops="mapStops"
         :buses="mapBuses"
@@ -396,7 +398,10 @@ const mapPaths = computed(() => {
         :fit-key="tripId"
         class="trip-map mt-3"
       />
-      <v-card v-if="stopRows.length" variant="outlined" class="mt-3">
+      <div v-if="isLoading" class="mt-3">
+        Loading...
+      </div>
+      <v-card v-else-if="stopRows.length" variant="outlined" class="mt-3">
         <template v-for="(row, index) in stopRows" :key="row.stop.stop_sequence">
           <v-divider v-if="index > 0" />
           <div

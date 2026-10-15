@@ -141,4 +141,17 @@ const activeTab = computed(() => {
   animation-duration: 300ms;
   animation-timing-function: ease;
 }
+
+/* the map shared between pages, see plugins/sharedMap.js */
+.shared-map {
+  view-transition-name: shared-map;
+}
+
+/* crops rather than stretches between the full-screen and card boxes, keeping the centre */
+::view-transition-old(shared-map),
+::view-transition-new(shared-map) {
+  height: 100%;
+  object-fit: cover;
+  overflow: clip;
+}
 </style>

@@ -314,26 +314,27 @@ const tripDays = computed(() => {
       Tracked since {{ trackedSince }}
     </div>
 
-    <div v-if="busLoading" class="d-flex justify-center py-6">
-      <v-progress-circular indeterminate color="primary" />
-    </div>
-    <v-alert v-else-if="notFound" type="info" variant="tonal" class="mt-3">
+    <v-alert v-if="notFound" type="info" variant="tonal" class="mt-3">
       Bus {{ busId }} hasn't been seen.
     </v-alert>
     <v-alert v-else-if="busError" type="error" variant="tonal" class="mt-3">
       This bus could not be loaded.
     </v-alert>
-    <template v-else>
-      <TransitMap
-        :stops="mapStops"
-        :buses="mapBuses"
-        :paths="mapPaths"
-        :follow-bus="!selectedTripId"
-        :fit-key="selectedTripId"
-        show-age
-        class="bus-map mt-3"
-      />
-
+    <!-- the map shows while loading, so it's there for the view transition from the main map -->
+    <TransitMap
+      v-else
+      :stops="mapStops"
+      :buses="mapBuses"
+      :paths="mapPaths"
+      :follow-bus="!selectedTripId"
+      :fit-key="selectedTripId"
+      show-age
+      class="bus-map mt-3"
+    />
+    <div v-if="busLoading" class="d-flex justify-center py-6">
+      <v-progress-circular indeterminate color="primary" />
+    </div>
+    <template v-else-if="!notFound && !busError">
       <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2 px-2">
         <h2 class="text-title-large mr-auto">
           Activity

@@ -7,11 +7,35 @@ import { useQuery } from '@tanstack/vue-query';
 import { getTrip, getBusStopTimes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useBuses } from '../composables/useBuses';
+import { attachSharedMap, detachSharedMap, rememberedHomeView, rememberHomeView, ROUTE_PANE } from '../plugins/sharedMap';
+import { prefersReducedMotion } from '../utils/viewTransition';
 // import 'leaflet/dist/leaflet.css'
+/** @type {import('leaflet').Map | null} */
 let map = null
+/** @type {object | null} the shared map's owner token */
+let mapToken = null;
+// everything this page draws, so it can all come off the shared map when leaving
+/** @type {import('leaflet').LayerGroup | null} */
+let homeLayer = null;
 /** @type {import('leaflet').CircleMarker | null} */
 let userMarker = null;
-const ROUTE_PANE_Z_INDEX = 350;
+const HOME_CENTER = /** @type {[number, number]} */ ([53.5150, -113.4757]);
+const HOME_ZOOM = 12;
+// matches TransitMap's, so the zoom back feels like the zoom in undone
+const FLY_DURATION_SECONDS = 0.8;
+/** @type {{ center: import('leaflet').LatLngExpression, zoom: number } | null} where the map is flying back to */
+let flyingHome = null;
+
+const props = defineProps({
+    // a bus selected when the user left the page, reselected if it's still in the snapshot
+    restoreBusId: {
+        type: [String, Number],
+        default: null,
+    },
+});
+let pendingRestore = props.restoreBusId;
+// a restored selection keeps the remembered view rather than fitting its route
+let fitSelection = true;
 
 /**
  * @type {Record<string, import("../api/index").Bus>}
@@ -60,7 +84,7 @@ const renderBuses = (newBuses) => {
             let prev = buses[bus.bus];
             let line = L.polyline([prev.getLatLng(), [bus.lat, bus.long]])
             prev.remove();
-            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(map)
+            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(homeLayer)
             newMarker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -68,7 +92,7 @@ const renderBuses = (newBuses) => {
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
-            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(map)
+            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(homeLayer)
             marker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -77,20 +101,43 @@ const renderBuses = (newBuses) => {
         }
     }
     applyRouteHighlighting();
+    restoreSelection(newBuses);
+}
+
+/**
+ * Reselects the bus the user had selected when they left, with its fresh position
+ * @param {import("../api/index").Bus[]} newBuses
+ */
+const restoreSelection = (newBuses) => {
+    if (pendingRestore === null) {
+        return;
+    }
+    const bus = newBuses.find((candidate) => String(candidate.bus) === String(pendingRestore));
+    pendingRestore = null;
+    if (bus) {
+        handleBusClick(bus, false);
+    }
 }
 
 // shared with the other pages, and refetched when the backend's next snapshot should be ready
 const { buses: liveBuses } = useBuses();
 watch(liveBuses, renderBuses);
 
+const selectedTripId = computed(() => selectedBus.value?.trip ?? null);
+
+// the same keys as the bus card's, so the card and the map share one request
 const { data: trip } = useQuery({
-    queryKey: ['bus', selectedBus],
-    queryFn: () => selectedBus.value ?  getTrip(selectedBus.value.trip) : null
+    queryKey: computed(() => ['trip-shape', selectedTripId.value]),
+    queryFn: () => getTrip(selectedTripId.value),
+    enabled: computed(() => Boolean(selectedTripId.value)),
+    staleTime: Infinity,
 });
 
 const { data: tripStops } = useQuery({
-    queryKey: ['trip-stops', selectedBus],
-    queryFn: () => selectedBus.value ? getBusStopTimes(selectedBus.value.trip) : []
+    queryKey: computed(() => ['trip-stop-times', selectedTripId.value]),
+    queryFn: () => getBusStopTimes(selectedTripId.value),
+    enabled: computed(() => Boolean(selectedTripId.value)),
+    staleTime: Infinity,
 });
 
 const { stops } = useStops();
@@ -106,7 +153,12 @@ const stopsHashMap = computed(() => {
     }, /** @type {Record<string, import("../api/index").BusStop>} */ ({}));
 });
 
-const handleBusClick = (bus) => {
+/**
+ * @param {import("../api/index").Bus} bus
+ * @param {boolean} [fit] zoom to the bus's route once it loads
+ */
+const handleBusClick = (bus, fit = true) => {
+    fitSelection = fit;
     emits("bus-details", bus);
     selectedBus.value = bus;
 }
@@ -186,7 +238,10 @@ const applyRouteHighlighting = () => {
 }
 
 watch(trip, () => {
-    if (!trip.value) {
+    if (!map) {
+        return;
+    }
+    if (!trip.value || !selectedBus.value) {
         routePathPoints.length = 0;
         previousPolyline?.remove();
         previousPolyline = null;
@@ -200,9 +255,11 @@ watch(trip, () => {
         applyRouteHighlighting();
         return;
     }
-    previousPolyline = L.polyline(routePathPoints, { pane: "routePane" }).addTo(map);
+    previousPolyline = L.polyline(routePathPoints, { pane: ROUTE_PANE }).addTo(homeLayer);
     previousPolyline.on("click", (event) => L.DomEvent.stopPropagation(event));
-    map.fitBounds(previousPolyline.getBounds());
+    if (fitSelection) {
+        map.fitBounds(previousPolyline.getBounds());
+    }
     applyRouteHighlighting();
 })
 
@@ -210,7 +267,7 @@ watch(trip, () => {
 let stopMarkers = [];
 
 watch(tripStops, () => {
-    if (!tripStops.value) {
+    if (!map || !tripStops.value || !selectedBus.value) {
         return;
     }
     for (const marker of stopMarkers) {
@@ -238,7 +295,7 @@ watch(tripStops, () => {
                 opacity: 0.95,
                 weight: 2
             }
-        ).addTo(map);
+        ).addTo(homeLayer);
         marker.on("click", (event) => L.DomEvent.stopPropagation(event));
         marker.bindTooltip(`${stopDetails.stop_name} ${stop.arrival_time_fixed}`);
         stopMarkers.push(marker);
@@ -269,7 +326,7 @@ const locate = () => {
                 fillOpacity: 1,
                 weight: 3,
                 interactive: false,
-            }).addTo(map);
+            }).addTo(homeLayer);
             map.setView(latlng, 16);
         },
         () => {
@@ -279,24 +336,37 @@ const locate = () => {
     );
 }
 
+const releaseMap = () => {
+    map?.off("click", clearRouteSelection);
+    map?.off("moveend", landedHome);
+    homeLayer?.remove();
+    homeLayer = null;
+    userMarker = null;
+    map = null;
+}
+
+const landedHome = () => {
+    flyingHome = null;
+}
+
+const mapElement = ref(null);
+
 const createMap = () => {
-    map = L.map('test', {
-        center: [53.5150, -113.4757],
-        zoom: 12,
-    });
-    map.createPane("routePane");
-    map.getPane("routePane").style.zIndex = ROUTE_PANE_Z_INDEX;
+    const attached = attachSharedMap(mapElement.value, releaseMap);
+    map = attached.map;
+    mapToken = attached.token;
+    homeLayer = L.layerGroup().addTo(map);
     map.on("click", clearRouteSelection);
-    L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}/?{accessToken}', {
-        attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-        maxZoom: 18,
-        minZoom: 10,
-        bounds: [[53.65, -113.7], [53.23, -113.3]],
-        id: 'mapbox/streets-v11',
-        tileSize: 512,
-        zoomOffset: -1,
-        accessToken: `access_token=${import.meta.env.VITE_APP_MAPBOX_ACCESS_TOKEN}`
-    }).addTo(map)
+    // back to where the user was, or the whole city the first time
+    const center = rememberedHomeView?.center ?? HOME_CENTER;
+    const zoom = rememberedHomeView?.zoom ?? HOME_ZOOM;
+    if (attached.handedOver && !prefersReducedMotion()) {
+        flyingHome = { center, zoom };
+        map.flyTo(center, zoom, { duration: FLY_DURATION_SECONDS });
+        map.once("moveend", landedHome);
+    } else {
+        map.setView(center, zoom);
+    }
 }
 
 onMounted(() => {
@@ -306,14 +376,21 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-    map?.off("click", clearRouteSelection);
-    userMarker?.remove();
-    userMarker = null;
+    if (map) {
+        // leaving mid-flight keeps where it was heading, not where it got to
+        rememberHomeView({
+            center: flyingHome?.center ?? map.getCenter(),
+            zoom: flyingHome?.zoom ?? map.getZoom(),
+            busId: selectedBus.value?.bus ?? null,
+        });
+    }
+    releaseMap();
+    detachSharedMap(mapToken);
 })
 </script>
 <template>
   <div class="map-wrapper">
-    <div id="test" class="map" />
+    <div ref="mapElement" class="map" />
     <v-btn
       class="locate-button"
       icon="mdi-crosshairs-gps"
@@ -338,8 +415,14 @@ onBeforeUnmount(() => {
 .map {
     width: 100%;
     height: 100%;
+    position: relative;
     /* keeps leaflet's panes underneath the app bar and navigation drawer */
     z-index: 0;
+}
+
+.map :deep(.shared-map) {
+    height: 100%;
+    width: 100%;
 }
 
 .locate-button {
