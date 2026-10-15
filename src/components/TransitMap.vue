@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router';
 import { attachSharedMap, detachSharedMap, ROUTE_PANE } from '../plugins/sharedMap';
 import { prefersReducedMotion } from '../utils/viewTransition';
 import { thinPositions } from '../utils/positions';
+import { DISRUPTION_RING_STYLE } from '../utils/serviceAlerts';
 
 /**
  * @typedef {Object} MapStop
@@ -15,6 +16,7 @@ import { thinPositions } from '../utils/positions';
  * @property {number} lon
  * @property {string} [color] Outline and fill, e.g. how late the bus was there
  * @property {string} [tooltip] Defaults to the stop name
+ * @property {string | null} [disruption] e.g. "Detour", when a service alert names the stop. Drawn as a ring
  */
 
 /**
@@ -130,6 +132,10 @@ const drawStops = () => {
     }
     stopLayer.clearLayers();
     for (const stop of props.stops) {
+        if (stop.disruption) {
+            L.circleMarker([stop.lat, stop.lon], { ...DISRUPTION_RING_STYLE, radius: STOP_STYLE.radius + 4, renderer: stopRenderer })
+                .addTo(stopLayer);
+        }
         const color = stop.color ? { color: stop.color, fillColor: stop.color, fillOpacity: 0.95 } : {};
         L.circleMarker([stop.lat, stop.lon], { ...STOP_STYLE, ...color, renderer: stopRenderer })
             .bindTooltip(stop.tooltip ?? stop.stop_name)

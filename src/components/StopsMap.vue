@@ -2,6 +2,7 @@
 import L from '../plugins/leaflet';
 import { createBusIcon, refreshReportAges } from '../plugins/busIcon';
 import { alongRouteMetres, distanceMetres, pathBetween } from '../utils/geo';
+import { DISRUPTION_RING_STYLE, effectLabel } from '../utils/serviceAlerts';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -33,6 +34,11 @@ const props = defineProps({
     following: {
         type: Boolean,
         default: false,
+    },
+    /** @type {import('vue').PropType<Map<string, string>>} stop id to the effect of a service alert in effect there */
+    disruptedStops: {
+        type: Map,
+        default: () => new Map(),
     },
     /** @type {import('vue').PropType<{path: [number, number][], stops: {stop: object, lat: number, lon: number, label: string}[]} | null>} */
     tripRoute: {
@@ -136,6 +142,26 @@ const stopPoints = computed(() =>
         .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
 );
 
+/**
+ * A ring around a stop a service alert names, drawn under the stop
+ * @param {{lat: number, lon: number}} point
+ * @param {string} stopId
+ * @param {number} radius the stop's
+ */
+const addDisruptionRing = (point, stopId, radius) => {
+    if (!props.disruptedStops.has(stopId)) return;
+    stopLayer.addLayer(L.circleMarker([point.lat, point.lon], { ...DISRUPTION_RING_STYLE, radius: radius + 4, renderer: stopRenderer }));
+};
+
+/**
+ * @param {string} name
+ * @param {string} stopId
+ */
+const stopTooltip = (name, stopId) => {
+    const effect = props.disruptedStops.get(stopId);
+    return effect ? `${name} • ${effectLabel(effect)}` : name;
+};
+
 const drawStops = () => {
     if (!map) {
         return;
@@ -159,12 +185,13 @@ const drawStops = () => {
         if (!zoomedIn || !bounds.contains([point.lat, point.lon])) {
             continue;
         }
+        addDisruptionRing(point, point.stop.stop_id, STOP_STYLE.radius);
         const marker = L.circleMarker([point.lat, point.lon], { ...STOP_STYLE, renderer: stopRenderer });
         marker.on("click", (event) => {
             L.DomEvent.stopPropagation(event);
             emits("stop-click", point.stop);
         });
-        marker.bindTooltip(point.stop.stop_name);
+        marker.bindTooltip(stopTooltip(point.stop.stop_name, point.stop.stop_id));
         stopLayer.addLayer(marker);
     }
     // the selected bus's stops are shown at every zoom, sitting on its route line
@@ -172,18 +199,20 @@ const drawStops = () => {
         if (tripStop.stop.stop_id === props.selectedStopId) {
             continue;
         }
+        addDisruptionRing(tripStop, tripStop.stop.stop_id, TRIP_STOP_STYLE.radius);
         const marker = L.circleMarker([tripStop.lat, tripStop.lon], { ...TRIP_STOP_STYLE, renderer: stopRenderer });
         marker.on("click", (event) => {
             L.DomEvent.stopPropagation(event);
             emits("stop-click", tripStop.stop);
         });
-        marker.bindTooltip(tripStop.label);
+        marker.bindTooltip(stopTooltip(tripStop.label, tripStop.stop.stop_id));
         stopLayer.addLayer(marker);
     }
     // drawn last so it sits on top of its neighbours
     if (selected) {
+        addDisruptionRing(selected, selected.stop.stop_id, SELECTED_STOP_STYLE.radius);
         L.circleMarker([selected.lat, selected.lon], { ...SELECTED_STOP_STYLE, renderer: stopRenderer })
-            .bindTooltip(selected.stop.stop_name)
+            .bindTooltip(stopTooltip(selected.stop.stop_name, selected.stop.stop_id))
             .addTo(stopLayer);
     }
 }
@@ -428,7 +457,7 @@ defineExpose({
     centerOn,
 })
 
-watch([stopPoints, () => props.selectedStopId], drawStops);
+watch([stopPoints, () => props.selectedStopId, () => props.disruptedStops], drawStops);
 watch([() => props.buses, () => props.selectedBusId, () => props.following], drawBuses);
 watch(() => props.tripRoute, drawRoute);
 watch(() => props.userLocation, drawUserLocation);
