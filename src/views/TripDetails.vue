@@ -18,15 +18,23 @@ import { estimateStopArrivals } from '../utils/stopEstimates';
 import { schedulePeriod, serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
 import { nearestByStart, sortByStart, tripsOnDate } from '../utils/dayTrips';
 import { chunk } from '../utils/chunk';
-import { edmontonDate } from '../utils/tripTimes';
+import { edmontonDate, formatClockTime, formatClockTimeWithSeconds } from '../utils/tripTimes';
+import { compassPoint, nearestStop } from '../utils/positions';
+import { prefersReducedMotion } from '../utils/viewTransition';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
-import { computed, ref, shallowRef, watch, watchEffect } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 /** @typedef {import('../api/index').BusStopTime} BusStopTime */
 
 
 const ACTIVE_TRIP_STALE_SECONDS = 300;
+// the bus pin shows while the trip runs and for a while after, then it's just history
+const RECENT_RUN_SECONDS = 600;
+// a position this close to a stop is said to be at it
+const NEAR_STOP_METRES = 150;
+// reports come about every 30 s, so a longer wait means positions are missing
+const POSITION_GAP_SECONDS = 120;
 // how far back the picker goes, about as far as the backend keeps positions
 const PAST_DAYS = 366;
 // how far ahead the picker goes when the calendar can't be loaded
@@ -73,6 +81,24 @@ watch(() => currentRoute.query.date, (date) => {
     selectedDate.value = dateFromQuery(date);
 });
 
+/** @param {unknown} value */
+const viewFromQuery = (value) => (value === 'positions' ? 'positions' : 'stops');
+
+// the list under the map: the scheduled stops, or the positions recorded on the run
+const view = ref(viewFromQuery(currentRoute.query.view));
+watch(() => currentRoute.query.view, (value) => {
+    view.value = viewFromQuery(value);
+});
+
+/** @param {string} value */
+const pickView = (value) => {
+    view.value = viewFromQuery(value);
+    router.replace({ query: { ...currentRoute.query, view: view.value === 'positions' ? 'positions' : undefined } });
+};
+
+// kept when going to another trip, so the user stays in the view they picked
+const viewQuery = () => (view.value === 'positions' ? { view: 'positions' } : {});
+
 // set by picking a day, until this trip is known to run then or the nearest one has been opened
 const jumpPending = ref(false);
 
@@ -85,7 +111,7 @@ const pickDate = (date) => {
 
 /** @param {string} id */
 const openTrip = (id) => {
-    router.push({ path: `/trips/${encodeURIComponent(id)}`, query: { date: pickerDate.value } });
+    router.push({ path: `/trips/${encodeURIComponent(id)}`, query: { date: pickerDate.value, ...viewQuery() } });
 };
 
 // a day still to come only has its schedule
@@ -292,7 +318,7 @@ watch([jumpPending, dayTrips, dayTripsLoading, routeData], () => {
     const first = routeData.value[0];
     const start = first?.departure_time || first?.arrival_time;
     const nearest = start ? nearestByStart(dayTrips.value, start) : null;
-    if (nearest) router.replace({ path: `/trips/${encodeURIComponent(nearest.trip_id)}`, query: { date: pickerDate.value } });
+    if (nearest) router.replace({ path: `/trips/${encodeURIComponent(nearest.trip_id)}`, query: { date: pickerDate.value, ...viewQuery() } });
 });
 
 /**
@@ -416,7 +442,76 @@ const mapStops = computed(() =>
     }),
 );
 
-const mapBuses = computed(() => (latestTripPoint.value ? [latestTripPoint.value] : []));
+// ticks so the bus pin goes once the run has been over a while, without a reload
+const nowSeconds = ref(Date.now() / 1000);
+let nowInterval = null;
+onMounted(() => {
+    nowInterval = setInterval(() => {
+        nowSeconds.value = Date.now() / 1000;
+    }, 30000);
+});
+onBeforeUnmount(() => clearInterval(nowInterval));
+
+// an old position isn't where the bus is, and the positions view has its own pins
+const mapBuses = computed(() => {
+    const latest = latestTripPoint.value;
+    if (!latest || view.value === 'positions') return [];
+    return nowSeconds.value - latest.timestamp <= RECENT_RUN_SECONDS ? [latest] : [];
+});
+
+// the run's recorded positions, oldest first
+const positionRows = computed(() => {
+    const positions = [...runPositions.value].sort((a, b) => a.timestamp - b.timestamp);
+    const buses = new Set(positions.map((position) => String(position.bus)));
+    const stops = mapStops.value;
+    return positions.map((position, index) => {
+        const previous = positions[index - 1];
+        const gap = previous ? position.timestamp - previous.timestamp : 0;
+        const speed = Number(position.speed);
+        return {
+            key: `${position.timestamp}-${position.bus}`,
+            position,
+            time: formatClockTimeWithSeconds(position.timestamp),
+            speed: Number.isFinite(speed) ? Math.round(speed * 3.6) : null,
+            bearing: Number(position.bearing) || 0,
+            direction: compassPoint(position.bearing),
+            nearStop: nearestStop(position, stops, NEAR_STOP_METRES)?.stop_name ?? null,
+            gapMinutes: gap > POSITION_GAP_SECONDS ? Math.round(gap / 60) : null,
+            // only worth showing when the run changed bus
+            bus: buses.size > 1 ? position.bus : null,
+        };
+    });
+});
+
+const mapPositions = computed(() =>
+    view.value === 'positions'
+        ? positionRows.value.map(({ key, position }) => ({ ...position, key, label: formatClockTime(position.timestamp) }))
+        : [],
+);
+
+/** @type {import('vue').Ref<string | null>} */
+const selectedPositionKey = ref(null);
+watch([() => props.tripId, selectedDate, view], () => {
+    selectedPositionKey.value = null;
+});
+
+const selectedPosition = computed(
+    () => mapPositions.value.find((position) => position.key === selectedPositionKey.value) ?? null,
+);
+
+const tripMap = ref(null);
+
+/** @param {string} key */
+const selectPosition = (key) => {
+    selectedPositionKey.value = selectedPositionKey.value === key ? null : key;
+    if (selectedPositionKey.value) {
+        // the list runs well below the map, so bring it back to see the pin
+        /** @type {any} */ (tripMap.value)?.$el?.scrollIntoView({
+            block: 'nearest',
+            behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        });
+    }
+};
 
 const mapPaths = computed(() => {
     const path = tripPath(tripData.value);
@@ -424,10 +519,17 @@ const mapPaths = computed(() => {
 });
 
 // the map keeps drawing the last trip while the next loads, then fits the new one once
-const shownMap = shallowRef({ stops: mapStops.value, buses: mapBuses.value, paths: mapPaths.value, fitKey: String(tripData.value?.trip_id ?? props.tripId) });
+const currentMap = () => ({
+    stops: mapStops.value,
+    buses: mapBuses.value,
+    paths: mapPaths.value,
+    positions: mapPositions.value,
+    fitKey: String(tripData.value?.trip_id ?? props.tripId),
+});
+const shownMap = shallowRef(currentMap());
 watchEffect(() => {
     if (switching.value) return;
-    shownMap.value = { stops: mapStops.value, buses: mapBuses.value, paths: mapPaths.value, fitKey: String(tripData.value?.trip_id ?? props.tripId) };
+    shownMap.value = currentMap();
 });
 
 </script>
@@ -498,15 +600,98 @@ watchEffect(() => {
         </v-alert>
       </template>
       <TransitMap
+        ref="tripMap"
         :stops="shownMap.stops"
         :buses="shownMap.buses"
         :paths="shownMap.paths"
         :fit-key="shownMap.fitKey"
+        :positions="shownMap.positions"
+        :selected-position="selectedPosition"
         class="trip-map mt-3"
+        @select-position="selectPosition"
       />
+      <v-btn-toggle
+        :model-value="view"
+        mandatory
+        density="compact"
+        variant="outlined"
+        divided
+        color="primary"
+        class="mt-3"
+        @update:model-value="pickView"
+      >
+        <v-btn value="stops" prepend-icon="mdi-map-marker-outline">
+          Stops
+        </v-btn>
+        <v-btn value="positions" prepend-icon="mdi-crosshairs-gps">
+          Positions<template v-if="!isLoading && !switching && positionRows.length">
+            ({{ positionRows.length }})
+          </template>
+        </v-btn>
+      </v-btn-toggle>
       <div v-if="isLoading || switching" class="mt-3">
         Loading...
       </div>
+      <template v-else-if="view === 'positions'">
+        <div v-if="!positionRows.length" class="text-body-medium text-medium-emphasis mt-3">
+          No recorded positions
+        </div>
+        <v-card v-else variant="outlined" class="mt-3">
+          <template v-for="(row, index) in positionRows" :key="row.key">
+            <v-divider v-if="index > 0" />
+            <div
+              v-ripple
+              class="stop-row d-flex align-center pa-3"
+              :class="{ 'stop-row--expanded': selectedPositionKey === row.key }"
+              role="button"
+              tabindex="0"
+              :aria-pressed="selectedPositionKey === row.key"
+              @click="selectPosition(row.key)"
+              @keydown.enter.prevent="selectPosition(row.key)"
+              @keydown.space.prevent="selectPosition(row.key)"
+            >
+              <div class="flex-grow-1 min-width-0">
+                <div class="text-body-large">
+                  {{ row.time }}
+                  <v-chip
+                    v-if="row.gapMinutes"
+                    size="x-small"
+                    variant="tonal"
+                    color="warning"
+                    class="ml-1"
+                  >
+                    {{ row.gapMinutes }} min gap
+                  </v-chip>
+                </div>
+                <div class="text-body-small text-medium-emphasis">
+                  <template v-if="row.nearStop">
+                    Near {{ row.nearStop }}
+                  </template>
+                  <template v-else>
+                    Between stops
+                  </template>
+                  <template v-if="row.bus !== null">
+                    &middot; <BusLink :bus="row.bus" />
+                  </template>
+                </div>
+              </div>
+              <div class="text-right flex-shrink-0 ml-2">
+                <div class="text-title-medium">
+                  {{ row.speed === null ? '–' : row.speed === 0 ? 'Stopped' : `${row.speed} km/h` }}
+                </div>
+                <div v-if="row.direction" class="text-body-small text-medium-emphasis">
+                  <v-icon
+                    icon="mdi-navigation"
+                    size="x-small"
+                    :style="{ transform: `rotate(${row.bearing}deg)` }"
+                  />
+                  {{ row.direction }}
+                </div>
+              </div>
+            </div>
+          </template>
+        </v-card>
+      </template>
       <v-card v-else-if="stopRows.length" variant="outlined" class="mt-3">
         <template v-for="(row, index) in stopRows" :key="row.stop.stop_sequence">
           <v-divider v-if="index > 0" />

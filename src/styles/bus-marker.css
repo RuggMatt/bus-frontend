@@ -63,7 +63,8 @@
     z-index: 1;
 }
 
-.bus-marker-icon .bus-age-badge {
+.bus-marker-icon .bus-age-badge,
+.bus-marker-icon .bus-time-badge {
     background: rgba(0, 0, 0, 0.75);
     border-radius: 8px;
     color: #ffffff;
@@ -91,4 +92,22 @@
 .bus-marker-icon--old {
     --bus-color: #9e9e9e;
     --bus-outline: #424242;
+}
+
+/* a past position on the trip page, smaller so a run of them reads as a trail */
+.bus-marker-icon--history .bus-icon-wrapper {
+    transform: scale(0.8);
+}
+
+.bus-marker-icon--history:hover .bus-icon-wrapper {
+    transform: scale(0.95);
+}
+
+.bus-marker-icon--history .bus-time-badge {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.bus-marker-icon--selected .bus-time-badge {
+    background: #0a1a2f;
+    font-size: 11px;
 }

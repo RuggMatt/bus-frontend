@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatClockTime, formatTripDuration, formatTripTimes, tripDayLabel } from "../src/utils/tripTimes";
+import { formatClockTime, formatClockTimeWithSeconds, formatTripDuration, formatTripTimes, tripDayLabel } from "../src/utils/tripTimes";
 
 // noon on Wednesday 2026-10-14 in Edmonton (UTC-6)
 const NOW = Date.parse("2026-10-14T18:00:00Z");
@@ -9,6 +9,12 @@ describe("formatClockTime", () => {
   it("gives Edmonton time whatever the viewer's zone", () => {
     expect(formatClockTime(at("2026-10-14T13:32:00Z"))).toBe("7:32 AM");
     expect(formatClockTime(at("2026-10-15T05:05:00Z"))).toBe("11:05 PM");
+  });
+});
+
+describe("formatClockTimeWithSeconds", () => {
+  it("gives Edmonton time to the second", () => {
+    expect(formatClockTimeWithSeconds(at("2026-10-14T18:44:05Z"))).toBe("12:44:05 PM");
   });
 });
 

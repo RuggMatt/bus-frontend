@@ -5,6 +5,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { attachSharedMap, detachSharedMap, ROUTE_PANE } from '../plugins/sharedMap';
 import { prefersReducedMotion } from '../utils/viewTransition';
+import { thinPositions } from '../utils/positions';
 
 /**
  * @typedef {Object} MapStop
@@ -14,6 +15,11 @@ import { prefersReducedMotion } from '../utils/viewTransition';
  * @property {number} lon
  * @property {string} [color] Outline and fill, e.g. how late the bus was there
  * @property {string} [tooltip] Defaults to the stop name
+ */
+
+/**
+ * A recorded position, drawn as a small pin with a time badge
+ * @typedef {import('../api').Bus & {key: string, label: string}} MapPosition
  */
 
 const props = defineProps({
@@ -47,7 +53,19 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    /** @type {import('vue').PropType<MapPosition[]>} past positions, thinned out to fit the zoom */
+    positions: {
+        type: Array,
+        default: () => [],
+    },
+    /** @type {import('vue').PropType<MapPosition | null>} always drawn, and flown to when picked */
+    selectedPosition: {
+        type: Object,
+        default: null,
+    },
 });
+
+const emit = defineEmits(['select-position']);
 
 const STOP_STYLE = {
     radius: 5,
@@ -65,6 +83,8 @@ const PATH_STYLE = {
 const FLY_DURATION_SECONDS = 0.8;
 // close enough to see which street the bus is on
 const FOLLOW_ZOOM = 16;
+// about a time badge's width, so zoomed out pins and badges don't pile up
+const POSITION_SPACING_PX = 64;
 
 const router = useRouter();
 const mapElement = ref(null);
@@ -78,6 +98,8 @@ let stopRenderer = null;
 let stopLayer = null;
 let pathLayer = null;
 let busLayer = null;
+let positionLayer = null;
+let selectedLayer = null;
 /** @type {Map<number | string, {marker: import('leaflet').Marker, bus: import('../api').Bus}>} */
 const busMarkers = new Map();
 let fitted = false;
@@ -193,8 +215,57 @@ const follow = () => {
     followed = position;
 }
 
+const positionMarker = (position, options) =>
+    L.marker([position.lat, position.long], {
+        title: position.label,
+        icon: createBusIcon(position, { label: position.label, history: true, ...options }),
+        zIndexOffset: options?.selected ? 1000 : 0,
+    }).on("click", () => emit("select-position", position.key));
+
+// only the positions far enough apart at this zoom, and in view, so zooming in shows more
+const drawPositions = () => {
+    if (!map) {
+        return;
+    }
+    positionLayer.clearLayers();
+    if (!props.positions.length) {
+        return;
+    }
+    const zoom = map.getZoom();
+    const points = props.positions.map((position) => map.project([position.lat, position.long], zoom));
+    const view = map.getPixelBounds().pad(0.2);
+    for (const index of thinPositions(points, POSITION_SPACING_PX)) {
+        const position = props.positions[index];
+        if (position.key !== props.selectedPosition?.key && view.contains(points[index])) {
+            positionMarker(position).addTo(positionLayer);
+        }
+    }
+}
+
+const drawSelectedPosition = () => {
+    if (!map) {
+        return;
+    }
+    selectedLayer.clearLayers();
+    const position = props.selectedPosition;
+    if (position) {
+        positionMarker(position, { selected: true }).addTo(selectedLayer);
+    }
+}
+
+const flyToSelectedPosition = () => {
+    const position = props.selectedPosition;
+    if (!map || !position) {
+        return;
+    }
+    map.flyTo([position.lat, position.long], Math.max(map.getZoom(), FOLLOW_ZOOM), {
+        animate: !prefersReducedMotion(),
+    });
+}
+
 const removeLayers = () => {
-    for (const layer of [pathLayer, stopLayer, busLayer, stopRenderer]) {
+    map?.off("zoomend moveend", drawPositions);
+    for (const layer of [pathLayer, stopLayer, busLayer, positionLayer, selectedLayer, stopRenderer]) {
         layer?.remove();
     }
     busMarkers.clear();
@@ -210,7 +281,10 @@ const createMap = () => {
     stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 }).addTo(map);
     pathLayer = L.layerGroup().addTo(map);
     stopLayer = L.layerGroup().addTo(map);
+    positionLayer = L.layerGroup().addTo(map);
     busLayer = L.layerGroup().addTo(map);
+    selectedLayer = L.layerGroup().addTo(map);
+    map.on("zoomend moveend", drawPositions);
 }
 
 // registered first, so a new key's stops are fitted when they're drawn below, not the old ones
@@ -233,12 +307,21 @@ watch(() => props.followBus, (following) => {
 watch(() => props.stops, drawStops);
 watch(() => props.paths, drawPaths);
 watch(() => props.buses, drawBuses);
+watch(() => props.positions, drawPositions);
+watch(() => props.selectedPosition, () => {
+    drawSelectedPosition();
+    drawPositions();
+});
+// a refetch hands over a new object for the same position, which shouldn't move the map
+watch(() => props.selectedPosition?.key, flyToSelectedPosition);
 
 onMounted(() => {
     createMap();
     drawPaths();
     drawStops();
     drawBuses();
+    drawPositions();
+    drawSelectedPosition();
     if (props.showAge) {
         reportAgeInterval = setInterval(() => refreshReportAges(mapElement.value), 1000);
     }
