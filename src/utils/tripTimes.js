@@ -7,6 +7,13 @@ const TIME_FORMAT = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
   hour12: true,
 });
+const TIME_WITH_SECONDS_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Edmonton",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: true,
+});
 const DAY_FORMAT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Edmonton",
   weekday: "long",
@@ -22,6 +29,15 @@ const DAY_FORMAT = new Intl.DateTimeFormat("en-CA", {
 export const formatClockTime = (epochSeconds) =>
   // some engines put a narrow no-break space before AM/PM
   TIME_FORMAT.format(new Date(epochSeconds * 1000)).replace(/\s/g, " ");
+
+/**
+ * A time of day in Edmonton to the second, e.g. "7:32:05 AM", for positions reported
+ * less than a minute apart
+ * @param {number} epochSeconds
+ * @returns {string}
+ */
+export const formatClockTimeWithSeconds = (epochSeconds) =>
+  TIME_WITH_SECONDS_FORMAT.format(new Date(epochSeconds * 1000)).replace(/\s/g, " ");
 
 /**
  * The Edmonton date a moment falls on, as YYYY-MM-DD
