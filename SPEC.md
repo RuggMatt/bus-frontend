@@ -34,6 +34,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `timestamp` (epoch s), `bearing`, `speed` (m/s) |
 | `/bus/trips/:tripId` | Recorded positions for a trip in the past 3 days, newest first (trip page without a date) |
 | `/bus/trips/:tripId/:date` | The run of a trip that started on an Edmonton day (trip page with `?date=`): `start`/`end`, `points`, `buses`, `avgSpeed`/`maxSpeed`, and `positions`, oldest first. A run past midnight belongs to the day it started. 404 if no run started that day |
+| `/routes/:routeId/trips/:date` | The trips of a route we recorded on an Edmonton day (trip picker): `trips` of `trip`, `start`/`end` (epoch s), `points`, `buses`, oldest first. Route ids are GTFS ones (`008`). Only trips with positions are listed, and a run belongs to the day it started |
 | `/bus/electric`, `/bus/hydrogen` | Bus finders |
 | `/bus/stats/{electric,hydrogen}/{hourly,daily}`, `/bus/stats/disk` | Stats and status pages |
 | `/bus/:busId` | One bus (bus page): `latest` position, `firstSeen`/`lastSeen` (epoch s), and `active` (reported in the last 2 minutes). 404 if never seen. Bus ids are usually numbers, but not always |
@@ -103,6 +104,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['bus-trip-counts', busId, by, from, to]` | `/bus/:busId/trip-counts`, `staleTime` 5 min |
 | `['trip-run', tripId, date]` | `/bus/trips/:tripId/:date`. `staleTime: Infinity` before yesterday, as a run can go past midnight |
 | `['route-trips', routeId]` | Every trip of a route, without shapes (`getTripsByRouteId`) |
+| `['route-day-runs', routeId, date]` | `/routes/:routeId/trips/:date`. `staleTime: Infinity` before yesterday, else 60 s, refetched every 60 s for today |
 | `['trip-start-times', tripIds]` | Each trip's first departure (`getTripStartTimes`), `staleTime: Infinity` |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
 
@@ -197,6 +199,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Trip picker:** a `TripPicker` beside the day picker steps through the route's trips going the same direction on the picked day.
   - The day's trips (`tripsOnDate`, `src/utils/dayTrips.js`) are the route's trips (`['route-trips', routeId]`, shared with the route page) in that direction whose `service_id` runs on the date. Without calendar dates for it, the days in each `service_id` are used, within the trip's schedule period.
   - They're ordered by their first departure (`['trip-start-times', tripIds]`, `getTripStartTimes`). Past-midnight starts sort last.
+  - Trips we recorded that day (`['route-day-runs', routeId, date]`) get a green `mdi-access-point` icon in the menu, and beside the label when it's the shown trip. Future days make no request.
   - Previous and next buttons, and a menu of start times, go to `/trips/:id?date=` with `router.push`, so back returns to the last trip.
   - The page reacts to `tripId` changing, as the router reuses it. The expanded stop resets.
   - **Switching keeps what's known.** The trip, shape, stop times and run queries use `placeholderData: keepPreviousData`. While any is still the previous trip's or day's (`switching`), the route header, pickers and map stay, the headsign/times lines become a skeleton and the stop list says "Loading...". The map draws a snapshot of the last settled trip, and fits the new one once it arrives (its `fitKey` is the loaded trip's id).
@@ -238,7 +241,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
 - **`WeekPicker.vue`**: picks a Sunday–Saturday week. `v-model` is the week's Sunday (`YYYY-MM-DD`), and `min`/`max` limit it to days the data can cover. Vuetify has no week picker, so it's previous/next buttons around a label ("This week", "Last week", "Oct 4 – 10"). The label opens a `v-date-picker` with the week's 7 days selected (`multiple`), so the whole week is highlighted. Tapping any day picks its week. Week numbers are hidden on phones, where they make the picker too wide.
 - **`DayPicker.vue`**: picks a day, like `WeekPicker`. `v-model` is `YYYY-MM-DD`, with `min`, `max`, `today` (for the label) and an `allowed(date)` function. The label reads "Today", "Yesterday", "Tomorrow" or "Wed, Oct 14" (`formatDayLabel`), and opens a `v-date-picker`. Previous/next jump to the nearest allowed day.
-- **`TripPicker.vue`**: picks one of a day's trips, like `DayPicker`. `trips` are `{trip_id, start}` earliest first, `current` is the shown trip's id, and it emits `select` with a trip id. Previous/next buttons around a label with the current start time ("8:15 AM"), which opens a list of start times scrolled to the current one.
+- **`TripPicker.vue`**: picks one of a day's trips, like `DayPicker`. `trips` are `{trip_id, start}` earliest first, `current` is the shown trip's id, `recorded` is a `Set` of trip ids to mark as recorded, and it emits `select` with a trip id. Previous/next buttons around a label with the current start time ("8:15 AM"), which opens a list of start times scrolled to the current one.
 - **`TripCountsChart.vue`**: a Chart.js bar chart of `TripCount`s for a `by` period, in the theme's primary colour, with "Wed, Oct 14" / "Week of Oct 12" / "October 2026" tooltips. With `clickable` it emits `select` with a bar's period. 200px tall, 160px on phones.
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
 - **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).

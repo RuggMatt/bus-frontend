@@ -266,6 +266,43 @@ export const getTripRun = async (tripId, date) => {
 };
 
 /**
+ * @typedef {Object} RouteTrip
+ * @property {number} trip
+ * @property {boolean} happened Always true, only trips that reported positions are listed
+ * @property {number} start First position, Unix epoch seconds
+ * @property {number} end Last position, Unix epoch seconds
+ * @property {number} points
+ * @property {Array<number|string>} buses Every bus that reported on the trip, usually one
+ */
+
+/**
+ * @typedef {Object} RouteTrips
+ * @property {string} route
+ * @property {string} date YYYY-MM-DD
+ * @property {number} count
+ * @property {RouteTrip[]} trips Oldest first
+ */
+
+/**
+ * Fetches the recorded trips of a route that started on an Edmonton day.
+ * @param {string} routeId GTFS route id, like "008"
+ * @param {string} date YYYY-MM-DD
+ * @returns {Promise<RouteTrips>}
+ */
+export const getRouteTrips = async (routeId, date) => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/routes/${encodeURIComponent(routeId)}/trips/${date}`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Object.assign(Error(result.status), { status: result.status });
+};
+
+/**
  * Fetches hourly hydrogen bus stats from the backend API
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */
