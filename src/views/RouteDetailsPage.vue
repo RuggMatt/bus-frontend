@@ -5,6 +5,7 @@ import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getT
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
+import { useRecordedTrips } from '../composables/useRecordedTrips';
 import RouteBadge from '../components/RouteBadge.vue';
 import RouteBusCard from '../components/RouteBusCard.vue';
 import TransitMap from '../components/TransitMap.vue';
@@ -301,6 +302,9 @@ const dayTrips = computed(() => {
 });
 
 const dayTripIds = computed(() => dayTrips.value.map((t) => t.trip_id));
+
+// trips we recorded on the picked date, dotted in the timetable's header. A typical week has no date
+const recordedTripIds = useRecordedTrips(() => props.routeId, selectedDate);
 
 // --- Stop times for the day's trips ---
 const { data: stopTimesData, isLoading: stopTimesLoading } = useQuery({
@@ -634,7 +638,7 @@ function openTripCell(event) {
           <!-- a copy of the header row that sticks to the page, see useStickyTableHeader -->
           <div ref="timetableHead" class="timetable-head">
             <table ref="timetableHeadTable" class="timetable-table">
-              <TimetableHeaderRow :trips="timetableTrips" />
+              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" />
             </table>
           </div>
           <div
@@ -644,7 +648,7 @@ function openTripCell(event) {
           >
             <table ref="timetableTable" class="timetable-table">
               <!-- the real header keeps the table's layout, hidden under the copy -->
-              <TimetableHeaderRow :trips="timetableTrips" class="timetable-layout-head" />
+              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" class="timetable-layout-head" />
               <tbody @click="openTripCell">
                 <tr v-for="stop in timetableStops" :key="stop.stop_id">
                   <td class="stop-col">
@@ -770,6 +774,21 @@ function openTripCell(event) {
 .timetable-table thead th {
   background: rgb(var(--v-theme-surface-variant));
   font-weight: 600;
+}
+
+.timetable-table thead th.time-col {
+  position: relative;
+}
+
+/* a trip we recorded on the shown date */
+.timetable-recorded-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-success));
 }
 
 /* trip times and stop names link to their pages */

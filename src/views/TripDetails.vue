@@ -1,9 +1,10 @@
 <script setup>
 // @ts-check
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getRecentTripData, getRouteTrips, getServiceDates, getTrip, getTripRun,getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
+import { getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
+import { useRecordedTrips } from '../composables/useRecordedTrips';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
 import { LOCAL_AGENCY } from '../utils/routes';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
@@ -280,15 +281,7 @@ const { data: dayStartTimes, isLoading: dayTripsLoading } = useQuery({
 const dayTrips = computed(() => sortByStart(dayTripIds.value, dayStartTimes.value ?? []));
 
 // the route's trips we recorded on the picked day, marked in the trip picker
-const { data: dayRuns } = useQuery({
-    queryKey: computed(() => ['route-day-runs', routeId.value, pickerDate.value]),
-    queryFn: () => getRouteTrips(routeId.value, pickerDate.value),
-    enabled: () => !!routeId.value && pickerDate.value <= today,
-    // a trip that started yesterday can still be going past midnight
-    staleTime: () => (pickerDate.value < addDays(today, -1) ? Infinity : 60000),
-    refetchInterval: () => (pickerDate.value === today ? 60000 : false),
-});
-const recordedTripIds = computed(() => new Set((dayRuns.value?.trips ?? []).map((run) => String(run.trip))));
+const recordedTripIds = useRecordedTrips(routeId, pickerDate);
 
 // picking a day on which this trip doesn't run goes to the trip starting nearest to it
 watch([jumpPending, dayTrips, dayTripsLoading, routeData], () => {

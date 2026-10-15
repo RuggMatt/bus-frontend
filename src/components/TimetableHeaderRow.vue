@@ -5,6 +5,11 @@ defineProps({
     type: Array,
     required: true,
   },
+  // ids of the trips we recorded on the shown date
+  recorded: {
+    type: /** @type {import('vue').PropType<Set<string>>} */ (Set),
+    default: () => new Set(),
+  },
 });
 </script>
 
@@ -23,6 +28,13 @@ defineProps({
           <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
           <span v-else>{{ trip.headerTime }}</span>
         </router-link>
+        <span
+          v-if="recorded.has(trip.trip_id)"
+          class="timetable-recorded-dot"
+          role="img"
+          aria-label="Recorded"
+          title="Recorded"
+        />
       </th>
     </tr>
   </thead>
