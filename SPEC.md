@@ -239,26 +239,32 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 These use the same-document View Transitions API (`src/utils/viewTransition.js`). The timing is set globally in `App.vue`: `::view-transition-group(*)`, 300 ms ease. None play when reduced motion is preferred (`prefersReducedMotion`) or the API is missing.
 
-### Shared map (main map ↔ trip, bus and route pages)
+### Shared map (main map, trip, bus and route pages)
 
 - **One map instance** (`src/plugins/sharedMap.js`). `NewBusMap` and `TransitMap` don't create maps. They draw their layers on one Leaflet map, which `attachSharedMap(container, release)` moves into the page and `detachSharedMap(token)` takes out. So tiles stay loaded between pages, and the map can fly from one page's view to the next. Only one page may show it at a time. The stops page keeps its own `StopsMap`.
   - It has the tile layer (`minZoom` 9, no tile bounds, so regional routes keep their tiles) and one `routePane` at z-index 350 for route lines. Each page puts its layers in groups and removes them when it leaves.
   - `invalidateSize` keeps the centre, so after a move the new box shows the same place. A `ResizeObserver` calls it when the box resizes, e.g. when the main map's bus panel opens.
   - `handedOver` is true when the map comes straight from another page in the same render. The page then flies to its view (0.8 s) instead of jumping.
   - The main map remembers its view and selected bus when it leaves (`rememberedHomeView`). Coming back flies to that view and reselects the bus without fitting its route.
-- **The transition**: `installMapTransitions(router)` (in `main.js`) starts a view transition from `router.beforeResolve` on any navigation between `Home` and `Trip Details`, `Bus Details` or `Route Details`. That covers every link (the bus card's buttons and bus link, tabs, the sidebar) and back and forward, so the transition also plays in reverse. The navigation carries on once the old page is captured, and the new page is captured after `afterEach` and `nextTick`.
+- **The transition**: `installMapTransitions(router)` (in `main.js`) starts a view transition from `router.beforeResolve` on any navigation between two different pages of `Home`, `Trip Details`, `Bus Details` and `Route Details`. The same page with new params or query (another direction or week) keeps its map and doesn't transition. That covers every link (the bus card's buttons, bus links, route headers, the route page's bus pins, Active Buses cards and timetable, tabs, the sidebar) and back and forward, so the transition also plays in reverse. The navigation carries on once the old page is captured, and the new page is captured after `afterEach` and `nextTick`.
   - It's skipped on the first navigation, while another transition is running (such as `navigateWithTransition`), and on back or forward when the browser already animated a swipe (`PopStateEvent.hasUAVisualTransition`).
   - The map's element is always named `shared-map`. Its old and new images use `object-fit: cover` with `height: 100%`, so the box morphs by cropping around the centre rather than stretching. The map flies at the same time, as the new image is live.
   - The map must be in the DOM on the page's first render, so the trip and bus pages show it while they load.
+  - New pages start at the top (the router's `scrollBehavior`), so the map is in view. Back and forward return to the saved position, and query-only changes don't scroll.
+- **Names that morph with the map:**
+  - `route-number` and `route-name`: always set on the route page's heading and the trip page's heading
+  - `bus-${bus}`: always set on the route page's Active Buses cards, the trip page's bus link and the bus page's "Bus N" heading
+  - the main map's bus card sets all three only once one of its links is tapped (route header, "Trip details", bus link). It goes away with the page, so it never clashes with another page's names
+  - each name must be unique on a page, so pages with many routes or buses (the bus page's trip rows) don't name them
 
 ### Route page (route list, stop page or map → route page)
 
 - `navigateWithTransition(router, to)` wraps `router.push` in `document.startViewTransition`, waiting for the lazy route to load and then `nextTick`.
 - `transitionLinkClick(event, router, to, setNamed)` is the click handler for a `<router-link custom>` + `<a :href>`. It leaves modifier and middle clicks to the browser, so they still open new tabs. It switches the caller's names on before the old page is captured and off afterwards.
-- **Names:** `route-number` (badge), `route-name` (long name) and `bus-${bus}` (bus label → Active Buses chip). Every name must be unique on the page, so the source side only sets names on the tapped route. The route page always sets them, which is harmless because only those clicks start a transition.
+- **Names:** `route-number` (badge), `route-name` (long name) and `bus-${bus}` (bus label → Active Buses chip). Every name must be unique on the page, so the source side only sets names on the tapped route. The route page always sets them (see the names above).
 - **Handoff:** the source passes `history.state = { routeLongName, buses: [{ bus, trip }] }`. The route page shows these until its own `routes` and `buses` queries load, so the new snapshot has something to morph into.
 - The routes list's chevron button does the same for `route-number` and `route-name` (only the tapped row is named), passing just `routeLongName` in history state.
-- These names only morph going forward, from the routes list, the stop page and the map's bus card. From the map's bus card the shared map morphs too, in the same transition. Going back from the route page to the main map plays the shared-map transition.
+- From the routes list and the stop page these only morph going forward. To and from the map pages, the shared-map transition covers both directions.
 
 ## Conventions
 

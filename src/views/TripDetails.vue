@@ -353,8 +353,9 @@ const mapPaths = computed(() => {
           :to="{ path: `/routes/${tripData.route_id}`, query: { direction: tripData.direction_id } }"
           class="route-header d-flex align-center pa-2"
         >
-          <RouteBadge :route-id="tripData.route_id" size="large" />
-          <h1 class="text-headline-small ml-3 min-width-0">
+          <!-- named like the route page's heading, so they morph between the two -->
+          <RouteBadge :route-id="tripData.route_id" size="large" style="view-transition-name: route-number" />
+          <h1 class="text-headline-small ml-3 min-width-0" style="view-transition-name: route-name">
             {{ keyedroutes[tripData.route_id]?.route_long_name }}
           </h1>
           <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
@@ -367,7 +368,7 @@ const mapPaths = computed(() => {
             Trip {{ tripId }}<template v-if="isFuture">
               &middot; Not run yet
             </template><template v-else-if="latestTripPoint">
-              &middot; <BusLink :bus="latestTripPoint.bus" />
+              &middot; <BusLink :bus="latestTripPoint.bus" :style="{ viewTransitionName: `bus-${latestTripPoint.bus}` }" />
             </template>
           </div>
         </div>
