@@ -530,7 +530,7 @@ const selectPosition = (key) => {
     }
 };
 
-/** @param {{key: string, first: {key: string}, rows: Array<{key: string}>}} group */
+/** @param {{key: string, rows: Array<{key: string}>}} group */
 const toggleGroup = (group) => {
     if (expandedGroupKey.value === group.key) {
         expandedGroupKey.value = null;
@@ -538,8 +538,8 @@ const toggleGroup = (group) => {
         if (group.rows.some((row) => row.key === selectedPositionKey.value)) selectedPositionKey.value = null;
         return;
     }
+    // only picking one of its positions moves the map
     expandedGroupKey.value = group.key;
-    if (selectedPositionKey.value !== group.first.key) selectPosition(group.first.key);
 };
 
 const mapPaths = computed(() => {
@@ -695,11 +695,6 @@ watchEffect(() => {
                 @keydown.space.prevent="toggleGroup(group)"
               >
                 <PositionRow :row="group.first" :more="group.rows.length - 1" />
-                <v-icon
-                  icon="mdi-chevron-down"
-                  class="group-chevron flex-shrink-0 ml-1"
-                  :class="{ 'group-chevron--open': expandedGroupKey === group.key }"
-                />
               </div>
               <v-expand-transition>
                 <div v-if="expandedGroupKey === group.key">
@@ -835,22 +830,13 @@ watchEffect(() => {
     background: rgba(var(--v-theme-primary), 0.08);
 }
 
-.group-chevron {
-    transition: transform 0.2s;
-}
-
-.group-chevron--open {
-    transform: rotate(180deg);
-}
-
 .trip-map {
     --transit-map-height: max(45vh, 300px);
 }
 
 @media (prefers-reduced-motion: reduce) {
     .expand-transition-enter-active,
-    .expand-transition-leave-active,
-    .group-chevron {
+    .expand-transition-leave-active {
         transition: none !important;
     }
 }
