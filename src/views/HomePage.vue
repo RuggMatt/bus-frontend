@@ -29,6 +29,37 @@ watch([trip, isError, bus], () => {
   showRouteNotFound.value = Boolean(bus.value) && (trip.value === null || isError.value);
 })
 
+// swipe down on the sheet to dismiss it; only when its content isn't scrolled down
+const DISMISS_DISTANCE = 80;
+const dragStartY = ref(null);
+const dragOffset = ref(0);
+
+const scrolledAncestor = (el, stop) => {
+  for (let node = el; node && node !== stop; node = node.parentElement) {
+    if (node.scrollTop > 0) return true;
+  }
+  return stop.scrollTop > 0;
+};
+
+const onSheetTouchStart = (event) => {
+  dragStartY.value = scrolledAncestor(event.target, event.currentTarget)
+    ? null
+    : event.touches[0].clientY;
+};
+
+const onSheetTouchMove = (event) => {
+  if (dragStartY.value === null) return;
+  dragOffset.value = Math.max(0, event.touches[0].clientY - dragStartY.value);
+};
+
+const onSheetTouchEnd = () => {
+  if (dragOffset.value > DISMISS_DISTANCE) {
+    showBottomSheet.value = false;
+  }
+  dragStartY.value = null;
+  dragOffset.value = 0;
+};
+
 const viewBusDetails = (clickedBus) => {
     bus.value = clickedBus;
     if (!mdAndUp.value) {
@@ -60,7 +91,15 @@ const viewBusDetails = (clickedBus) => {
       :retain-focus="false"
       scroll-strategy="none"
     >
-      <VCard class="rounded-t-lg">
+      <VCard
+        class="rounded-t-lg"
+        :class="{ 'sheet-dragging': dragStartY !== null }"
+        :style="{ transform: dragOffset ? `translateY(${dragOffset}px)` : undefined }"
+        @touchstart.passive="onSheetTouchStart"
+        @touchmove.passive="onSheetTouchMove"
+        @touchend="onSheetTouchEnd"
+        @touchcancel="onSheetTouchEnd"
+      >
         <BusDetails v-if="bus" :bus="bus" />
       </VCard>
     </VBottomSheet>
@@ -72,6 +111,10 @@ const viewBusDetails = (clickedBus) => {
 </template>
 
 <style scoped>
+.sheet-dragging {
+  transition: none;
+}
+
 .home-layout {
   display: flex;
   width: 100%;

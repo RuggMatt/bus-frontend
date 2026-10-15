@@ -122,7 +122,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away, flies back to the view the user left, and reselects the bus they had selected if it's still in the snapshot (the card or sheet opens with its latest position).
 - A locate button at the bottom right (same style as the stops map's) centres the map on the user at zoom 16 and draws a blue dot. A snackbar shows if the location can't be found.
 - Tapping a bus highlights its route and opens `BusDetails.vue`. On desktop that's a left panel, on mobile a bottom sheet.
-- The mobile bottom sheet is full width and non-modal: there's no scrim, so the map can still be panned and zoomed while it's open. Tapping empty map closes it, and tapping another bus switches it to that bus.
+- The mobile bottom sheet is full width and non-modal: there's no scrim, so the map can still be panned and zoomed while it's open. Tapping empty map or swiping down on the sheet (when its content is scrolled to the top) closes it, and tapping another bus switches it to that bus.
 - **BusDetails** shows:
   - a route header: the badge, route name and a chevron to `/routes/:id`
   - the headsign
