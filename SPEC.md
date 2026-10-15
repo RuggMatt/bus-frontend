@@ -34,7 +34,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `timestamp` (epoch s), `bearing`, `speed` (m/s) |
 | `/bus/trips/:tripId` | Recorded positions for a trip in the past 3 days, newest first (trip page without a date) |
 | `/bus/trips/:tripId/:date` | The run of a trip that started on an Edmonton day (trip page with `?date=`): `start`/`end`, `points`, `buses`, `avgSpeed`/`maxSpeed`, and `positions`, oldest first. A run past midnight belongs to the day it started. 404 if no run started that day |
-| `/routes/:routeId/trips/:date` | The trips of a route we recorded on an Edmonton day (trip picker): `trips` of `trip`, `start`/`end` (epoch s), `points`, `buses`, oldest first. Route ids are GTFS ones (`008`). Only trips with positions are listed, and a run belongs to the day it started |
+| `/routes/:routeId/trips/:date` | The trips of a route we recorded on an Edmonton day (trip picker, route timetable): `trips` of `trip`, `start`/`end` (epoch s), `points`, `buses`, oldest first. Route ids are GTFS ones (`008`). Only trips with positions are listed, and a run belongs to the day it started |
 | `/bus/electric`, `/bus/hydrogen` | Bus finders |
 | `/bus/stats/{electric,hydrogen}/{hourly,daily}`, `/bus/stats/disk` | Stats and status pages |
 | `/bus/:busId` | One bus (bus page): `latest` position, `firstSeen`/`lastSeen` (epoch s), and `active` (reported in the last 2 minutes). 404 if never seen. Bus ids are usually numbers, but not always |
@@ -104,7 +104,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['bus-trip-counts', busId, by, from, to]` | `/bus/:busId/trip-counts`, `staleTime` 5 min |
 | `['trip-run', tripId, date]` | `/bus/trips/:tripId/:date`. `staleTime: Infinity` before yesterday, as a run can go past midnight |
 | `['route-trips', routeId]` | Every trip of a route, without shapes (`getTripsByRouteId`) |
-| `['route-day-runs', routeId, date]` | `/routes/:routeId/trips/:date`. `staleTime: Infinity` before yesterday, else 60 s, refetched every 60 s for today |
+| `['route-day-runs', routeId, date]` | `/routes/:routeId/trips/:date`, as a `Set` of trip ids (`useRecordedTrips`). `staleTime: Infinity` before yesterday, else 60 s, refetched every 60 s for today. No request for future days |
 | `['trip-start-times', tripIds]` | Each trip's first departure (`getTripStartTimes`), `staleTime: Infinity` |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
 
@@ -178,6 +178,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - **Weekday buttons** show a typical week in the selected schedule period (`regularServices`). That leaves out one-off services: a service is kept when it runs on at least half as many of that weekday's dates as the most frequent one. The buttons show nothing selected while an exact date is.
   - **A "Schedule" select** lists the periods (`schedulePeriods`) by date range, marked current or upcoming. It's hidden when there's only one. Picking a period switches to its typical week, and picking a date selects its period.
   - If the calendar fails to load, it falls back to the active-feed trips and the days in each `service_id` (`serviceRunsOnDay`), without the date button.
+- On an exact date, each trip we recorded that day (`useRecordedTrips`) gets a small green dot in the top-right corner of its header cell. Typical weeks and future dates have no dots.
 - In the timetable, PM times are bold. Each trip's header time and every time in its column link to `/trips/:id`, and each stop name links to `/stops/:id`. The time cells are plain `<a>` links routed by one delegated `openTripCell` handler on the `tbody`, because a `router-link` per cell would mean thousands of components.
 - The timetable's header row sticks to the page just below the app bar, and the stop column sticks to the left. The page scrolls vertically and only the table's box scrolls sideways, so content added below the table scrolls normally.
   - CSS won't let a header inside the box stick to the page. Setting `overflow-x: auto`, `scroll` or `hidden` turns the other axis's `visible` into `auto`. That makes the box a scroll container in both directions, and sticky cells stick to it instead of the page. Only `clip` leaves `overflow-y` alone, but `clip` can't scroll.
