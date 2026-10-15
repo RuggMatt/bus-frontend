@@ -19,6 +19,11 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    // ids of the trips we recorded that day
+    recorded: {
+        type: /** @type {import('vue').PropType<Set<string>>} */ (Set),
+        default: () => new Set(),
+    },
 });
 
 const emit = defineEmits(['select']);
@@ -66,6 +71,15 @@ const showCurrent = async () => {
           :disabled="!trips.length"
         >
           {{ label }}
+          <v-icon
+            v-if="recorded.has(current)"
+            icon="mdi-access-point"
+            color="success"
+            size="small"
+            class="ms-1"
+            aria-label="Recorded"
+            title="Recorded"
+          />
         </v-btn>
       </template>
       <v-list density="compact" :selected="[current]" mandatory>
@@ -76,7 +90,17 @@ const showCurrent = async () => {
           :title="formatScheduledTime(trip.start)"
           :class="{ 'trip-picker-item--current': trip.trip_id === current }"
           @click="pick(trip.trip_id)"
-        />
+        >
+          <template v-if="recorded.has(trip.trip_id)" #append>
+            <v-icon
+              icon="mdi-access-point"
+              color="success"
+              size="small"
+              aria-label="Recorded"
+              title="Recorded"
+            />
+          </template>
+        </v-list-item>
       </v-list>
     </v-menu>
     <v-btn
