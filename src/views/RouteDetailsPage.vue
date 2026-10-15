@@ -6,14 +6,17 @@ import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import RouteBadge from '../components/RouteBadge.vue';
 import RouteBusCard from '../components/RouteBusCard.vue';
+import ServiceAlertCard from '../components/ServiceAlertCard.vue';
 import TransitMap from '../components/TransitMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
 import { directionLabels as labelDirections, representativeTrips } from '../utils/routes';
 import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
+import { alertsForRoute } from '../utils/serviceAlerts';
 import {
   regularServices,
   sameServices,
@@ -152,6 +155,18 @@ const mapStops = computed(() =>
     }))
     .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
 );
+
+// --- Service disruptions in this direction, in effect now and still to come ---
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+
+// shown for the whole route until the direction's stops load
+const directionStopIds = computed(() =>
+  directionStopTimes.value ? new Set(directionStopTimes.value.map((st) => st.stop_id)) : null,
+);
+
+const routeAlerts = computed(() => alertsForRoute(serviceAlerts.value, props.routeId, nowLocal.value, directionStopIds.value));
+const showUpcomingAlerts = ref(false);
 
 // same key as the trip page and bus cards, so they share the shapes
 const shapeQueries = useQueries({
@@ -516,6 +531,41 @@ function openTripCell(event) {
         />
       </v-btn>
     </v-btn-toggle>
+
+    <div v-if="routeAlerts.active.length || routeAlerts.upcoming.length" class="mt-4">
+      <h2 class="text-title-large mb-2">
+        Service disruptions
+      </h2>
+      <ServiceAlertCard
+        v-for="timing in routeAlerts.active"
+        :key="timing.alert.id"
+        :timing="timing"
+        :now="nowLocal"
+        class="mb-2"
+      />
+      <v-btn
+        v-if="routeAlerts.upcoming.length"
+        variant="text"
+        size="small"
+        class="px-1"
+        :append-icon="showUpcomingAlerts ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+        :aria-expanded="showUpcomingAlerts"
+        @click="showUpcomingAlerts = !showUpcomingAlerts"
+      >
+        {{ routeAlerts.upcoming.length }} upcoming
+      </v-btn>
+      <v-expand-transition>
+        <div v-if="showUpcomingAlerts" class="mt-2">
+          <ServiceAlertCard
+            v-for="timing in routeAlerts.upcoming"
+            :key="timing.alert.id"
+            :timing="timing"
+            :now="nowLocal"
+            class="mb-2"
+          />
+        </div>
+      </v-expand-transition>
+    </div>
 
     <TransitMap
       :stops="mapStops"

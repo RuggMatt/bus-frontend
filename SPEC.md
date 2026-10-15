@@ -61,8 +61,18 @@ Both use `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So e
 | `4fvt-p2se` | Stop schedule view. It joins stop times with trip and route and has `feed_start_date`/`feed_end_date`. Always filter it to the feed active today. It has no `direction_id` |
 | `greh-g7ac` (grouped) | `getTripStartTimes`: each trip's earliest departure, for the trip page's trip picker |
 | `f2sy-bth7` | Calendar dates: every date each service runs (`exception_type` 1), for every agency. `getServiceDates` |
+| `5yvt-mcye` | Service disruption alerts (detours, stop closures), for every agency. `getServiceAlerts` fetches all that ended in the last week or haven't, a few hundred rows. See Service alerts below |
 
 SODA queries escape single quotes in ids to prevent SoQL injection.
+
+### Service alerts (`5yvt-mcye`, `src/utils/serviceAlerts.js`)
+
+- **One row per alert, route and period.** An alert on several routes repeats per route, and one that recurs (a detour 7 AM–6 PM on 18 days) repeats per period. `groupAlerts` merges them into one alert per `alert_id` with `routeIds`, `stopIds` and sorted `periods`.
+- `route_id` is the GTFS one (`"008"`, `"A6"`). `stop_id` is a comma-separated list of GTFS stop ids, the stops closed, moved or skipped. It's empty when the whole route is affected.
+- `start_dttm`/`end_dttm` are Edmonton local time without a zone. They're kept as `YYYY-MM-DDTHH:MM:SS` strings, which compare correctly as text (`edmontonLocal`, `nowLocal`). An end in the year 3000 means until further notice and becomes `null`.
+- `direction_id` is always 0, `severity_level` always `WARNING` and `is_deleted` always false, so they're ignored. A direction is told apart by its stops instead: an alert naming stops only applies to directions serving one of them.
+- `effect` is `DETOUR`, `STOP_MOVED` or `MODIFIED_SERVICE` (`effectLabel`).
+- Expired alerts drop out of the dataset after a while, so past days on the trip page may show none.
 
 ### GTFS quirks
 
@@ -107,6 +117,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['route-day-runs', routeId, date]` | `/routes/:routeId/trips/:date`, as a `Set` of trip ids (`useRecordedTrips`). `staleTime: Infinity` before yesterday, else 60 s, refetched every 60 s for today. No request for future days |
 | `['trip-start-times', tripIds]` | Each trip's first departure (`getTripStartTimes`), `staleTime: Infinity` |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
+| `['service-alerts']` | Every recent service alert, grouped (`useServiceAlerts`), `staleTime` and refetch 5 min. A failure shows no alerts |
 
 ## Pages
 
@@ -140,6 +151,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Stops (`/stops/:stopId?`, `StopsPage.vue`, `StopDetails.vue`, `useStopArrivals`)
 - Map, search, and nearby stops. Picking a stop opens its details.
+- Service alerts naming the stop, in effect or still to come (`alertsForStop`), show above the routes as `ServiceAlertCard`s with the routes they affect.
 - **Every route serving the stop is listed:**
   - **Live routes first.** A route is live if it has a bus whose trip is in the stop's schedule window. Each bus shows the headsign, "Bus N · distance", an ETA, and a status chip. Buses are listed nearest first, and buses that have passed drop off after 500 m. Tapping a bus selects it on the map and expands its details: stops away, next stop, scheduled time, and a "Trip details" button.
   - **Quiet routes below.** These show "No upcoming arrivals" and the next scheduled bus:
@@ -159,7 +171,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Cards ease in and out with the `arrival` TransitionGroup. This is turned off for reduced motion.
 
 ### Routes list (`/routes`)
-- A searchable list. Each row has a `RouteBadge` (small), the long name, and chips for the active buses.
+- A searchable list. Each row has a `RouteBadge` (small), the long name, a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`), and chips for the active buses.
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
@@ -168,6 +180,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - The direction is in the URL as `?direction=`. It's read on load and written back with `router.replace`, so reloads and shared links keep it. An unknown or missing value falls back to the first direction.
   - The trip page's route button and the main map's bus card (`BusDetails`) pass their trip's `direction_id`. The stop page doesn't, as a stop's route group can have buses going both ways.
   - Buses are matched to a direction through their trip, using the route's trips. Until those load, the buses are shown unsplit.
+- **Service disruptions**, between the direction toggle and the map: a `ServiceAlertCard` per alert in effect now, and an "N upcoming" button that expands the ones still to come (`alertsForRoute`). Once the direction's stops load, alerts naming only other stops are left out. Nothing shows without alerts. The time ticks every minute (`useNowLocal`), so alerts start and end on screen.
 - A map (`TransitMap.vue`, see Shared UI) for the selected direction:
   - its stops and route lines, from one trip per `shape_id` (`representativeTrips`). The stops come from `getStopTimesByTripIds` on those trips. The lines come from their `['trip-shape', tripId]` queries, shared with the trip page and the bus cards. Tapping a stop opens `/stops/:id`
   - the direction's live buses as pins (`createBusIcon`), from `useBuses`. They have no report-age badges, because a route's worth of them clutters the map. Tapping a bus opens its trip
@@ -197,6 +210,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - A future date makes no backend request. It shows the scheduled times only, and the subtitle says "Not run yet" instead of the bus.
   - Only days the route runs can be picked, from the calendar dates of all its services (`['service-dates', routeId, serviceIds]`, shared with the route page), up to the last date in the feed. Days before the calendar starts stay pickable, back about a year, as older feeds aren't in it. If the calendar fails, any day from a year back to 60 days ahead can be picked.
   - Picking a day this trip doesn't run on (a Saturday for a weekday trip) jumps, with `router.replace`, to the trip starting nearest to this one's start (`nearestByStart`).
+- **Service disruptions:** under the pickers, a `ServiceAlertCard` for each alert in effect at some point between the trip's first and last scheduled time on the picked day, on its route, naming one of its stops or none (`alertsForTrip`). Hidden while switching. The stops an alert names get a warning chip ("Detour", "Stop moved") beside "Stop N", and the effect in their map tooltip.
 - **Trip picker:** a `TripPicker` beside the day picker steps through the route's trips going the same direction on the picked day.
   - The day's trips (`tripsOnDate`, `src/utils/dayTrips.js`) are the route's trips (`['route-trips', routeId]`, shared with the route page) in that direction whose `service_id` runs on the date. Without calendar dates for it, the days in each `service_id` are used, within the trip's schedule period.
   - They're ordered by their first departure (`['trip-start-times', tripIds]`, `getTripStartTimes`). Past-midnight starts sort last.
@@ -251,6 +265,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **`DayPicker.vue`**: picks a day, like `WeekPicker`. `v-model` is `YYYY-MM-DD`, with `min`, `max`, `today` (for the label) and an `allowed(date)` function. The label reads "Today", "Yesterday", "Tomorrow" or "Wed, Oct 14" (`formatDayLabel`), and opens a `v-date-picker`. Previous/next jump to the nearest allowed day.
 - **`TripPicker.vue`**: picks one of a day's trips, like `DayPicker`. `trips` are `{trip_id, start}` earliest first, `current` is the shown trip's id, `recorded` is a `Set` of trip ids to mark as recorded, and it emits `select` with a trip id. Previous/next buttons around a label with the current start time ("8:15 AM"), which opens a list of start times scrolled to the current one.
 - **`TripCountsChart.vue`**: a Chart.js bar chart of `TripCount`s for a `by` period, in the theme's primary colour, with "Wed, Oct 14" / "Week of Oct 12" / "October 2026" tooltips. With `clickable` it emits `select` with a bar's period. 200px tall, 160px on phones.
+- **`ServiceAlertCard.vue`**: one service alert (`AlertTiming`) as a tonal warning `v-alert`: the header, an effect chip, when it applies ("Until Thu, Oct 29 at 6:00 PM", "Starts tomorrow at 10:00 AM, until …", "Until further notice", "+ 11 more days" for a recurring one, `formatAlertPeriod`), and the description clamped to two lines with More/Less. `now` is the local time, and `show-routes` adds badges linking to each affected route.
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
 - **`createBusIcon`** (`src/plugins/busIcon.js`) options: `showAge` (a ticking age badge), `label` (a fixed badge, such as a time, with its own `.bus-time-badge` class so `refreshReportAges` leaves it alone), `history` (a smaller pin) and `selected`.
 - **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).

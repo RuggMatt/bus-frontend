@@ -5,13 +5,16 @@ import { getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTi
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
-import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
+import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
+import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
 import { LOCAL_AGENCY } from '../utils/routes';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import BusLink from '../components/BusLink.vue';
 import PositionRow from '../components/PositionRow.vue';
+import ServiceAlertCard from '../components/ServiceAlertCard.vue';
 import DayPicker from '../components/DayPicker.vue';
 import TripPicker from '../components/TripPicker.vue';
 import { tripPath } from '../composables/useStopArrivals';
@@ -402,6 +405,26 @@ const otherRoutes = computed(() =>
 const STATUS_HEX = { success: '#4caf50', warning: '#fb8c00', info: '#2196f3' };
 const NO_ESTIMATE_HEX = '#999999';
 
+// disruptions in effect at some point while this trip runs on the picked day
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+
+const tripAlerts = computed(() => {
+    const stops = routeData.value ?? [];
+    const first = stops[0];
+    const last = stops.at(-1);
+    const firstTime = first?.departure_time || first?.arrival_time;
+    const lastTime = last?.arrival_time || last?.departure_time;
+    if (!tripData.value?.route_id || !firstTime || !lastTime) return { alerts: [], affectedStops: new Map() };
+    return alertsForTrip(
+        serviceAlerts.value,
+        tripData.value.route_id,
+        new Set(stops.map((stop) => stop.stop_id)),
+        edmontonLocal(pickerDate.value, timeToSeconds(firstTime)),
+        edmontonLocal(pickerDate.value, timeToSeconds(lastTime)),
+    );
+});
+
 // worked out once per render, as each estimate scans the trip's latest run of recorded positions
 const stopRows = computed(() => {
     const stops = routeData.value ?? [];
@@ -425,12 +448,16 @@ const stopRows = computed(() => {
             scheduled: formatScheduledTime(stop.arrival_time),
             estimated: convertUnixEpochToTime(estimatedEpoch),
             status: diff === null ? null : scheduleStatus(diff),
+            // a closed or moved stop, named by a disruption
+            disruption: tripAlerts.value.affectedStops.has(stop.stop_id)
+                ? effectLabel(/** @type {string} */ (tripAlerts.value.affectedStops.get(stop.stop_id)))
+                : null,
         };
     });
 });
 
 const mapStops = computed(() =>
-    stopRows.value.flatMap(({ stop, stopInfo, name, scheduled, status }) => {
+    stopRows.value.flatMap(({ stop, stopInfo, name, scheduled, status, disruption }) => {
         const lat = Number(stopInfo?.stop_lat);
         const lon = Number(stopInfo?.stop_lon);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
@@ -440,7 +467,7 @@ const mapStops = computed(() =>
             lat,
             lon,
             color: status ? STATUS_HEX[status.color] ?? NO_ESTIMATE_HEX : NO_ESTIMATE_HEX,
-            tooltip: `${name} • ${scheduled} • ${status?.label ?? 'No live estimate'}`,
+            tooltip: `${name} • ${scheduled} • ${status?.label ?? 'No live estimate'}${disruption ? ` • ${disruption}` : ''}`,
         }];
     }),
 );
@@ -627,6 +654,15 @@ watchEffect(() => {
         >
           {{ pickerDate === today ? "Hasn't run yet today" : `Not recorded on ${pickerDateLabel}` }}
         </v-alert>
+        <template v-if="!switching">
+          <ServiceAlertCard
+            v-for="timing in tripAlerts.alerts"
+            :key="timing.alert.id"
+            :timing="timing"
+            :now="nowLocal"
+            class="mt-2"
+          />
+        </template>
       </template>
       <TransitMap
         ref="tripMap"
@@ -740,6 +776,16 @@ watchEffect(() => {
               </div>
               <div class="text-body-small text-medium-emphasis">
                 Stop {{ row.code }}
+                <v-chip
+                  v-if="row.disruption"
+                  size="x-small"
+                  variant="tonal"
+                  color="warning"
+                  prepend-icon="mdi-alert"
+                  class="ml-1"
+                >
+                  {{ row.disruption }}
+                </v-chip>
               </div>
             </div>
             <div class="text-right flex-shrink-0 ml-2">
