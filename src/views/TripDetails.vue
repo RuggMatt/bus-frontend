@@ -11,6 +11,7 @@ import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import BusLink from '../components/BusLink.vue';
 import { tripPath } from '../composables/useStopArrivals';
+import { estimateStopArrivals } from '../utils/stopEstimates';
 import { computed, ref } from 'vue';
 
 /** @typedef {import('../api/index').BusStopTime} BusStopTime */
@@ -109,75 +110,6 @@ const latestTripPoint = computed(() => {
 })
 
 /**
- *
- * @param {number} lat1
- * @param {number} lon1
- * @param {number} lat2
- * @param {number} lon2
- */
-const distance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; // metres
-    const φ1 = lat1 * Math.PI/180; // φ, λ in radians
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c; // in metres
-}
-
-/**
- * Estimates the actual arrival time for a given stop.
- * @param {string} stopId
- * @returns {number | null} Unix epoch time in seconds
- */
-function estimatedActualArrivalTime(stopId) {
-    const stop = keyedStops.value?.[stopId];
-    if (!stop) {
-        return null;
-    }
-    if (!data.value || data.value.length === 0) {
-        return null;
-    }
-    const groupedData = groupedTripData.value?.slice(-1)[0];
-    if (!groupedData || groupedData.length === 0) {
-        return null;
-    }
-    const stopLat = Number(stop.stop_lat);
-    const stopLon = Number(stop.stop_lon);
-    if (!Number.isFinite(stopLat) || !Number.isFinite(stopLon)) {
-        return null;
-    }
-    const firstDatum = groupedData[0];
-    if (!firstDatum) {
-        return null;
-    }
-    const maxEstimateDistance = 1000; // meters
-    let nearestData = firstDatum;
-    let nearestDistance = distance(stopLat, stopLon, Number(nearestData.lat), Number(nearestData.long));
-    for (const datum of groupedData) {
-        const datumLat = Number(datum.lat);
-        const datumLon = Number(datum.long);
-        if (!Number.isFinite(datumLat) || !Number.isFinite(datumLon)) {
-            continue;
-        }
-        const datumDistance = distance(stopLat, stopLon, datumLat, datumLon);
-        if (datumDistance < nearestDistance) {
-            nearestData = datum;
-            nearestDistance = datumDistance;
-        }
-    }
-    if (nearestDistance > maxEstimateDistance) {
-        return null;
-    }
-    return nearestData.timestamp;
-}
-
-/**
  * @param {number|null} unixEpoch
  * @returns {string|null}
  */
@@ -250,11 +182,20 @@ const otherRoutes = computed(() =>
 const STATUS_HEX = { success: '#4caf50', warning: '#fb8c00', info: '#2196f3' };
 const NO_ESTIMATE_HEX = '#999999';
 
-// worked out once per stop, as the estimate scans the trip's recorded positions
-const stopRows = computed(() =>
-    (routeData.value ?? []).map((stop) => {
+// worked out once per render, as each estimate scans the trip's latest run of recorded positions
+const stopRows = computed(() => {
+    const stops = routeData.value ?? [];
+    const positions = groupedTripData.value.at(-1) ?? [];
+    const estimates = estimateStopArrivals(
+        stops.map((stop) => {
+            const stopInfo = keyedStops.value?.[stop.stop_id];
+            return stopInfo ? { lat: stopInfo.stop_lat, lon: stopInfo.stop_lon } : null;
+        }),
+        positions,
+    );
+    return stops.map((stop, index) => {
         const stopInfo = keyedStops.value?.[stop.stop_id];
-        const estimatedEpoch = estimatedActualArrivalTime(stop.stop_id);
+        const estimatedEpoch = estimates[index];
         const diff = getTimeDiffMinutes(stop, estimatedEpoch);
         return {
             stop,
@@ -265,8 +206,8 @@ const stopRows = computed(() =>
             estimated: convertUnixEpochToTime(estimatedEpoch),
             status: diff === null ? null : scheduleStatus(diff),
         };
-    }),
-);
+    });
+});
 
 const mapStops = computed(() =>
     stopRows.value.flatMap(({ stop, stopInfo, name, scheduled, status }) => {

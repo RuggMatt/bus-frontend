@@ -185,6 +185,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - left: the stop name (wraps) and "Stop N"
   - right: the scheduled time, large, and when there's a recorded position within 1 km, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
   - Tapping a row expands it to show the other routes serving the stop (as badge chips) and a full-width "Stop details" button.
+- **Actual times** come from `estimateStopArrivals` (`src/utils/stopEstimates.js`, unit tested), using the latest run of recorded positions (split on 30-minute gaps). A stop's time is that of the nearest position within 1 km, among positions no earlier than the previous stop's time. Without that floor, a loop's last stops matched positions from the start of the trip and showed earlier times than the stops before them.
 - Each stop's estimate is worked out once per render in `stopRows`, which the list and the map share.
 
 ### Bus details (`/buses/:busId`, `BusDetailsPage.vue`)
