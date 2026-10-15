@@ -19,7 +19,7 @@ const props = defineProps({
 const router = useRouter();
 const { trip, isLoading, routeLongName, nextStop } = useBusTrip(toRef(props, 'bus'));
 
-// names are only set while heading to the route page
+// names are only set while heading to the route, trip or bus page
 const named = ref(false);
 
 /** @param {string} name */
@@ -83,7 +83,7 @@ const openRoute = (event) => {
             {{ trip.trip_headsign }}
           </div>
           <div class="text-medium-emphasis">
-            <BusLink :bus="bus.bus" :style="transitionName(`bus-${bus.bus}`)" />
+            <BusLink :bus="bus.bus" :style="transitionName(`bus-${bus.bus}`)" @click="named = true" />
             · {{ Math.round(bus.speed * 3.6) }} km/h
           </div>
         </div>
@@ -114,6 +114,7 @@ const openRoute = (event) => {
         variant="tonal"
         color="primary"
         class="mt-4"
+        @click="named = true"
       >
         Trip details
       </v-btn>

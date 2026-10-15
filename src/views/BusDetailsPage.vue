@@ -294,7 +294,7 @@ const tripDays = computed(() => {
 <template>
   <v-container>
     <div class="d-flex align-center flex-wrap ga-2 px-2">
-      <h1 class="text-headline-small mr-1">
+      <h1 class="text-headline-small mr-1" :style="{ viewTransitionName: `bus-${busId}` }">
         Bus {{ busId }}
       </h1>
       <v-chip v-if="lastSeen" :color="lastSeen.color" size="small" variant="tonal">

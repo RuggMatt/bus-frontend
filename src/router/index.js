@@ -74,6 +74,14 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  // new pages start at the top, so the map is in view for the view transition.
+  // back and forward return to where the page was, and query changes (a route's
+  // direction, a bus's week) don't move it
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition;
+    if (to.path === from.path) return false;
+    return { top: 0 };
+  },
 });
 
 export default router;
