@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQuery } from '@tanstack/vue-query';
-import { getRecentTripData, getTrip, getBusStopTimes, getStopRoutes } from '../api';
+import { getRecentTripData, getServiceDates, getTrip, getTripRun, getBusStopTimes, getStopRoutes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
@@ -10,14 +10,23 @@ import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import BusLink from '../components/BusLink.vue';
+import DayPicker from '../components/DayPicker.vue';
 import { tripPath } from '../composables/useStopArrivals';
 import { estimateStopArrivals } from '../utils/stopEstimates';
-import { computed, ref } from 'vue';
+import { serviceDatesFrom } from '../utils/serviceCalendar';
+import { edmontonDate } from '../utils/tripTimes';
+import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 /** @typedef {import('../api/index').BusStopTime} BusStopTime */
 
 
 const ACTIVE_TRIP_STALE_SECONDS = 300;
+// how far back the picker goes, about as far as the backend keeps positions
+const PAST_DAYS = 366;
+// how far ahead the picker goes when the calendar can't be loaded
+const FALLBACK_FUTURE_DAYS = 60;
 
 /**
  * @param {Array<{timestamp:number}> | undefined} tripPoints
@@ -43,10 +52,36 @@ const props = defineProps({
 const { keyedStops } = useStops();
 const { keyedroutes } = useRoutes();
 
-const { data, error, isLoading } = useQuery({
+const router = useRouter();
+const currentRoute = useRoute();
+
+const today = edmontonNow().dateString;
+
+/** @param {unknown} value */
+const dateFromQuery = (value) => (isDateString(value) ? value : null);
+
+// the day whose run is shown, from ?date=. Without one the latest recorded run is shown
+/** @type {import('vue').Ref<string | null>} */
+const selectedDate = ref(dateFromQuery(currentRoute.query.date));
+
+// back and forward change the query without remounting the page
+watch(() => currentRoute.query.date, (date) => {
+    selectedDate.value = dateFromQuery(date);
+});
+
+/** @param {string} date */
+const pickDate = (date) => {
+    selectedDate.value = date;
+    router.replace({ query: { ...currentRoute.query, date } });
+};
+
+// a day still to come only has its schedule
+const isFuture = computed(() => !!selectedDate.value && selectedDate.value > today);
+
+const { data, error: latestError, isLoading: latestLoading } = useQuery({
     queryKey: ['trip', props.tripId],
     queryFn: () => getRecentTripData(props.tripId),
-    enabled: !!props.tripId,
+    enabled: () => !!props.tripId && !selectedDate.value,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: (query) => {
@@ -55,6 +90,22 @@ const { data, error, isLoading } = useQuery({
     },
     refetchIntervalInBackground: true,
 })
+
+const { data: runData, error: runError, isLoading: runLoading } = useQuery({
+    queryKey: computed(() => ['trip-run', props.tripId, selectedDate.value]),
+    queryFn: () => getTripRun(props.tripId, /** @type {string} */ (selectedDate.value)),
+    enabled: () => !!props.tripId && !!selectedDate.value && !isFuture.value,
+    // a day with no run won't gain one on a retry
+    retry: (count, error) => /** @type {any} */ (error).status !== 404 && count < 3,
+    // a run that started yesterday can still be going past midnight
+    staleTime: () => (selectedDate.value && selectedDate.value < addDays(today, -1) ? Infinity : 0),
+    refetchInterval: (query) => (isTripCurrentlyActive(query.state.data?.positions) ? 60000 : false),
+    refetchIntervalInBackground: true,
+})
+
+const runMissing = computed(() => /** @type {any} */ (runError.value)?.status === 404);
+const isLoading = computed(() => (selectedDate.value ? !isFuture.value && runLoading.value : latestLoading.value));
+const error = computed(() => (selectedDate.value ? (runMissing.value ? null : runError.value) : latestError.value));
 
 const { data: tripData, isLoading: tripLoading } = useQuery({
     queryKey: ['trip-data', props.tripId],
@@ -101,13 +152,64 @@ const groupedTripData = computed(() => {
     return groups;
 })
 
-const latestTripPoint = computed(() => {
-    if (!data.value || data.value.length === 0) return null;
-    return data.value.reduce((latest, datum) => {
-        if (!latest) return datum;
-        return datum.timestamp >= latest.timestamp ? datum : latest;
-    }, /** @type {typeof data.value[number] | null} */ (null));
-})
+/** @param {Array<{timestamp: number}>} positions */
+const latestTimestamp = (positions) => positions.reduce((max, position) => Math.max(max, position.timestamp), 0);
+
+// the positions of the run being shown: the picked day's, or the latest recorded one
+const runPositions = computed(() => {
+    if (selectedDate.value) return isFuture.value ? [] : runData.value?.positions ?? [];
+    // positions come newest first, so pick the run by its times rather than its place
+    return groupedTripData.value.reduce(
+        (latest, group) => (latestTimestamp(group) > latestTimestamp(latest) ? group : latest),
+        /** @type {typeof groupedTripData.value[number]} */ ([]),
+    );
+});
+
+const latestTripPoint = computed(() =>
+    runPositions.value.reduce(
+        (latest, position) => (!latest || position.timestamp >= latest.timestamp ? position : latest),
+        /** @type {typeof runPositions.value[number] | null} */ (null),
+    ),
+);
+
+// the day the latest run started, or today before the trip has been recorded
+const latestRunDate = computed(() => {
+    const first = runPositions.value.reduce((min, position) => Math.min(min, position.timestamp), Infinity);
+    return Number.isFinite(first) ? edmontonDate(first) : today;
+});
+
+const pickerDate = computed(() => selectedDate.value ?? latestRunDate.value);
+const pickerDateLabel = computed(() => formatDayLabel(pickerDate.value, today));
+
+// same key as the route page uses for one service, so it can share the cache
+const tripServiceId = computed(() => tripData.value?.service_id ?? '');
+const { data: serviceDateRows } = useQuery({
+    queryKey: computed(() => ['service-dates', tripData.value?.route_id, tripServiceId.value]),
+    queryFn: () => getServiceDates([tripServiceId.value]),
+    enabled: () => !!tripServiceId.value,
+    staleTime: Infinity,
+});
+
+// sorted dates the trip's service runs, or null if the calendar couldn't be loaded
+const serviceDays = computed(() => {
+    if (!serviceDateRows.value?.length) return null;
+    const days = [...(serviceDatesFrom(serviceDateRows.value).get(tripServiceId.value) ?? [])].sort();
+    return days.length ? days : null;
+});
+
+const pickerMin = addDays(today, -PAST_DAYS);
+const pickerMax = computed(() => {
+    const last = serviceDays.value?.at(-1);
+    return last && last > today ? last : serviceDays.value ? today : addDays(today, FALLBACK_FUTURE_DAYS);
+});
+
+// days the service runs, plus any day before the calendar starts, as older feeds aren't in it
+/** @param {string} date */
+const isPickable = (date) => {
+    const days = serviceDays.value;
+    if (!days) return true;
+    return date < /** @type {string} */ (days[0]) || days.includes(date);
+};
 
 /**
  * @param {number|null} unixEpoch
@@ -185,7 +287,7 @@ const NO_ESTIMATE_HEX = '#999999';
 // worked out once per render, as each estimate scans the trip's latest run of recorded positions
 const stopRows = computed(() => {
     const stops = routeData.value ?? [];
-    const positions = groupedTripData.value.at(-1) ?? [];
+    const positions = runPositions.value;
     const estimates = estimateStopArrivals(
         stops.map((stop) => {
             const stopInfo = keyedStops.value?.[stop.stop_id];
@@ -261,11 +363,32 @@ const mapPaths = computed(() => {
           {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
         </div>
         <div class="text-body-small">
-          Trip {{ tripId }}<template v-if="latestTripPoint">
+          Trip {{ tripId }}<template v-if="isFuture">
+            &middot; Not run yet
+          </template><template v-else-if="latestTripPoint">
             &middot; <BusLink :bus="latestTripPoint.bus" />
           </template>
         </div>
       </div>
+      <div class="d-flex align-center flex-wrap ga-2 mt-2 px-1">
+        <DayPicker
+          :model-value="pickerDate"
+          :min="pickerMin"
+          :max="pickerMax"
+          :today="today"
+          :allowed="isPickable"
+          @update:model-value="pickDate"
+        />
+      </div>
+      <v-alert
+        v-if="runMissing"
+        type="info"
+        variant="tonal"
+        density="compact"
+        class="mt-2"
+      >
+        {{ pickerDate === today ? "Hasn't run yet today" : `Not recorded on ${pickerDateLabel}` }}
+      </v-alert>
       <TransitMap
         :stops="mapStops"
         :buses="mapBuses"
