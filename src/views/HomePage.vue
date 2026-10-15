@@ -40,8 +40,16 @@ const viewBusDetails = (clickedBus) => {
     </div>
 
     <!-- Mobile: Bottom Sheet -->
-    <VBottomSheet v-model="showBottomSheet">
-      <VCard width="360" class="mx-auto rounded-t-lg">
+    <!-- non-modal so the map can still be panned and zoomed; tapping the map closes it -->
+    <VBottomSheet
+      v-model="showBottomSheet"
+      :scrim="false"
+      persistent
+      no-click-animation
+      :retain-focus="false"
+      scroll-strategy="none"
+    >
+      <VCard class="rounded-t-lg">
         <BusDetails v-if="bus" :bus="bus" />
       </VCard>
     </VBottomSheet>
