@@ -41,7 +41,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/bus/:busId/trip-counts?by=&from=&to=` | Trips a bus started per `day`, `week` (Monday–Sunday) or `month`, oldest first, every period listed (0 when none): `period` (its first day), `start`, `trips`. `from` is moved back to the start of its week or month. At most 366 days |
 | `/bus/:date/:time[/:spread]`, `/bus/stats/speed[/:bus]`, `/bus.db` | Not used yet: positions around an Edmonton time, daily speeds, and the whole SQLite database |
 
-`/bus/now` is a snapshot the backend takes about every 60 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
+`/bus/now` is a snapshot the backend takes about every 30 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
 
 Only read `/bus/now` through `src/composables/useBuses.js`:
 - `useLiveBuses()` / `liveBusesQuery` gives the raw snapshot.
