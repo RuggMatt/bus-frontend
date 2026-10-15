@@ -58,6 +58,7 @@ Both use `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So e
 | `ctwr-tvrd` | Trips, including `geometry_line`, the trip's route shape |
 | `greh-g7ac` | Stop times per trip |
 | `4fvt-p2se` | Stop schedule view. It joins stop times with trip and route and has `feed_start_date`/`feed_end_date`. Always filter it to the feed active today. It has no `direction_id` |
+| `greh-g7ac` (grouped) | `getTripStartTimes`: each trip's earliest departure, for the trip page's trip picker |
 | `f2sy-bth7` | Calendar dates: every date each service runs (`exception_type` 1), for every agency. `getServiceDates` |
 
 SODA queries escape single quotes in ids to prevent SoQL injection.
@@ -101,6 +102,8 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['bus-trips-week', busId, weekStart]` | `/bus/:busId/recent-trips` for one Sunday–Saturday week. `staleTime: Infinity` for past weeks |
 | `['bus-trip-counts', busId, by, from, to]` | `/bus/:busId/trip-counts`, `staleTime` 5 min |
 | `['trip-run', tripId, date]` | `/bus/trips/:tripId/:date`. `staleTime: Infinity` before yesterday, as a run can go past midnight |
+| `['route-trips', routeId]` | Every trip of a route, without shapes (`getTripsByRouteId`) |
+| `['trip-start-times', tripIds]` | Each trip's first departure (`getTripStartTimes`), `staleTime: Infinity` |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
 
 ## Pages
@@ -189,7 +192,13 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - Without `?date=` the page shows the latest recorded run, from `/bus/trips/:tripId` split at 30 min gaps. The positions come newest first, so the run is picked by its times. The picker shows the day that run started, or today. It refetches every 60 s while the run is active.
   - With a past or today's date it uses `/bus/trips/:tripId/:date`. A 404 keeps the schedule and map, with grey stops and no estimates, under "Not recorded on Wed, Oct 14" (or "Hasn't run yet today").
   - A future date makes no backend request. It shows the scheduled times only, and the subtitle says "Not run yet" instead of the bus.
-  - Only days the trip's `service_id` runs can be picked, from calendar dates (`['service-dates', routeId, serviceId]`), up to the last date in the feed. Days before the calendar starts stay pickable, back about a year, as older feeds aren't in it. If the calendar fails, any day from a year back to 60 days ahead can be picked.
+  - Only days the route runs can be picked, from the calendar dates of all its services (`['service-dates', routeId, serviceIds]`, shared with the route page), up to the last date in the feed. Days before the calendar starts stay pickable, back about a year, as older feeds aren't in it. If the calendar fails, any day from a year back to 60 days ahead can be picked.
+  - Picking a day this trip doesn't run on (a Saturday for a weekday trip) jumps, with `router.replace`, to the trip starting nearest to this one's start (`nearestByStart`).
+- **Trip picker:** a `TripPicker` beside the day picker steps through the route's trips going the same direction on the picked day.
+  - The day's trips (`tripsOnDate`, `src/utils/dayTrips.js`) are the route's trips (`['route-trips', routeId]`, shared with the route page) in that direction whose `service_id` runs on the date. Without calendar dates for it, the days in each `service_id` are used, within the trip's schedule period.
+  - They're ordered by their first departure (`['trip-start-times', tripIds]`, `getTripStartTimes`). Past-midnight starts sort last.
+  - Previous and next buttons, and a menu of start times, go to `/trips/:id?date=` with `router.push`, so back returns to the last trip.
+  - The page reacts to `tripId` changing, as the router reuses it. The expanded stop resets and the map refits.
 - A map (`TransitMap.vue`) with the route shape, stops coloured by lateness (tooltip: name, time, status), and the bus's latest recorded position as a bus pin. Stop colours follow `scheduleStatus`, so they match the chips. It fits once per trip, so the 60 s refetch doesn't re-zoom it. Tapping a stop opens its stop page.
 - The map renders while the page loads, so it's there for the view transition from the main map. The trip and its stop times use the bus card's `['trip-shape']` and `['trip-stop-times']` keys, so coming from a card the heading and map show straight away, with "Loading..." below the map until the run loads.
 - **Stops** are rows in one outlined card, like the stop page's cards (no `v-list`, so nothing gets clamped on mobile):
@@ -228,6 +237,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
 - **`WeekPicker.vue`**: picks a Sunday–Saturday week. `v-model` is the week's Sunday (`YYYY-MM-DD`), and `min`/`max` limit it to days the data can cover. Vuetify has no week picker, so it's previous/next buttons around a label ("This week", "Last week", "Oct 4 – 10"). The label opens a `v-date-picker` with the week's 7 days selected (`multiple`), so the whole week is highlighted. Tapping any day picks its week. Week numbers are hidden on phones, where they make the picker too wide.
 - **`DayPicker.vue`**: picks a day, like `WeekPicker`. `v-model` is `YYYY-MM-DD`, with `min`, `max`, `today` (for the label) and an `allowed(date)` function. The label reads "Today", "Yesterday", "Tomorrow" or "Wed, Oct 14" (`formatDayLabel`), and opens a `v-date-picker`. Previous/next jump to the nearest allowed day.
+- **`TripPicker.vue`**: picks one of a day's trips, like `DayPicker`. `trips` are `{trip_id, start}` earliest first, `current` is the shown trip's id, and it emits `select` with a trip id. Previous/next buttons around a label with the current start time ("8:15 AM"), which opens a list of start times scrolled to the current one.
 - **`TripCountsChart.vue`**: a Chart.js bar chart of `TripCount`s for a `by` period, in the theme's primary colour, with "Wed, Oct 14" / "Week of Oct 12" / "October 2026" tooltips. With `clickable` it emits `select` with a bar's period. 200px tall, 160px on phones.
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
 - **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).

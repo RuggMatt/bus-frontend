@@ -801,6 +801,34 @@ export const getStopTimesByTripIds = async (tripIds) => {
 };
 
 /**
+ * Fetches when each trip starts, its earliest departure time. Times are zero-padded, so
+ * the minimum as text is the earliest. Keep the list to a few hundred ids, as it goes in the URL.
+ * @param {string[]} tripIds
+ * @returns {Promise<Array<{trip_id: string, start: string}>>} start is HH:MM:SS, and can pass 24:00:00
+ */
+export const getTripStartTimes = async (tripIds) => {
+  if (!tripIds.length) return [];
+  // Escape single quotes to prevent SoQL injection
+  const idList = tripIds.map((id) => `'${String(id).replace(/'/g, "''")}'`).join(",");
+  const params = new URLSearchParams({
+    $select: "trip_id,min(departure_time) as start",
+    $where: `trip_id IN (${idList})`,
+    $group: "trip_id",
+    $limit: "10000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/greh-g7ac.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Error(result.status);
+};
+
+/**
  * @typedef {Object} DiskStats
  * @property {number} availableBytes
  * @property {number} totalBytes

@@ -1,19 +1,22 @@
 <script setup>
 // @ts-check
 import { useQuery } from '@tanstack/vue-query';
-import { getRecentTripData, getServiceDates, getTrip, getTripRun, getBusStopTimes, getStopRoutes } from '../api';
+import { getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
-import { edmontonNow, scheduledSecondsNear } from '../utils/serviceTime';
+import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
 import { LOCAL_AGENCY } from '../utils/routes';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import BusLink from '../components/BusLink.vue';
 import DayPicker from '../components/DayPicker.vue';
+import TripPicker from '../components/TripPicker.vue';
 import { tripPath } from '../composables/useStopArrivals';
 import { estimateStopArrivals } from '../utils/stopEstimates';
-import { serviceDatesFrom } from '../utils/serviceCalendar';
+import { schedulePeriod, serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
+import { nearestByStart, sortByStart, tripsOnDate } from '../utils/dayTrips';
+import { chunk } from '../utils/chunk';
 import { edmontonDate } from '../utils/tripTimes';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
 import { computed, ref, watch } from 'vue';
@@ -69,17 +72,26 @@ watch(() => currentRoute.query.date, (date) => {
     selectedDate.value = dateFromQuery(date);
 });
 
+// set by picking a day, until this trip is known to run then or the nearest one has been opened
+const jumpPending = ref(false);
+
 /** @param {string} date */
 const pickDate = (date) => {
     selectedDate.value = date;
+    jumpPending.value = true;
     router.replace({ query: { ...currentRoute.query, date } });
+};
+
+/** @param {string} id */
+const openTrip = (id) => {
+    router.push({ path: `/trips/${encodeURIComponent(id)}`, query: { date: pickerDate.value } });
 };
 
 // a day still to come only has its schedule
 const isFuture = computed(() => !!selectedDate.value && selectedDate.value > today);
 
 const { data, error: latestError, isLoading: latestLoading } = useQuery({
-    queryKey: ['trip', props.tripId],
+    queryKey: computed(() => ['trip', props.tripId]),
     queryFn: () => getRecentTripData(props.tripId),
     enabled: () => !!props.tripId && !selectedDate.value,
     refetchOnWindowFocus: true,
@@ -109,15 +121,15 @@ const error = computed(() => (selectedDate.value ? (runMissing.value ? null : ru
 
 // the bus cards share these keys, so coming from one the heading and map show straight away
 const { data: tripData, isLoading: tripLoading } = useQuery({
-    queryKey: ['trip-shape', props.tripId],
+    queryKey: computed(() => ['trip-shape', props.tripId]),
     queryFn: () => getTrip(props.tripId),
-    enabled: !!props.tripId,
+    enabled: () => !!props.tripId,
     staleTime: Infinity,
 })
 
 // route data is a list of stops along this trip
 const { data: routeData } = useQuery({
-    queryKey: ['trip-stop-times', props.tripId],
+    queryKey: computed(() => ['trip-stop-times', props.tripId]),
     queryFn: () => getBusStopTimes(props.tripId),
     enabled: () => !!props.tripId,
     staleTime: Infinity,
@@ -180,19 +192,31 @@ const latestRunDate = computed(() => {
 const pickerDate = computed(() => selectedDate.value ?? latestRunDate.value);
 const pickerDateLabel = computed(() => formatDayLabel(pickerDate.value, today));
 
-// same key as the route page uses for one service, so it can share the cache
-const tripServiceId = computed(() => tripData.value?.service_id ?? '');
+// the route's trips share the route page's key. They give the other trips of the day
+const routeId = computed(() => tripData.value?.route_id ?? '');
+const { data: routeTrips } = useQuery({
+    queryKey: computed(() => ['route-trips', routeId.value]),
+    queryFn: () => getTripsByRouteId(routeId.value),
+    enabled: () => !!routeId.value,
+});
+
+const routeServiceIds = computed(() => [...new Set((routeTrips.value ?? []).map((trip) => trip.service_id))].sort());
+
+// same key as the route page, so it can share the cache
 const { data: serviceDateRows } = useQuery({
-    queryKey: computed(() => ['service-dates', tripData.value?.route_id, tripServiceId.value]),
-    queryFn: () => getServiceDates([tripServiceId.value]),
-    enabled: () => !!tripServiceId.value,
+    queryKey: computed(() => ['service-dates', routeId.value, routeServiceIds.value.join(',')]),
+    queryFn: () => getServiceDates(routeServiceIds.value),
+    enabled: () => routeServiceIds.value.length > 0,
     staleTime: Infinity,
 });
 
-// sorted dates the trip's service runs, or null if the calendar couldn't be loaded
+// null if the calendar couldn't be loaded
+const serviceDates = computed(() => (serviceDateRows.value?.length ? serviceDatesFrom(serviceDateRows.value) : null));
+
+// sorted dates the route runs, or null without the calendar
 const serviceDays = computed(() => {
-    if (!serviceDateRows.value?.length) return null;
-    const days = [...(serviceDatesFrom(serviceDateRows.value).get(tripServiceId.value) ?? [])].sort();
+    if (!serviceDates.value) return null;
+    const days = [...new Set([...serviceDates.value.values()].flatMap((dates) => [...dates]))].sort();
     return days.length ? days : null;
 });
 
@@ -202,13 +226,52 @@ const pickerMax = computed(() => {
     return last && last > today ? last : serviceDays.value ? today : addDays(today, FALLBACK_FUTURE_DAYS);
 });
 
-// days the service runs, plus any day before the calendar starts, as older feeds aren't in it
+// days the route runs, plus any day before the calendar starts, as older feeds aren't in it
 /** @param {string} date */
 const isPickable = (date) => {
     const days = serviceDays.value;
     if (!days) return true;
     return date < /** @type {string} */ (days[0]) || days.includes(date);
 };
+
+// the services running on the picked day. Without calendar dates for it, the days in each
+// service_id, within this trip's schedule period
+const dayServices = computed(() => {
+    const date = pickerDate.value;
+    const running = serviceDates.value ? servicesOnDate(serviceDates.value, date) : new Set();
+    if (running.size) return running;
+    const period = schedulePeriod(tripData.value?.service_id ?? '');
+    return new Set(
+        routeServiceIds.value.filter(
+            (id) => schedulePeriod(id) === period && serviceRunsOnDay(id, weekdayOf(date)),
+        ),
+    );
+});
+
+const dayTripIds = computed(() =>
+    tripsOnDate(routeTrips.value ?? [], dayServices.value, tripData.value?.direction_id ?? '').map((trip) => trip.trip_id),
+);
+
+const { data: dayStartTimes, isLoading: dayTripsLoading } = useQuery({
+    queryKey: computed(() => ['trip-start-times', dayTripIds.value.join(',')]),
+    queryFn: async () => (await Promise.all(chunk(dayTripIds.value, 200).map(getTripStartTimes))).flat(),
+    enabled: () => dayTripIds.value.length > 0,
+    staleTime: Infinity,
+});
+
+const dayTrips = computed(() => sortByStart(dayTripIds.value, dayStartTimes.value ?? []));
+
+// picking a day on which this trip doesn't run goes to the trip starting nearest to it
+watch([jumpPending, dayTrips, dayTripsLoading, routeData], () => {
+    if (!jumpPending.value || dayTripsLoading.value || !routeTrips.value || !routeData.value) return;
+    if (dayStartTimes.value === undefined && dayTripIds.value.length) return;
+    jumpPending.value = false;
+    if (dayTrips.value.some((trip) => trip.trip_id === String(props.tripId))) return;
+    const first = routeData.value[0];
+    const start = first?.departure_time || first?.arrival_time;
+    const nearest = start ? nearestByStart(dayTrips.value, start) : null;
+    if (nearest) router.replace({ path: `/trips/${encodeURIComponent(nearest.trip_id)}`, query: { date: pickerDate.value } });
+});
 
 /**
  * @param {number|null} unixEpoch
@@ -257,6 +320,11 @@ function getTimeDiffMinutes(stop, estimatedEpoch) {
 // a loop can visit the same stop twice, so rows are told apart by their sequence
 /** @type {import('vue').Ref<string | null>} */
 const expandedSequence = ref(null);
+
+// another trip has other stops
+watch(() => props.tripId, () => {
+    expandedSequence.value = null;
+});
 
 const expandedStopId = computed(
     () => routeData.value?.find((stop) => stop.stop_sequence === expandedSequence.value)?.stop_id ?? null,
@@ -380,6 +448,12 @@ const mapPaths = computed(() => {
             :today="today"
             :allowed="isPickable"
             @update:model-value="pickDate"
+          />
+          <TripPicker
+            :trips="dayTrips"
+            :current="String(tripId)"
+            :loading="dayTripsLoading"
+            @select="openTrip"
           />
         </div>
         <v-alert
