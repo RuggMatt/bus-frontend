@@ -2,8 +2,9 @@
 import { useRoutes } from '../composables/useRoutes';
 import { ref, computed } from 'vue';
 import { useBuses } from '../composables/useBuses';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import RouteBadge from '../components/RouteBadge.vue';
+import { transitionLinkClick } from '../utils/viewTransition';
 
 const { routes } = useRoutes();
 const { buses } = useBuses();
@@ -16,6 +17,34 @@ const getCurrentBusesOnRoute = (routeId) => {
   if (!buses.value || !routes.value) return "";
   return buses.value.filter(bus => bus.route_id === routeId)
 };
+
+const router = useRouter();
+
+// only the tapped route's elements are named, as each name must be unique on the page
+/** @type {import('vue').Ref<string | null>} */
+const transitionRouteId = ref(null);
+
+/**
+ * @param {string} routeId
+ * @param {string} name
+ */
+const transitionName = (routeId, name) =>
+  routeId === transitionRouteId.value ? { viewTransitionName: name } : undefined;
+
+/**
+ * Morphs the route number and name into the route page, which shows the name from
+ * history state until its own routes query loads.
+ *
+ * @param {MouseEvent} event
+ * @param {import('../api').Route} route
+ */
+const openRoute = (event, route) =>
+  transitionLinkClick(
+    event,
+    router,
+    { path: `/routes/${route.route_id}`, state: { routeLongName: route.route_long_name } },
+    (named) => { transitionRouteId.value = named ? route.route_id : null; },
+  );
 
 const search = ref('');
 const filteredRoutes = computed(() => {
@@ -49,7 +78,12 @@ const filteredRoutes = computed(() => {
             <v-list-item>
               <v-list-item-content>
                 <v-list-item-title>
-                  <RouteBadge :route-id="route.route_id" size="small" class="mr-2" />{{ route.route_long_name }}
+                  <RouteBadge
+                    :route-id="route.route_id"
+                    size="small"
+                    class="mr-2"
+                    :style="transitionName(route.route_id, 'route-number')"
+                  /><span :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span>
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/buses/${encodeURIComponent(bus.bus)}`">
@@ -60,7 +94,12 @@ const filteredRoutes = computed(() => {
                 </v-list-item-subtitle>
               </v-list-item-content>
               <template #append>
-                <v-btn icon :to="`/routes/${route.route_id}`">
+                <v-btn
+                  icon
+                  :href="`/routes/${route.route_id}`"
+                  :aria-label="`Route ${route.route_long_name}`"
+                  @click="openRoute($event, route)"
+                >
                   <v-icon>mdi-chevron-right</v-icon>
                 </v-btn>
               </template>

@@ -218,7 +218,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Full-width actions** use `<v-btn block variant="tonal" color="primary">`, as with "Trip details" and "Stop details".
 - **Route header pattern:** a badge, the long name, and an `mdi-chevron-right` to the route page, in a `.route-header` link with a hover tint.
 
-## View transitions (stop page or map → route page)
+## View transitions (route list, stop page or map → route page)
 
 These use the same-document View Transitions API (`src/utils/viewTransition.js`):
 
@@ -226,7 +226,8 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
 - `transitionLinkClick(event, router, to, setNamed)` is the click handler for a `<router-link custom>` + `<a :href>`. It leaves modifier and middle clicks to the browser, so they still open new tabs. It switches the caller's names on before the old page is captured and off afterwards.
 - **Names:** `route-number` (badge), `route-name` (long name) and `bus-${bus}` (bus label → Active Buses chip). Every name must be unique on the page, so the source side only sets names on the tapped route. The route page always sets them, which is harmless because only those clicks start a transition.
 - **Handoff:** the source passes `history.state = { routeLongName, buses: [{ bus, trip }] }`. The route page shows these until its own `routes` and `buses` queries load, so the new snapshot has something to morph into.
-- The transition only plays going forward, from the stop page and the map's bus card. Back navigation and other links don't use it.
+- The routes list's chevron button does the same for `route-number` and `route-name` (only the tapped row is named), passing just `routeLongName` in history state.
+- The transition only plays going forward, from the routes list, the stop page and the map's bus card. Back navigation and other links don't use it.
 - The timing is set globally in `App.vue`: `::view-transition-group(*)`, 300 ms ease.
 
 ## Conventions
