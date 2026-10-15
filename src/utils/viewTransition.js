@@ -1,5 +1,13 @@
 import { nextTick } from "vue";
 
+// set while any view transition runs, so the router hook doesn't start a second one
+let transitionRunning = false;
+
+/** @returns {boolean} */
+export const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const canTransition = () => Boolean(document.startViewTransition) && !prefersReducedMotion();
+
 /**
  * Navigates inside a view transition, so elements sharing a view-transition-name
  * on both pages morph between them. Falls back to a plain push where the API is
@@ -9,17 +17,80 @@ import { nextTick } from "vue";
  * @param {import("vue-router").RouteLocationRaw} to
  */
 export const navigateWithTransition = async (router, to) => {
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (!document.startViewTransition || reduceMotion) {
+  if (!canTransition()) {
     await router.push(to);
     return;
   }
-  const transition = document.startViewTransition(async () => {
-    // push resolves once the lazy page has loaded, nextTick once it has rendered
-    await router.push(to);
-    await nextTick();
+  transitionRunning = true;
+  try {
+    const transition = document.startViewTransition(async () => {
+      // push resolves once the lazy page has loaded, nextTick once it has rendered
+      await router.push(to);
+      await nextTick();
+    });
+    await transition.finished;
+  } finally {
+    transitionRunning = false;
+  }
+};
+
+// the pages sharing the map with the main map (see plugins/sharedMap.js)
+const MAP_PAGES = new Set(["Trip Details", "Bus Details", "Route Details"]);
+
+/**
+ * @param {import("vue-router").RouteLocationNormalized} to
+ * @param {import("vue-router").RouteLocationNormalized} from
+ */
+const isMapPair = (to, from) =>
+  (to.name === "Home" && MAP_PAGES.has(String(from.name)))
+  || (from.name === "Home" && MAP_PAGES.has(String(to.name)));
+
+/**
+ * Plays a view transition on every navigation between the main map and a page
+ * with the shared map, by any link and by back and forward, so the map's box
+ * morphs between the two layouts while the map flies to its new view.
+ *
+ * @param {import("vue-router").Router} router
+ */
+export const installMapTransitions = (router) => {
+  // the browser already animated a swipe back, so another animation would play it twice
+  let browserAnimated = false;
+  window.addEventListener("popstate", (event) => {
+    browserAnimated = Boolean(/** @type {any} */ (event).hasUAVisualTransition);
   });
-  await transition.finished;
+  /** @type {(() => void) | null} */
+  let rendered = null;
+
+  router.beforeResolve((to, from) => {
+    const skip = browserAnimated;
+    browserAnimated = false;
+    // the first navigation has no old page to morph from
+    if (skip || transitionRunning || !from.matched.length || !isMapPair(to, from) || !canTransition()) {
+      return;
+    }
+    transitionRunning = true;
+    // lets the navigation carry on once the old page has been captured
+    return new Promise((captured) => {
+      const transition = document.startViewTransition(() => new Promise((resolve) => {
+        rendered = resolve;
+        captured(undefined);
+      }));
+      transition.finished.finally(() => {
+        transitionRunning = false;
+      });
+    });
+  });
+
+  router.afterEach(async () => {
+    browserAnimated = false;
+    const done = rendered;
+    rendered = null;
+    if (done) {
+      // the new page is captured once it has rendered
+      await nextTick();
+      done();
+    }
+  });
 };
 
 /**

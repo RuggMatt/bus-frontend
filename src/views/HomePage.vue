@@ -4,11 +4,22 @@ import BusDetails from '../components/BusDetails.vue';
 import { ref, watch } from 'vue';
 import { useBusTrip } from '../composables/useBusTrip';
 import { useDisplay } from 'vuetify';
+import { useBuses } from '../composables/useBuses';
+import { rememberedHomeView } from '../plugins/sharedMap';
 
 const { mdAndUp } = useDisplay();
-const showBottomSheet = ref(false);
+const { buses } = useBuses();
+
+// coming back to the map reselects the bus the user left from, with its latest position
+const restoreBusId = rememberedHomeView?.busId ?? null;
+const restoredBus = restoreBusId === null
+  ? null
+  : buses.value?.find((candidate) => String(candidate.bus) === String(restoreBusId)) ?? null;
+
+// opened from the start, so the map already has its final size when it flies back
+const showBottomSheet = ref(Boolean(restoredBus) && !mdAndUp.value);
 /** @type {import('vue').Ref<import('../api').Bus | null>} */
-const bus = ref(null);
+const bus = ref(restoredBus);
 
 const { trip, isError } = useBusTrip(bus);
 
@@ -36,7 +47,7 @@ const viewBusDetails = (clickedBus) => {
 
     <!-- Full Screen Map -->
     <div class="map-container">
-      <NewBusMap @bus-details="viewBusDetails($event)" />
+      <NewBusMap :restore-bus-id="restoredBus?.bus ?? null" @bus-details="viewBusDetails($event)" />
     </div>
 
     <!-- Mobile: Bottom Sheet -->

@@ -6,7 +6,7 @@ This is a reference for how the app works and why. It covers the pages, data sou
 
 - Vue 3 (`<script setup>`, JS with JSDoc types and `// @ts-check` in places), Vite 8, Vuetify 4, Vue Router 5
 - TanStack Vue Query for all fetching and caching
-- Leaflet maps with Mapbox tiles. Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`
+- Leaflet maps with Mapbox tiles. The main map and the route, trip and bus pages share one map instance (see View transitions). Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`
 - Vitest for unit tests, in `tests/`
 - ESLint with `eslint-plugin-vue`. The pre-commit hook runs `npm run lint`
 
@@ -114,7 +114,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Detail pages have no back button. Mobile relies on the browser's back gesture.
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
-- Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away.
+- Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away, flies back to the view the user left, and reselects the bus they had selected if it's still in the snapshot (the card or sheet opens with its latest position).
 - A locate button at the bottom right (same style as the stops map's) centres the map on the user at zoom 16 and draws a blue dot. A snackbar shows if the location can't be found.
 - Tapping a bus highlights its route and opens `BusDetails.vue`. On desktop that's a left panel, on mobile a bottom sheet.
 - The mobile bottom sheet is full width and non-modal: there's no scrim, so the map can still be panned and zoomed while it's open. Tapping empty map closes it, and tapping another bus switches it to that bus.
@@ -191,6 +191,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - A future date makes no backend request. It shows the scheduled times only, and the subtitle says "Not run yet" instead of the bus.
   - Only days the trip's `service_id` runs can be picked, from calendar dates (`['service-dates', routeId, serviceId]`), up to the last date in the feed. Days before the calendar starts stay pickable, back about a year, as older feeds aren't in it. If the calendar fails, any day from a year back to 60 days ahead can be picked.
 - A map (`TransitMap.vue`) with the route shape, stops coloured by lateness (tooltip: name, time, status), and the bus's latest recorded position as a bus pin. Stop colours follow `scheduleStatus`, so they match the chips. It fits once per trip, so the 60 s refetch doesn't re-zoom it. Tapping a stop opens its stop page.
+- The map renders while the page loads, so it's there for the view transition from the main map. The trip and its stop times use the bus card's `['trip-shape']` and `['trip-stop-times']` keys, so coming from a card the heading and map show straight away, with "Loading..." below the map until the run loads.
 - **Stops** are rows in one outlined card, like the stop page's cards (no `v-list`, so nothing gets clamped on mobile):
   - left: the stop name (wraps) and "Stop N"
   - right: the scheduled time, large, and when there's a recorded position within 1 km, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
@@ -201,7 +202,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Bus details (`/buses/:busId`, `BusDetailsPage.vue`)
 - Reached from any bus id (`BusLink`, see Shared UI).
 - **Heading:** "Bus N", a "Live" chip while `active`, otherwise "Last seen 3h 5m ago" (amber, grey past an hour), an Electric chip for 8000–8999, and "Tracked since" the first sighting.
-- A map (`TransitMap` with `showAge` and `followBus`) of the bus's latest position, with the route line and stops of its current trip, or the last trip it ran if it's out of service (or the expanded trip, see below). It centres on the bus at zoom 16 and flies to it whenever the position changes. The pin's age badge goes amber past 5 minutes, and past an hour the badge and pin go grey.
+- A map (`TransitMap` with `showAge` and `followBus`) of the bus's latest position, with the route line and stops of its current trip, or the last trip it ran if it's out of service (or the expanded trip, see below). It centres on the bus at zoom 16 and flies to it whenever the position changes. The pin's age badge goes amber past 5 minutes, and past an hour the badge and pin go grey. The map renders while the bus loads, for the view transition from the main map.
 - `['bus', busId]` refetches with `nextBusRefreshDelay` while the bus is active, and every 60 s otherwise. The current week's trips refetch when `lastSeen` changes.
 - **Activity:** trip counts from `/bus/:busId/trip-counts` as a bar chart (`TripCountsChart`), with a Day / Week / Month toggle in the URL as `?stats=` (left off for Day). It covers the last 30 days, 12 weeks or 12 months (`tripCountsRange`, `src/utils/tripCounts.js`), starting no earlier than the first sighting. Above it, the total and the average per period (`summarizeCounts`), which leaves out the current period and any the bus was first seen partway through. Tapping a day's bar shows its week's trips and scrolls to them. Week bars aren't tappable, as the backend's Monday weeks don't line up with the Sunday trip weeks. The counts refetch when `lastSeen` changes.
 - **Trips** are shown a week at a time, Sunday to Saturday (`src/utils/weeks.js`), picked with `WeekPicker` (see Shared UI). The current week is the default. The week's Sunday is in the URL as `?week=`, read on load and written back with `router.replace`, and left off for the current week. A future or invalid week falls back to the current one. Changing week collapses the expanded row. The trips are fetched with `from`/`to`, newest first, grouped under Today / Yesterday / "Monday, Oct 12" (`tripDayLabel`, Edmonton days). Each row is a route badge and the headsign without its route number (`headsignWithoutRoute`, so "4 University" reads "University" beside the 4 badge), the route's long name below, and the first-to-last seen times (`formatTripTimes`). The running trip ends in "now" with a Now chip (only in the current week). An empty week shows "No trips this week" or "No trips in the week of Oct 4". Trips not in the current feed show "Trip N", and out-of-service stretches show "Not in service".
@@ -222,6 +223,8 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - `showAge`: label pins with their report age, ticking every second
   - `followBus`: centre on the first bus and fly to it as it moves, instead of fitting the stops. Turning it off fits the stops and lines, and turning it back on re-centres on the bus
 
+  - when the shared map comes straight from another page, its first fit (or centring on the bus) flies there instead of jumping, unless reduced motion is preferred
+
   Pages set the height with `--transit-map-height` (default 360px, or 280px on mobile).
 - **`WeekPicker.vue`**: picks a Sunday–Saturday week. `v-model` is the week's Sunday (`YYYY-MM-DD`), and `min`/`max` limit it to days the data can cover. Vuetify has no week picker, so it's previous/next buttons around a label ("This week", "Last week", "Oct 4 – 10"). The label opens a `v-date-picker` with the week's 7 days selected (`multiple`), so the whole week is highlighted. Tapping any day picks its week. Week numbers are hidden on phones, where they make the picker too wide.
 - **`DayPicker.vue`**: picks a day, like `WeekPicker`. `v-model` is `YYYY-MM-DD`, with `min`, `max`, `today` (for the label) and an `allowed(date)` function. The label reads "Today", "Yesterday", "Tomorrow" or "Wed, Oct 14" (`formatDayLabel`), and opens a `v-date-picker`. Previous/next jump to the nearest allowed day.
@@ -232,17 +235,30 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Full-width actions** use `<v-btn block variant="tonal" color="primary">`, as with "Trip details" and "Stop details".
 - **Route header pattern:** a badge, the long name, and an `mdi-chevron-right` to the route page, in a `.route-header` link with a hover tint.
 
-## View transitions (route list, stop page or map → route page)
+## View transitions
 
-These use the same-document View Transitions API (`src/utils/viewTransition.js`):
+These use the same-document View Transitions API (`src/utils/viewTransition.js`). The timing is set globally in `App.vue`: `::view-transition-group(*)`, 300 ms ease. None play when reduced motion is preferred (`prefersReducedMotion`) or the API is missing.
 
-- `navigateWithTransition(router, to)` wraps `router.push` in `document.startViewTransition`, waiting for the lazy route to load and then `nextTick`. It falls back to a plain push when the API is missing or reduced motion is preferred.
+### Shared map (main map ↔ trip, bus and route pages)
+
+- **One map instance** (`src/plugins/sharedMap.js`). `NewBusMap` and `TransitMap` don't create maps. They draw their layers on one Leaflet map, which `attachSharedMap(container, release)` moves into the page and `detachSharedMap(token)` takes out. So tiles stay loaded between pages, and the map can fly from one page's view to the next. Only one page may show it at a time. The stops page keeps its own `StopsMap`.
+  - It has the tile layer (`minZoom` 9, no tile bounds, so regional routes keep their tiles) and one `routePane` at z-index 350 for route lines. Each page puts its layers in groups and removes them when it leaves.
+  - `invalidateSize` keeps the centre, so after a move the new box shows the same place. A `ResizeObserver` calls it when the box resizes, e.g. when the main map's bus panel opens.
+  - `handedOver` is true when the map comes straight from another page in the same render. The page then flies to its view (0.8 s) instead of jumping.
+  - The main map remembers its view and selected bus when it leaves (`rememberedHomeView`). Coming back flies to that view and reselects the bus without fitting its route.
+- **The transition**: `installMapTransitions(router)` (in `main.js`) starts a view transition from `router.beforeResolve` on any navigation between `Home` and `Trip Details`, `Bus Details` or `Route Details`. That covers every link (the bus card's buttons and bus link, tabs, the sidebar) and back and forward, so the transition also plays in reverse. The navigation carries on once the old page is captured, and the new page is captured after `afterEach` and `nextTick`.
+  - It's skipped on the first navigation, while another transition is running (such as `navigateWithTransition`), and on back or forward when the browser already animated a swipe (`PopStateEvent.hasUAVisualTransition`).
+  - The map's element is always named `shared-map`. Its old and new images use `object-fit: cover` with `height: 100%`, so the box morphs by cropping around the centre rather than stretching. The map flies at the same time, as the new image is live.
+  - The map must be in the DOM on the page's first render, so the trip and bus pages show it while they load.
+
+### Route page (route list, stop page or map → route page)
+
+- `navigateWithTransition(router, to)` wraps `router.push` in `document.startViewTransition`, waiting for the lazy route to load and then `nextTick`.
 - `transitionLinkClick(event, router, to, setNamed)` is the click handler for a `<router-link custom>` + `<a :href>`. It leaves modifier and middle clicks to the browser, so they still open new tabs. It switches the caller's names on before the old page is captured and off afterwards.
 - **Names:** `route-number` (badge), `route-name` (long name) and `bus-${bus}` (bus label → Active Buses chip). Every name must be unique on the page, so the source side only sets names on the tapped route. The route page always sets them, which is harmless because only those clicks start a transition.
 - **Handoff:** the source passes `history.state = { routeLongName, buses: [{ bus, trip }] }`. The route page shows these until its own `routes` and `buses` queries load, so the new snapshot has something to morph into.
 - The routes list's chevron button does the same for `route-number` and `route-name` (only the tapped row is named), passing just `routeLongName` in history state.
-- The transition only plays going forward, from the routes list, the stop page and the map's bus card. Back navigation and other links don't use it.
-- The timing is set globally in `App.vue`: `::view-transition-group(*)`, 300 ms ease.
+- These names only morph going forward, from the routes list, the stop page and the map's bus card. From the map's bus card the shared map morphs too, in the same transition. Going back from the route page to the main map plays the shared-map transition.
 
 ## Conventions
 
