@@ -3,7 +3,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getBus, getBusRecentTrips, getBusStopTimes, getTrip, getTripSummaries } from '../api';
+import { getBus, getBusRecentTrips, getBusStopTimes, getBusTripCounts, getTrip, getTripSummaries } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
 import { tripPath } from '../composables/useStopArrivals';
@@ -13,8 +13,10 @@ import { edmontonNow } from '../utils/serviceTime';
 import { edmontonDate, formatTripDuration, formatTripTimes, tripDayLabel } from '../utils/tripTimes';
 import { formatShortDate, isDateString, weekRange, weekStart } from '../utils/weeks';
 import { headsignWithoutRoute } from '../utils/routes';
+import { summarizeCounts, tripCountsRange } from '../utils/tripCounts';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
+import TripCountsChart from '../components/TripCountsChart.vue';
 import WeekPicker from '../components/WeekPicker.vue';
 
 // a bus out of service is still checked now and then, in case it comes back
@@ -74,10 +76,51 @@ const { data: recentTrips, isLoading: tripsLoading, isError: tripsError, refetch
     staleTime: () => (isCurrentWeek.value ? 0 : Infinity),
 });
 
+/** @type {import('../utils/tripCounts').CountPeriod[]} */
+const COUNT_PERIODS = ['day', 'week', 'month'];
+const PERIOD_NOUNS = { day: 'day', week: 'week', month: 'month' };
+
+// day, week or month, from ?stats= so reloads and shared links keep it
+const initialStats = currentRoute.query.stats;
+/** @type {import('vue').Ref<import('../utils/tripCounts').CountPeriod>} */
+const countsBy = ref(COUNT_PERIODS.find((by) => by === initialStats) ?? 'day');
+
+watch(countsBy, (by) => {
+    const query = { ...currentRoute.query };
+    if (by === 'day') delete query.stats;
+    else query.stats = by;
+    router.replace({ query });
+});
+
+const countsRange = computed(() => tripCountsRange(countsBy.value, today.value, firstSeenDate.value));
+
+const { data: tripCounts, isLoading: countsLoading, isError: countsError, refetch: refetchCounts } = useQuery({
+    queryKey: computed(() => ['bus-trip-counts', props.busId, countsBy.value, countsRange.value.from, countsRange.value.to]),
+    queryFn: () => getBusTripCounts(props.busId, { by: countsBy.value, ...countsRange.value }),
+    // the range waits for firstSeen, so a new bus doesn't ask twice
+    enabled: () => !!busInfo.value,
+    staleTime: 5 * 60_000,
+    // switching period shouldn't blank the chart while the next one loads
+    placeholderData: keepPreviousData,
+});
+
+const countsSummary = computed(() => summarizeCounts(tripCounts.value ?? [], firstSeenDate.value));
+
+/** @type {import('vue').Ref<HTMLElement | null>} */
+const tripsHeading = ref(null);
+
+// a day's bar opens its week's trips
+/** @param {string} period */
+const showDay = (period) => {
+    selectedWeek.value = weekStart(period);
+    tripsHeading.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 // only worth asking again once the bus has reported something new
 watch(() => busInfo.value?.lastSeen, (lastSeen, previous) => {
-    if (previous && lastSeen !== previous && isCurrentWeek.value) {
-        refetchTrips();
+    if (previous && lastSeen !== previous) {
+        if (isCurrentWeek.value) refetchTrips();
+        refetchCounts();
     }
 });
 
@@ -201,6 +244,7 @@ const trackedSince = computed(() =>
  * @typedef {Object} TripRow
  * @property {string} key
  * @property {string | null} tripId null while the bus was out of service
+ * @property {string} date YYYY-MM-DD, the Edmonton day the trip started
  * @property {{route_id: string, trip_headsign: string} | null} trip null until loaded, or if the feed doesn't know it
  * @property {string} times
  * @property {string} duration
@@ -233,6 +277,7 @@ const tripDays = computed(() => {
         day.rows.push({
             key: rowKey(summary),
             tripId,
+            date: edmontonDate(summary.start),
             trip: tripId ? tripsById.value.get(tripId) ?? null : null,
             times: formatTripTimes(summary.start, summary.end, { ongoing }),
             duration: formatTripDuration(summary.start, summary.end),
@@ -290,6 +335,49 @@ const tripDays = computed(() => {
       />
 
       <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2 px-2">
+        <h2 class="text-title-large mr-auto">
+          Activity
+        </h2>
+        <v-btn-toggle
+          v-model="countsBy"
+          mandatory
+          density="compact"
+          variant="outlined"
+          divided
+          color="primary"
+        >
+          <v-btn value="day" class="text-none">
+            Day
+          </v-btn>
+          <v-btn value="week" class="text-none">
+            Week
+          </v-btn>
+          <v-btn value="month" class="text-none">
+            Month
+          </v-btn>
+        </v-btn-toggle>
+      </div>
+      <div v-if="countsLoading" class="d-flex justify-center py-6">
+        <v-progress-circular indeterminate color="primary" />
+      </div>
+      <div v-else-if="countsError" class="text-error px-2">
+        Trip counts could not be loaded.
+      </div>
+      <template v-else-if="tripCounts">
+        <div class="text-body-medium text-medium-emphasis px-2 mb-2">
+          {{ countsSummary.total }} {{ countsSummary.total === 1 ? 'trip' : 'trips' }}
+          &middot; {{ countsSummary.average }} per {{ PERIOD_NOUNS[countsBy] }} on average
+        </div>
+        <TripCountsChart
+          :counts="tripCounts"
+          :by="countsBy"
+          :clickable="countsBy === 'day'"
+          class="px-2"
+          @select="showDay"
+        />
+      </template>
+
+      <div ref="tripsHeading" class="trips-heading d-flex align-center flex-wrap ga-2 mt-5 mb-2 px-2">
         <h2 class="text-title-large mr-auto">
           Trips
         </h2>
@@ -377,7 +465,7 @@ const tripDays = computed(() => {
                 </div>
                 <v-btn
                   v-if="row.tripId"
-                  :to="`/trips/${encodeURIComponent(row.tripId)}`"
+                  :to="{ path: `/trips/${encodeURIComponent(row.tripId)}`, query: { date: row.date } }"
                   :disabled="notInSchedule(row)"
                   block
                   variant="tonal"
@@ -406,6 +494,10 @@ const tripDays = computed(() => {
 
 .trip-row {
     cursor: pointer;
+}
+
+.trips-heading {
+    scroll-margin-top: calc(var(--v-layout-top) + 8px);
 }
 
 .trip-row:hover {

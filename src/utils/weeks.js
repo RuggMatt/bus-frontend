@@ -77,3 +77,31 @@ export const formatWeekLabel = (start, today) => {
     : format(last, { month: "short", day: "numeric" });
   return `${format(first, { month: "short", day: "numeric" })} – ${end}`;
 };
+
+/**
+ * The Monday on or before a date, for the backend's Monday to Sunday weeks
+ * @param {string} dateString YYYY-MM-DD
+ * @returns {string}
+ */
+export const mondayWeekStart = (dateString) => addDays(dateString, -((toUtc(dateString).getUTCDay() + 6) % 7));
+
+/**
+ * Names a day: "Today", "Yesterday", "Tomorrow", or e.g. "Wed, Oct 14". Days in
+ * another year include the year.
+ * @param {string} dateString YYYY-MM-DD
+ * @param {string} today YYYY-MM-DD
+ * @returns {string}
+ */
+export const formatDayLabel = (dateString, today) => {
+  if (dateString === today) return "Today";
+  if (dateString === addDays(today, -1)) return "Yesterday";
+  if (dateString === addDays(today, 1)) return "Tomorrow";
+  const sameYear = dateString.slice(0, 4) === today.slice(0, 4);
+  return toUtc(dateString).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+};

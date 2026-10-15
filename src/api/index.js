@@ -201,6 +201,71 @@ export const getBusRecentTrips = async (busId, { hours = 168, limit, from, to } 
 };
 
 /**
+ * @typedef {Object} TripCount
+ * @property {string} period YYYY-MM-DD, the first day of the period in Edmonton
+ * @property {number} start Start of the period, Unix epoch seconds
+ * @property {number} trips Trips the bus started in the period
+ */
+
+/**
+ * Fetches how many trips a bus started per day, week (Monday to Sunday) or month,
+ * oldest first, with every period in the range listed. For weeks and months the
+ * backend moves `from` back to the start of its period.
+ * @param {string|number} busId
+ * @param {{by?: 'day'|'week'|'month', from?: string, to?: string}} [options] YYYY-MM-DD Edmonton days,
+ *   at most 366 days apart
+ * @returns {Promise<TripCount[]>}
+ */
+export const getBusTripCounts = async (busId, { by = "day", from, to } = {}) => {
+  const params = new URLSearchParams({ by });
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/${encodeURIComponent(busId)}/trip-counts?${params}`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Object.assign(Error(result.status), { status: result.status });
+};
+
+/**
+ * @typedef {Object} TripRun
+ * @property {number|string} trip
+ * @property {string} date YYYY-MM-DD, the Edmonton day the run started
+ * @property {number} start First position, Unix epoch seconds
+ * @property {number} end Last position, Unix epoch seconds. Can be on the next day
+ * @property {number} points
+ * @property {Array<number|string>} buses Every bus that reported on the run, usually one
+ * @property {number|null} avgSpeed m/s
+ * @property {number|null} maxSpeed m/s
+ * @property {Bus[]} positions Oldest first
+ */
+
+/**
+ * Fetches the run of a trip that started on an Edmonton day. A day with no run
+ * throws an error with status 404.
+ * @param {string|number} tripId
+ * @param {string} date YYYY-MM-DD
+ * @returns {Promise<TripRun>}
+ */
+export const getTripRun = async (tripId, date) => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/trips/${encodeURIComponent(tripId)}/${date}`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Object.assign(Error(result.status), { status: result.status });
+};
+
+/**
  * Fetches hourly hydrogen bus stats from the backend API
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */
