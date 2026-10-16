@@ -457,8 +457,6 @@ export const getBusStopTimes = async (tripId) => {
   return [];
 };
 
-export const getRoute = getBusStopTimes;
-
 /**
  *
  * @param {} tripId
@@ -531,25 +529,6 @@ export const getTripSummaries = async (tripIds) => {
     return result.json();
   }
   throw Error(result.status);
-};
-
-/**
- *
- * @returns {Promise<Trip[]>}
- */
-export const getAllTrips = async () => {
-  let url = `https://data.edmonton.ca/resource/ctwr-tvrd.json`;
-  let result = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
-    },
-  });
-  if (result.ok) {
-    return result.json();
-  } else {
-    throw Error(result.status);
-  }
 };
 
 /**
