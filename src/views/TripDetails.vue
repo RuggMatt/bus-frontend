@@ -868,6 +868,7 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
                 :to="`/stops/${encodeURIComponent(row.stop.stop_id)}`"
                 block
                 size="large"
+                height="50"
                 variant="tonal"
                 color="primary"
                 class="mt-2"

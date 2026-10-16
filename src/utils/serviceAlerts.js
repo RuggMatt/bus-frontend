@@ -1,6 +1,6 @@
 // @ts-check
 import { formatScheduledTime } from "./busStatus";
-import { edmontonNow, secondsToTime } from "./serviceTime";
+import { edmontonNow, scheduledSecondsNear, secondsToTime } from "./serviceTime";
 import { addDays, formatDayLabel } from "./weeks";
 
 /**
@@ -289,4 +289,19 @@ export const disruptedStops = (alerts, now, routeId) => {
     }
   }
   return stops;
+};
+
+/**
+ * The rest of a running trip, from now to its last scheduled stop, as local times for
+ * `alertsForTrip`. Just now when its last stop is already past or unknown.
+ * @param {string | undefined} lastTime HH:MM:SS of the trip's last stop, which can pass 24:00:00
+ * @param {Date} [date] now
+ * @returns {[string, string]}
+ */
+export const restOfTripWindow = (lastTime, date = new Date()) => {
+  const { dateString, secondsSinceMidnight } = edmontonNow(date);
+  const start = edmontonLocal(dateString, secondsSinceMidnight);
+  if (!lastTime) return [start, start];
+  const lastSeconds = scheduledSecondsNear(lastTime, secondsSinceMidnight);
+  return [start, edmontonLocal(dateString, Math.max(secondsSinceMidnight, lastSeconds))];
 };

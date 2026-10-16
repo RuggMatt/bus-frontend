@@ -470,6 +470,7 @@ const tripDays = computed(() => {
                   :disabled="notInSchedule(row)"
                   block
                   size="large"
+                  height="50"
                   variant="tonal"
                   color="primary"
                   class="mt-3"

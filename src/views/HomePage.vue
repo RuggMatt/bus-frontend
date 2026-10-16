@@ -1,7 +1,7 @@
 <script setup>
 import NewBusMap from '../components/NewBusMap.vue';
 import BusDetails from '../components/BusDetails.vue';
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import { useBusTrip } from '../composables/useBusTrip';
 import { useDisplay } from 'vuetify';
 import { useBuses } from '../composables/useBuses';
@@ -50,7 +50,17 @@ const onSheetTouchStart = (event) => {
 const onSheetTouchMove = (event) => {
   if (dragStartY.value === null) return;
   dragOffset.value = Math.max(0, event.touches[0].clientY - dragStartY.value);
+  // the drag is the sheet's, so Chrome mustn't take it as pull to refresh
+  if (dragOffset.value > 0 && event.cancelable) event.preventDefault();
 };
+
+// and with the sheet open, the page itself doesn't pull to refresh either, in case a
+// drag starts outside the sheet's handlers
+const setPullToRefresh = (enabled) => {
+  document.documentElement.style.overscrollBehaviorY = enabled ? '' : 'none';
+};
+watch(showBottomSheet, (open) => setPullToRefresh(!open), { immediate: true });
+onBeforeUnmount(() => setPullToRefresh(true));
 
 const onSheetTouchEnd = () => {
   if (dragOffset.value > DISMISS_DISTANCE) {
@@ -96,7 +106,7 @@ const viewBusDetails = (clickedBus) => {
         :class="{ 'sheet-dragging': dragStartY !== null }"
         :style="{ transform: dragOffset ? `translateY(${dragOffset}px)` : undefined }"
         @touchstart.passive="onSheetTouchStart"
-        @touchmove.passive="onSheetTouchMove"
+        @touchmove="onSheetTouchMove"
         @touchend="onSheetTouchEnd"
         @touchcancel="onSheetTouchEnd"
       >

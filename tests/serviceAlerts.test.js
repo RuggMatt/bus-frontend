@@ -9,6 +9,7 @@ import {
   formatAlertPeriod,
   groupAlerts,
   nowLocal,
+  restOfTripWindow,
   routesWithActiveAlerts,
 } from "../src/utils/serviceAlerts";
 
@@ -165,5 +166,23 @@ describe("formatAlertPeriod", () => {
     expect(formatAlertPeriod(alertStatus(byId("202579"), WED_NOON).timing, WED_NOON)).toBe(
       "Until today at 6:00 PM + 2 more days",
     );
+  });
+});
+
+describe("restOfTripWindow", () => {
+  // 9:30 PM MST in Edmonton
+  const now = new Date("2026-10-16T03:30:00Z");
+
+  it("runs from now to the trip's last stop", () => {
+    expect(restOfTripWindow("22:10:00", now)).toEqual(["2026-10-15T21:30:00", "2026-10-15T22:10:00"]);
+  });
+
+  it("reaches past midnight for a late trip", () => {
+    expect(restOfTripWindow("24:20:00", now)).toEqual(["2026-10-15T21:30:00", "2026-10-16T00:20:00"]);
+  });
+
+  it("is just now when the last stop is past or unknown", () => {
+    expect(restOfTripWindow("21:00:00", now)).toEqual(["2026-10-15T21:30:00", "2026-10-15T21:30:00"]);
+    expect(restOfTripWindow(undefined, now)).toEqual(["2026-10-15T21:30:00", "2026-10-15T21:30:00"]);
   });
 });

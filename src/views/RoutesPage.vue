@@ -321,6 +321,7 @@ const listLoading = computed(() => !routes.value || agenciesPending.value);
                     :href="`/routes/${route.route_id}`"
                     block
                     size="large"
+                    height="50"
                     variant="tonal"
                     color="primary"
                     class="mt-3"
