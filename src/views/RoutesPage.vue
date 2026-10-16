@@ -4,8 +4,9 @@ import { ref, computed } from 'vue';
 import { useBuses } from '../composables/useBuses';
 import { useRoute, useRouter } from 'vue-router';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getRouteAgencies, getTripSummaries } from '../api';
-import { LOCAL_AGENCY, busesByHeadsign, filterRoutes, routeTypeLabel } from '../utils/routes';
+import { getTripSummaries } from '../api';
+import { busesByHeadsign, compareAgencies, filterRoutes, groupRoutesByAgency, routeTypeLabel } from '../utils/routes';
+import { useRouteAgencies } from '../composables/useAgencies';
 import RouteBadge from '../components/RouteBadge.vue';
 import { transitionLinkClick } from '../utils/viewTransition';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
@@ -123,18 +124,9 @@ const disruptedOnly = computed({
 });
 
 // the routes dataset has no agency, so it comes from the schedule
-const { data: routeAgencies } = useQuery({
-  queryKey: ['route-agencies'],
-  queryFn: getRouteAgencies,
-  staleTime: Infinity,
-});
-const agencyByRoute = computed(() =>
-  new Map((routeAgencies.value ?? []).map((entry) => [entry.route_id, entry.agency_name])));
+const { agencyByRoute, isPending: agenciesPending } = useRouteAgencies();
 
-// the local agency first, then the regional ones by name
-const agencyOptions = computed(() =>
-  [...new Set(agencyByRoute.value.values())].sort((a, b) =>
-    (b === LOCAL_AGENCY ? 1 : 0) - (a === LOCAL_AGENCY ? 1 : 0) || a.localeCompare(b)));
+const agencyOptions = computed(() => [...new Set(agencyByRoute.value.values())].sort(compareAgencies));
 
 const typeOptions = computed(() =>
   [...new Set((routes.value ?? []).map((r) => r.route_type))]
@@ -164,13 +156,18 @@ const filteredRoutes = computed(() =>
     },
     { agencies: agencyByRoute.value, liveRoutes: liveRoutes.value, disruptedRoutes: disruptedRoutes.value },
   ));
+
+const agencyGroups = computed(() => groupRoutesByAgency(filteredRoutes.value, agencyByRoute.value));
+
+// grouping waits for the agencies too, so the list doesn't reshuffle when they arrive
+const listLoading = computed(() => !routes.value || agenciesPending.value);
 </script>
 <template>
   <v-container>
     <v-row>
       <v-col cols="12">
         <h1 class="text-headline-large mb-4">
-          Bus Routes
+          Routes
         </h1>
         <v-text-field
           v-model="search"
@@ -183,7 +180,7 @@ const filteredRoutes = computed(() =>
           <v-select
             v-model="agencyFilter"
             :items="agencyOptions"
-            :loading="!routeAgencies"
+            :loading="agenciesPending"
             placeholder="All agencies"
             aria-label="Agency"
             prepend-inner-icon="mdi-domain"
@@ -230,7 +227,8 @@ const filteredRoutes = computed(() =>
             Disruptions
           </v-chip>
         </div>
-        <div v-if="routes" class="d-flex align-center text-body-medium text-medium-emphasis mb-2 px-1">
+        <v-skeleton-loader v-if="listLoading" type="list-item@8" class="route-list-loader" aria-label="Loading routes" />
+        <div v-else class="d-flex align-center text-body-medium text-medium-emphasis mb-2 px-1">
           {{ filteredRoutes.length }} {{ filteredRoutes.length === 1 ? 'route' : 'routes' }}
           <v-btn
             v-if="filtersActive"
@@ -243,95 +241,97 @@ const filteredRoutes = computed(() =>
             Clear filters
           </v-btn>
         </div>
-        <div v-if="routes && !filteredRoutes.length" class="text-medium-emphasis pa-4 text-center">
+        <div v-if="!listLoading && !filteredRoutes.length" class="text-medium-emphasis pa-4 text-center">
           No routes match
         </div>
-        <v-card v-else variant="outlined">
-          <template v-for="(route, index) in filteredRoutes" :key="route.route_id">
-            <v-divider v-if="index > 0" />
-            <div
-              v-ripple
-              class="route-row d-flex align-center pa-3"
-              :class="{ 'route-row--expanded': expandedRouteId === route.route_id }"
-              role="button"
-              tabindex="0"
-              :aria-expanded="expandedRouteId === route.route_id"
-              @click="toggleRoute(route.route_id)"
-              @keydown.enter.prevent="toggleRoute(route.route_id)"
-              @keydown.space.prevent="toggleRoute(route.route_id)"
-            >
-              <RouteBadge
-                :route-id="route.route_id"
-                size="small"
-                class="mr-2 flex-shrink-0"
-                :style="transitionName(route.route_id, 'route-number')"
-              />
-              <v-icon
-                v-if="disruptedRoutes.has(route.route_id)"
-                v-tooltip="'Service disruption'"
-                icon="mdi-alert"
-                color="warning"
-                size="small"
-                class="mr-2 flex-shrink-0"
-                aria-label="Service disruption"
-                role="img"
-              />
-              <div class="flex-grow-1 min-width-0">
-                <div class="text-body-large" :style="transitionName(route.route_id, 'route-name')">
-                  {{ route.route_long_name }}
-                </div>
-                <div
-                  v-if="agencyByRoute.get(route.route_id) && agencyByRoute.get(route.route_id) !== LOCAL_AGENCY"
-                  class="text-body-small text-medium-emphasis"
-                >
-                  {{ agencyByRoute.get(route.route_id) }}
-                </div>
-              </div>
-              <span
-                v-if="busesByRoute.get(route.route_id)?.length"
-                class="text-body-medium text-medium-emphasis flex-shrink-0 ml-2 text-no-wrap"
-                :aria-label="`${busesByRoute.get(route.route_id)?.length} active buses`"
+        <template v-for="group in agencyGroups" v-else-if="!listLoading" :key="group.agency ?? ''">
+          <h2
+            v-if="group.agency || agencyGroups.length > 1"
+            class="text-title-small text-medium-emphasis mt-4 mb-1 px-2"
+          >
+            {{ group.agency ?? 'Other' }}
+          </h2>
+          <v-card variant="outlined">
+            <template v-for="(route, index) in group.routes" :key="route.route_id">
+              <v-divider v-if="index > 0" />
+              <div
+                v-ripple
+                class="route-row d-flex align-center pa-3"
+                :class="{ 'route-row--expanded': expandedRouteId === route.route_id }"
+                role="button"
+                tabindex="0"
+                :aria-expanded="expandedRouteId === route.route_id"
+                @click="toggleRoute(route.route_id)"
+                @keydown.enter.prevent="toggleRoute(route.route_id)"
+                @keydown.space.prevent="toggleRoute(route.route_id)"
               >
-                <v-icon icon="mdi-bus" size="small" />
-                {{ busesByRoute.get(route.route_id)?.length }}
-              </span>
-            </div>
-            <v-expand-transition>
-              <div v-if="expandedRouteId === route.route_id" class="route-details text-body-medium px-3 pb-3">
-                <div v-if="!expandedBuses.length" class="text-medium-emphasis">
-                  No buses on this route right now
-                </div>
-                <v-skeleton-loader v-else-if="summariesLoading" type="text" class="group-loader" />
-                <div v-for="group in headsignGroups" v-else :key="group.headsign ?? ''" class="mb-1">
-                  <div class="text-title-small">
-                    {{ group.headsign ?? 'Not in the current schedule' }}
+                <RouteBadge
+                  :route-id="route.route_id"
+                  size="small"
+                  class="mr-2 flex-shrink-0"
+                  :style="transitionName(route.route_id, 'route-number')"
+                />
+                <v-icon
+                  v-if="disruptedRoutes.has(route.route_id)"
+                  v-tooltip="'Service disruption'"
+                  icon="mdi-alert"
+                  color="warning"
+                  size="small"
+                  class="mr-2 flex-shrink-0"
+                  aria-label="Service disruption"
+                  role="img"
+                />
+                <div class="flex-grow-1 min-width-0">
+                  <div class="text-body-large" :style="transitionName(route.route_id, 'route-name')">
+                    {{ route.route_long_name }}
                   </div>
-                  <v-chip
-                    v-for="bus in group.buses"
-                    :key="bus.bus"
-                    :to="`/buses/${encodeURIComponent(bus.bus)}`"
-                    class="mr-1 mt-1"
-                    color="primary"
-                    size="small"
-                    prepend-icon="mdi-bus"
-                  >
-                    {{ bus.bus }}
-                  </v-chip>
                 </div>
-                <v-btn
-                  :href="`/routes/${route.route_id}`"
-                  block
-                  variant="tonal"
-                  color="primary"
-                  class="mt-3"
-                  @click="openRoute($event, route)"
+                <span
+                  v-if="busesByRoute.get(route.route_id)?.length"
+                  class="text-body-medium text-medium-emphasis flex-shrink-0 ml-2 text-no-wrap"
+                  :aria-label="`${busesByRoute.get(route.route_id)?.length} active buses`"
                 >
-                  View details
-                </v-btn>
+                  <v-icon icon="mdi-bus" size="small" />
+                  {{ busesByRoute.get(route.route_id)?.length }}
+                </span>
               </div>
-            </v-expand-transition>
-          </template>
-        </v-card>
+              <v-expand-transition>
+                <div v-if="expandedRouteId === route.route_id" class="route-details text-body-medium px-3 pb-3">
+                  <div v-if="!expandedBuses.length" class="text-medium-emphasis">
+                    No buses on this route right now
+                  </div>
+                  <v-skeleton-loader v-else-if="summariesLoading" type="text" class="group-loader" />
+                  <div v-for="headsignGroup in headsignGroups" v-else :key="headsignGroup.headsign ?? ''" class="mb-1">
+                    <div class="text-title-small">
+                      {{ headsignGroup.headsign ?? 'Not in the current schedule' }}
+                    </div>
+                    <v-chip
+                      v-for="bus in headsignGroup.buses"
+                      :key="bus.bus"
+                      :to="`/buses/${encodeURIComponent(bus.bus)}`"
+                      class="mr-1 mt-1"
+                      color="primary"
+                      size="small"
+                      prepend-icon="mdi-bus"
+                    >
+                      {{ bus.bus }}
+                    </v-chip>
+                  </div>
+                  <v-btn
+                    :href="`/routes/${route.route_id}`"
+                    block
+                    variant="tonal"
+                    color="primary"
+                    class="mt-3"
+                    @click="openRoute($event, route)"
+                  >
+                    View details
+                  </v-btn>
+                </div>
+              </v-expand-transition>
+            </template>
+          </v-card>
+        </template>
       </v-col>
     </v-row>
   </v-container>
@@ -358,6 +358,18 @@ const filteredRoutes = computed(() =>
 .agency-select {
   flex: 1 1 220px;
   max-width: 320px;
+}
+
+/* on phones the agency takes the whole line, with the chips under it */
+@media (max-width: 599px) {
+  .agency-select {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
+
+.route-list-loader {
+  background: transparent;
 }
 
 .group-loader {

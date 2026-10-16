@@ -16,6 +16,8 @@ import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
 import { directionLabels as labelDirections, representativeTrips, routeNumber } from '../utils/routes';
 import { usePageTitle } from '../composables/usePageTitle';
+import { useAgencies, useRouteAgencies } from '../composables/useAgencies';
+import { telHref } from '../utils/phone';
 import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
 import { addDays } from '../utils/weeks';
 import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
@@ -527,6 +529,12 @@ function openTripCell(event) {
   event.preventDefault();
   router.push(/** @type {string} */ (link.getAttribute('href')));
 }
+
+// who runs the route, with their website, fares and phone
+const { agencyByRoute } = useRouteAgencies();
+const { agenciesByName } = useAgencies();
+const agencyName = computed(() => agencyByRoute.value.get(props.routeId) ?? null);
+const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agencyName.value) ?? null : null));
 </script>
 
 <template>
@@ -545,6 +553,48 @@ function openTripCell(event) {
       <span style="view-transition-name: route-name">{{ routeLongName }}</span>
     </h1>
 
+    <!-- the space is kept while the agency loads, so the page doesn't shift -->
+    <div class="agency-line d-flex flex-wrap align-center ga-1 mt-2 text-body-medium">
+      <template v-if="agencyName">
+        <v-icon icon="mdi-domain" size="small" class="text-medium-emphasis mr-1" />
+        <span class="mr-2">{{ agencyName }}</span>
+        <v-btn
+          v-if="agency?.agency_url"
+          :href="agency.agency_url"
+          target="_blank"
+          rel="noopener"
+          variant="text"
+          size="small"
+          color="primary"
+          prepend-icon="mdi-open-in-new"
+        >
+          Website
+        </v-btn>
+        <v-btn
+          v-if="agency?.agency_fare_url"
+          :href="agency.agency_fare_url"
+          target="_blank"
+          rel="noopener"
+          variant="text"
+          size="small"
+          color="primary"
+          prepend-icon="mdi-ticket-outline"
+        >
+          Fares
+        </v-btn>
+        <v-btn
+          v-if="agency?.agency_phone"
+          :href="telHref(agency.agency_phone)"
+          variant="text"
+          size="small"
+          color="primary"
+          prepend-icon="mdi-phone"
+        >
+          {{ agency.agency_phone }}
+        </v-btn>
+      </template>
+    </div>
+
     <!-- the map, buses and timetable all follow the direction -->
     <v-btn-toggle
       v-if="directions.length > 1"
@@ -553,7 +603,7 @@ function openTripCell(event) {
       color="primary"
       variant="outlined"
       divided
-      class="direction-toggle mt-6"
+      class="direction-toggle mt-4"
     >
       <v-btn
         v-for="dir in directions"
@@ -827,6 +877,10 @@ function openTripCell(event) {
 .direction-label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.agency-line {
+  min-height: 28px;
 }
 
 .route-heading {

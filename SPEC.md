@@ -57,6 +57,7 @@ Both use `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So e
 | --- | --- |
 | `4vt2-8zrq` | Bus stops |
 | `d577-xky7` | Routes |
+| `isug-45sj` | Agencies: name, website, fares page, phone |
 | `ctwr-tvrd` | Trips, including `geometry_line`, the trip's route shape |
 | `greh-g7ac` | Stop times per trip |
 | `4fvt-p2se` | Stop schedule view. It joins stop times with trip and route and has `feed_start_date`/`feed_end_date`. Always filter it to the feed active today. It has no `direction_id` |
@@ -102,6 +103,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | Key | Data |
 | --- | --- |
 | `['routes']` | All routes |
+| `['agencies']` | The GTFS agencies with website, fares page and phone (`getAgencies`), `staleTime: Infinity` |
 | `['route-agencies']` | Each route's agency in the active feed (`getRouteAgencies`), `staleTime: Infinity` |
 | `['buses']` | `/bus/now` with `route_id` assigned (`useBuses`). The first load is slow, as it looks up every trip |
 | `['buses-live']` | Raw `/bus/now` (`useLiveBuses`, `liveBusesQuery`) |
@@ -179,13 +181,15 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Cards ease in and out with the `arrival` TransitionGroup. This is turned off for reduced motion.
 
 ### Routes list (`/routes`)
-- A searchable list in one outlined card, in the same rows as the bus page's trips (no `v-list` or chevron). Each row has a `RouteBadge` (small), a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`, before the name so a long name can't push it off a narrow screen), the long name, and a bus icon with the live bus count.
-- **Filters** under the search: an agency select, vehicle type chips (Bus, LRT, from `route_type`, `routeTypeLabel`), "Running now" (routes with a live bus) and "Disruptions" (an alert in effect). They're in the URL as `?agency=`, `?type=`, `?live=1` and `?disrupted=1`, written with `router.replace`; the search isn't. A count of matching routes shows above the list, with "Clear filters" when any is on, and "No routes match" when none do. The matching is `filterRoutes` (`src/utils/routes.js`).
-- The routes dataset has no agency, so `getRouteAgencies` groups the stop schedule view by route and agency for the active feed (`['route-agencies']`, `staleTime: Infinity`). The agency filter is ignored until it loads. Rows of routes run by another agency than `LOCAL_AGENCY` show it under the name.
+- The heading is "Routes", as LRT lines are listed too.
+- A searchable list grouped by agency: a small heading per agency (`groupRoutesByAgency`, `src/utils/routes.js`: `LOCAL_AGENCY` first, then by name, routes with no known agency last under "Other"), each over an outlined card of rows like the bus page's trips (no `v-list` or chevron). Each row has a `RouteBadge` (small), a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`, before the name so a long name can't push it off a narrow screen), the long name, and a bus icon with the live bus count.
+- **Filters** under the search: an agency select (full width on phones, with the chips under it), vehicle type chips (Bus, LRT, from `route_type`, `routeTypeLabel`), "Running now" (routes with a live bus) and "Disruptions" (an alert in effect). They're in the URL as `?agency=`, `?type=`, `?live=1` and `?disrupted=1`, written with `router.replace`; the search isn't. A count of matching routes shows above the list, with "Clear filters" when any is on, and "No routes match" when none do. The matching is `filterRoutes` (`src/utils/routes.js`).
+- The routes dataset has no agency, so `getRouteAgencies` groups the stop schedule view by route and agency for the active feed (`['route-agencies']`, `staleTime: Infinity`). Both use `useRouteAgencies` (`src/composables/useAgencies.js`). The whole list shows a skeleton until the routes and agencies have loaded, so it doesn't reshuffle into groups when the agencies arrive. If the agency lookup fails, the list shows ungrouped.
 - Tapping a row expands it (one at a time). It shows the route's live buses grouped by headsign (`busesByHeadsign`, `src/utils/routes.js`: by direction then headsign, buses by number, trips not in the feed last under "Not in the current schedule"), each bus a chip linking to its bus page, and a full-width "View details" button to the route page. The headsigns come from `['trip-summaries', tripIds]`, only fetched for the expanded route.
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
+- **Agency:** under the heading, the agency running the route (`useRouteAgencies`) with links to its website and fares page and its phone number, from the GTFS agency dataset (`isug-45sj`, `getAgencies`, `useAgencies`). Vanity numbers like 780-464-RIDE are dialled as digits (`telHref`, `src/utils/phone.js`). The line keeps its height while loading, so the page doesn't shift.
 - `getTripsByRouteId` loads every trip for the route (1,300 for route 8), without shapes. It used to cap at 500 with shapes, which dropped whole services and came to nearly 10 MB.
 - **The page is split by direction.** A toggle under the heading lists each direction by its most common headsign (`directionLabels` in `src/utils/routes.js`), with a badge for its live bus count. It's hidden for one-direction routes. On phones (under 600px) the directions stack full width and long headsigns wrap, rather than squeezing side by side. The map, the Active Buses and the timetable all follow it.
   - The direction is in the URL as `?direction=`. It's read on load and written back with `router.replace`, so reloads and shared links keep it. An unknown or missing value falls back to the first direction.

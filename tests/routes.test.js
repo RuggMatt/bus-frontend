@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busesByHeadsign, directionLabels, filterRoutes, routeTypeLabel, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
+import { busesByHeadsign, compareAgencies, directionLabels, groupRoutesByAgency, filterRoutes, routeTypeLabel, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
 
 const trip = (trip_id, direction_id, shape_id, trip_headsign = "") => ({ trip_id, direction_id, shape_id, trip_headsign });
 
@@ -116,5 +116,28 @@ describe("filterRoutes", () => {
   it("labels route types", () => {
     expect(routeTypeLabel("0")).toBe("LRT");
     expect(routeTypeLabel("3")).toBe("Bus");
+  });
+});
+
+describe("groupRoutesByAgency", () => {
+  it("puts the local agency first, then others by name, and unknown last", () => {
+    const routes = [{ route_id: "008" }, { route_id: "201" }, { route_id: "401" }, { route_id: "009" }, { route_id: "X" }];
+    const agencies = new Map([
+      ["008", "Edmonton Transit Service"],
+      ["009", "Edmonton Transit Service"],
+      ["201", "St. Albert Transit"],
+      ["401", "Strathcona County Transit"],
+    ]);
+    expect(groupRoutesByAgency(routes, agencies).map((group) => [group.agency, group.routes.map((route) => route.route_id)])).toEqual([
+      ["Edmonton Transit Service", ["008", "009"]],
+      ["St. Albert Transit", ["201"]],
+      ["Strathcona County Transit", ["401"]],
+      [null, ["X"]],
+    ]);
+  });
+
+  it("orders agencies with the local one first", () => {
+    expect(["Leduc Transit", "Edmonton Transit Service", "Beaumont Transit"].sort(compareAgencies))
+      .toEqual(["Edmonton Transit Service", "Beaumont Transit", "Leduc Transit"]);
   });
 });

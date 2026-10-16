@@ -125,3 +125,32 @@ export const filterRoutes = (routes, filters, { agencies, liveRoutes, disruptedR
     return true;
   });
 };
+
+/**
+ * Orders agencies with the local one first, then the regional ones by name.
+ * @param {string} a
+ * @param {string} b
+ */
+export const compareAgencies = (a, b) =>
+  (b === LOCAL_AGENCY ? 1 : 0) - (a === LOCAL_AGENCY ? 1 : 0) || a.localeCompare(b);
+
+/**
+ * Splits routes by the agency running them, keeping each agency's routes in order.
+ * Routes with no known agency come last, under a null agency.
+ * @template {{route_id: string}} R
+ * @param {R[]} routes
+ * @param {Map<string, string>} agencyByRoute
+ * @returns {{agency: string|null, routes: R[]}[]}
+ */
+export const groupRoutesByAgency = (routes, agencyByRoute) => {
+  /** @type {Map<string|null, R[]>} */
+  const groups = new Map();
+  for (const route of routes) {
+    const agency = agencyByRoute.get(route.route_id) ?? null;
+    if (!groups.has(agency)) groups.set(agency, []);
+    groups.get(agency)?.push(route);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === null ? 1 : 0) - (b === null ? 1 : 0) || compareAgencies(a ?? "", b ?? ""))
+    .map(([agency, agencyRoutes]) => ({ agency, routes: agencyRoutes }));
+};
