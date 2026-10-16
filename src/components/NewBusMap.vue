@@ -211,7 +211,8 @@ watch(selectedBus, applySelectedStyling);
 
 // with a bus picked, only its route's buses stay on the map
 const applyRouteHighlighting = () => {
-    const selectedRouteId = selectedBus.value ? trip.value?.route_id : null;
+    // the live bus knows its route, so this doesn't wait for (and flash while) its trip loads
+    const selectedRouteId = selectedBus.value ? selectedBus.value.route_id ?? trip.value?.route_id ?? null : null;
     for (const marker of Object.values(buses)) {
         const isSelected = marker.options.title === selectedBus.value?.bus;
         const onRoute = !selectedRouteId || marker.options?.route_id === selectedRouteId;

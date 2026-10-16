@@ -94,10 +94,11 @@ L.AnimatedMarker = L.Marker.extend({
         speed = this._latlngs[this._i-1].distanceTo(this._latlngs[this._i]) / this.options.distance * this.options.interval;
       }
   
-      // Only if CSS3 transitions are supported
+      // Only if CSS3 transitions are supported. Only the position (a transform) eases,
+      // as 'all' would also delay classes like hiding the icon until the move ends
       if (L.DomUtil.TRANSITION) {
-        if (this._icon) { this._icon.style[L.DomUtil.TRANSITION] = ('all ' + speed + 'ms linear'); }
-        if (this._shadow) { this._shadow.style[L.DomUtil.TRANSITION] = 'all ' + speed + 'ms linear'; }
+        if (this._icon) { this._icon.style[L.DomUtil.TRANSITION] = ('transform ' + speed + 'ms linear'); }
+        if (this._shadow) { this._shadow.style[L.DomUtil.TRANSITION] = 'transform ' + speed + 'ms linear'; }
       }
   
       // Move to the next vertex

@@ -144,10 +144,12 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
 - Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away, flies back to the view the user left, and reselects the bus they had selected if it's still in the snapshot (the card or sheet opens with its latest position).
 - A locate button at the bottom right (same style as the stops map's) centres the map on the user at zoom 16 and draws a blue dot. A snackbar shows if the location can't be found.
-- Tapping a bus highlights its route and opens `BusDetails.vue`. Other routes' buses are hidden (`bus-marker-icon--hidden`, `visibility: hidden`, so they can't be tapped or focused either) until it's closed, leaving the bus and the rest of its route's buses. On desktop that's a left panel, on mobile a bottom sheet.
-- The mobile bottom sheet is full width and non-modal: there's no scrim, so the map can still be panned and zoomed while it's open. Tapping empty map or swiping down on the sheet (when its content is scrolled to the top) closes it, and tapping another bus switches it to that bus.
+- Tapping a bus highlights its route and opens `BusDetails.vue`. Other routes' buses are hidden (`bus-marker-icon--hidden`, `visibility: hidden`, so they can't be tapped or focused either) until it's closed, leaving the bus and the rest of its route's buses. The route comes from the live bus's `route_id`, not its trip query, so switching buses doesn't show every bus while the new trip loads. `AnimatedMarker` eases only `transform` while a bus moves: easing `all` also delayed the hidden class until the move ended, so buses flashed on each refresh. On desktop that's a left panel, on mobile a bottom sheet.
+- The mobile bottom sheet is full width and non-modal. Its swipe-down `touchmove` isn't passive and cancels the browser's default while dragging, and the root's `overscroll-behavior-y` is `none` while it's open, so Chrome doesn't take the swipe as pull to refresh.
+- The sheet is non-modal: there's no scrim, so the map can still be panned and zoomed while it's open. Tapping empty map or swiping down on the sheet (when its content is scrolled to the top) closes it, and tapping another bus switches it to that bus.
 - **BusDetails** shows:
   - a route header: the badge, the headsign without the route number as the title (where the bus is going, which the route's name doesn't say), the route's long name in small text under it, and a chevron to `/routes/:id`
+  - service disruptions on the bus's route in effect for the rest of its run (`restOfTripWindow`, now to its last scheduled stop) that name one of its stops or none (`alertsForTrip`, like the trip page), as `ServiceAlertCard`s under the header
   - "Bus N · X km/h"
   - the next stop and its scheduled time
   - an On time / N min late / early chip
@@ -348,7 +350,7 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
 ## Conventions
 
 - **Branches:** before starting or pushing, `git fetch origin main`. PRs are often merged as new commits with different hashes, so drop commits that are already upstream and rebase onto `origin/main` (`git cherry -v origin/main HEAD` shows them).
-- **Detail buttons** (the full-width tonal "Trip details", "View details", "View trip" and "Stop details" buttons) are `size="large"`, 44px tall, for a bigger tap target.
+- **Detail buttons** (the full-width tonal "Trip details", "View details", "View trip" and "Stop details" buttons) are `size="large"` and `height="50"`, for a bigger tap target.
 - **Commits** follow conventional style (`feat:`, `fix:`, `perf:`, `refactor:`, `test:`, `ci:`, `chore:`), lowercase, with a body explaining why.
 - **Location is only asked for when the user taps a locate button.** Never call `navigator.geolocation` on load or from a watcher, for privacy. The main map, stops map and bus finders each have their own button.
 - **Comments** are short, lowercase, and explain *why*. Match the surrounding density.

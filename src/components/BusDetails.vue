@@ -1,5 +1,8 @@
 <script setup>
 import { computed, ref, toRef } from 'vue';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
+import { alertsForTrip, restOfTripWindow } from '../utils/serviceAlerts';
+import ServiceAlertCard from './ServiceAlertCard.vue';
 import { useRouter } from 'vue-router';
 import { useBusTrip } from '../composables/useBusTrip';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
@@ -17,7 +20,27 @@ const props = defineProps({
 });
 
 const router = useRouter();
-const { trip, isLoading, routeLongName, nextStop } = useBusTrip(toRef(props, 'bus'));
+const { trip, stopTimes, isLoading, routeLongName, nextStop } = useBusTrip(toRef(props, 'bus'));
+
+// detours and closures on the bus's route in effect for the rest of its run, naming one
+// of its stops or none, like the trip page's
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+const busAlerts = computed(() => {
+  if (!trip.value?.route_id || !stopTimes.value?.length) return [];
+  const last = stopTimes.value.reduce((latest, stopTime) =>
+    (Number(stopTime.stop_sequence) > Number(latest.stop_sequence) ? stopTime : latest));
+  // the minute tick keeps the window moving
+  void nowLocal.value;
+  const [start, end] = restOfTripWindow(last.arrival_time || last.departure_time);
+  return alertsForTrip(
+    serviceAlerts.value,
+    trip.value.route_id,
+    new Set(stopTimes.value.map((stopTime) => stopTime.stop_id)),
+    start,
+    end,
+  ).alerts;
+});
 
 // where the bus is going leads the card, as the route's name doesn't say the direction
 const headsign = computed(() =>
@@ -88,6 +111,14 @@ const openRoute = (event) => {
     </router-link>
     <v-divider />
 
+    <ServiceAlertCard
+      v-for="timing in busAlerts"
+      :key="timing.alert.id"
+      :timing="timing"
+      :now="nowLocal"
+      class="mx-4 mt-4"
+    />
+
     <div class="bus-details pa-4 text-body-medium">
       <div class="d-flex align-start">
         <div class="flex-grow-1">
@@ -121,6 +152,7 @@ const openRoute = (event) => {
         :to="`/trips/${trip.trip_id}`"
         block
         size="large"
+        height="50"
         variant="tonal"
         color="primary"
         class="mt-4"

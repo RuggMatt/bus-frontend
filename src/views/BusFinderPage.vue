@@ -157,6 +157,7 @@ const mapBuses = computed(() => {
             :to="`/trips/${row.bus.trip}`"
             block
             size="large"
+            height="50"
             variant="tonal"
             color="primary"
             class="mt-3"

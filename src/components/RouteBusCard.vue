@@ -59,6 +59,7 @@ const hasSpeed = computed(() => Number.isFinite(Number(props.bus.speed)));
       :to="`/trips/${bus.trip}`"
       block
       size="large"
+      height="50"
       variant="tonal"
       color="primary"
       class="mt-4"

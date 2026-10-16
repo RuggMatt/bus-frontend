@@ -278,6 +278,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
                     :to="`/trips/${bus.trip_id}`"
                     block
                     size="large"
+                    height="50"
                     variant="tonal"
                     color="primary"
                     class="mt-3"

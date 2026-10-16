@@ -68,5 +68,5 @@ export const useBusTrip = (bus) => {
     };
   });
 
-  return { trip, isLoading, isError, routeLongName, nextStop };
+  return { trip, stopTimes, isLoading, isError, routeLongName, nextStop };
 };
