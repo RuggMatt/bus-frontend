@@ -15,7 +15,7 @@ import BusLink from './BusLink.vue';
 import ServiceAlertCard from './ServiceAlertCard.vue';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { alertsForStop } from '../utils/serviceAlerts';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 const props = defineProps({
@@ -142,9 +142,47 @@ const bayLabels = computed(() => {
 const stationName = computed(() =>
   (props.stop.parent_station && keyedStops.value[props.stop.parent_station]?.stop_name) || 'this station');
 
-/** @param {string} stopId */
-const switchPlatform = (stopId) => {
-  if (stopId && stopId !== props.stop.stop_id) router.replace(`/stops/${encodeURIComponent(stopId)}`);
+// which way the list slides when switching platforms, so it moves like the toggle
+/** @type {import('vue').Ref<'left' | 'right' | null>} */
+const slideDirection = ref(null);
+
+/**
+ * @param {string} stopId
+ * @param {'left' | 'right'} [direction] which way to slide, else by where it sits in the toggle
+ */
+const switchPlatform = (stopId, direction) => {
+  if (!stopId || stopId === props.stop.stop_id) return;
+  const ids = platforms.value.map((platform) => platform.stop_id);
+  slideDirection.value = direction ?? (ids.indexOf(stopId) > ids.indexOf(props.stop.stop_id) ? 'left' : 'right');
+  router.replace(`/stops/${encodeURIComponent(stopId)}`);
+};
+
+// any other way to a new stop (the map, search) just swaps the list
+watch(() => props.stop.stop_id, () => {
+  setTimeout(() => { slideDirection.value = null; }, 300);
+});
+
+// --- swiping sideways on an LRT station switches direction, like the toggle ---
+const SWIPE_MIN_PX = 60;
+/** @type {{x: number, y: number} | null} */
+let swipeStart = null;
+
+/** @param {TouchEvent} event */
+const onTouchStart = (event) => {
+  swipeStart = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+};
+
+/** @param {TouchEvent} event */
+const onTouchEnd = (event) => {
+  if (!swipeStart || !directionPlatforms.value) return;
+  const dx = event.changedTouches[0].clientX - swipeStart.x;
+  const dy = event.changedTouches[0].clientY - swipeStart.y;
+  swipeStart = null;
+  // mostly sideways, so scrolling the list doesn't switch
+  if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < 2 * Math.abs(dy)) return;
+  // with two directions, either way goes to the other one
+  const other = platforms.value.find((platform) => platform.stop_id !== props.stop.stop_id);
+  if (other) switchPlatform(other.stop_id, dx < 0 ? 'left' : 'right');
 };
 
 /**
@@ -179,7 +217,11 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
 </script>
 
 <template>
-  <div class="stop-details">
+  <div
+    class="stop-details"
+    @touchstart.passive="onTouchStart"
+    @touchend.passive="onTouchEnd"
+  >
     <div class="d-flex align-start pa-4">
       <div class="flex-grow-1">
         <div class="text-title-large">
@@ -242,160 +284,164 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
       </template>
     </div>
 
-    <ServiceAlertCard
-      v-for="timing in stopAlerts"
-      :key="timing.alert.id"
-      :timing="timing"
-      :now="nowLocal"
-      show-routes
-      class="mx-4 mb-3"
-    />
+    <Transition :name="slideDirection ? `platform-${slideDirection}` : 'platform'" mode="out-in">
+      <div :key="stop.stop_id">
+        <ServiceAlertCard
+          v-for="timing in stopAlerts"
+          :key="timing.alert.id"
+          :timing="timing"
+          :now="nowLocal"
+          show-routes
+          class="mx-4 mb-3"
+        />
 
-    <v-alert v-if="isError" type="error" variant="tonal" class="mx-4 mb-3">
-      Buses for this stop could not be loaded.
-    </v-alert>
+        <v-alert v-if="isError" type="error" variant="tonal" class="mx-4 mb-3">
+          Buses for this stop could not be loaded.
+        </v-alert>
 
-    <div v-else-if="isLoading && !routeGroups.length" class="d-flex justify-center py-8">
-      <v-progress-circular indeterminate color="primary" />
-    </div>
+        <div v-else-if="isLoading && !routeGroups.length" class="d-flex justify-center py-8">
+          <v-progress-circular indeterminate color="primary" />
+        </div>
 
-    <div v-else-if="!routeGroups.length" class="text-medium-emphasis px-4 pb-4">
-      No buses currently running to this stop.
-    </div>
+        <div v-else-if="!routeGroups.length" class="text-medium-emphasis px-4 pb-4">
+          No buses currently running to this stop.
+        </div>
 
-    <!-- buses come and go as the list refreshes, so ease them in rather than popping -->
-    <TransitionGroup name="arrival">
-      <v-card
-        v-for="group in routeGroups"
-        :key="group.key"
-        variant="outlined"
-        class="mx-4 mb-3"
-      >
-        <router-link
-          v-slot="{ href }"
-          :to="`/routes/${group.route_id}`"
-          custom
-        >
-          <a
-            :href="href"
-            class="route-header d-flex align-center pa-3"
-            :class="{ 'route-header--line': group.rail }"
-            :style="group.rail && routeColor(group.route_id) ? { borderLeftColor: routeColor(group.route_id) } : undefined"
-            :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
-            @click="openRoute($event, group)"
+        <!-- buses come and go as the list refreshes, so ease them in rather than popping -->
+        <TransitionGroup name="arrival">
+          <v-card
+            v-for="group in routeGroups"
+            :key="group.key"
+            variant="outlined"
+            class="mx-4 mb-3"
           >
-            <!-- LRT lines go by name and colour in Edmonton, not number -->
-            <RouteBadge v-if="!group.rail" :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
-            <!-- where it's going says the direction, which the route's name doesn't -->
-            <div class="min-width-0" :class="{ 'ml-3': !group.rail }">
-              <div v-if="groupHeadsign(group)" class="text-title-medium">
-                {{ groupHeadsign(group) }}
-              </div>
-              <div
-                :class="groupHeadsign(group) ? 'text-body-small text-medium-emphasis' : 'text-title-medium'"
-                :style="transitionName(group, 'route-name')"
-              >
-                {{ group.route_long_name }}
-              </div>
-              <div
-                v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
-                class="text-body-small text-medium-emphasis"
-              >
-                {{ group.agency_name }}
-              </div>
-            </div>
-            <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
-          </a>
-        </router-link>
-        <v-divider />
-        <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
-        <div v-if="group.upcoming.length" class="pa-3">
-          <TrainTimes :arrivals="group.upcoming" :color="routeColor(group.route_id)" />
-          <div class="d-flex align-center text-body-small text-medium-emphasis mt-2">
-            <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
-            Scheduled, not live
-          </div>
-        </div>
-        <v-skeleton-loader v-else-if="group.upcomingLoading" type="list-item-two-line" class="train-loader" />
-        <div v-else-if="!group.buses.length" class="d-flex align-start pa-3 text-body-medium text-medium-emphasis">
-          <v-icon icon="mdi-clock-outline" size="small" class="mr-2 mt-1" />
-          <div>
-            <div>No upcoming arrivals</div>
-            <div class="text-body-small">
-              {{ describeNextArrival(group.nextArrival, today, group.rail ? 'train' : 'bus') }}
-            </div>
-          </div>
-        </div>
-        <v-list v-else density="compact" lines="two" class="py-0">
-          <TransitionGroup name="arrival">
-            <v-list-item
-              v-for="bus in group.buses"
-              :key="bus.bus"
-              :active="bus.bus === selectedBusId"
-              color="primary"
-              @click="$emit('bus-click', bus)"
+            <router-link
+              v-slot="{ href }"
+              :to="`/routes/${group.route_id}`"
+              custom
             >
-              <!-- kept beside the title so it stays put when the details open below -->
-              <div class="d-flex align-center">
-                <div class="flex-grow-1 min-width-0">
-                  <!-- the card is titled with where they go, so a bus only says so when it differs -->
-                  <template v-if="otherHeadsign(group, bus)">
-                    <v-list-item-title>{{ otherHeadsign(group, bus) }}</v-list-item-title>
-                    <v-list-item-subtitle>
-                      <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" /> · {{ positionLabel(bus) }}
-                    </v-list-item-subtitle>
-                  </template>
-                  <template v-else>
-                    <v-list-item-title>
-                      <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" />
-                    </v-list-item-title>
-                    <v-list-item-subtitle>{{ positionLabel(bus) }}</v-list-item-subtitle>
-                  </template>
-                </div>
-                <div v-if="bus.etaMinutes !== null" class="text-right flex-shrink-0 ml-2">
-                  <div class="text-title-medium">
-                    {{ bus.etaMinutes < 1 ? 'Due' : `≈ ${bus.etaMinutes} min` }}
+              <a
+                :href="href"
+                class="route-header d-flex align-center pa-3"
+                :class="{ 'route-header--line': group.rail }"
+                :style="group.rail && routeColor(group.route_id) ? { borderLeftColor: routeColor(group.route_id) } : undefined"
+                :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
+                @click="openRoute($event, group)"
+              >
+                <!-- LRT lines go by name and colour in Edmonton, not number -->
+                <RouteBadge v-if="!group.rail" :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
+                <!-- where it's going says the direction, which the route's name doesn't -->
+                <div class="min-width-0" :class="{ 'ml-3': !group.rail }">
+                  <div v-if="groupHeadsign(group)" class="text-title-medium">
+                    {{ groupHeadsign(group) }}
                   </div>
-                  <v-chip
-                    :color="scheduleStatus(bus.offsetMinutes).color"
-                    size="x-small"
-                    variant="tonal"
+                  <div
+                    :class="groupHeadsign(group) ? 'text-body-small text-medium-emphasis' : 'text-title-medium'"
+                    :style="transitionName(group, 'route-name')"
                   >
-                    {{ scheduleStatus(bus.offsetMinutes).label }}
-                  </v-chip>
+                    {{ group.route_long_name }}
+                  </div>
+                  <div
+                    v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
+                    class="text-body-small text-medium-emphasis"
+                  >
+                    {{ group.agency_name }}
+                  </div>
+                </div>
+                <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
+              </a>
+            </router-link>
+            <v-divider />
+            <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
+            <div v-if="group.upcoming.length" class="pa-3">
+              <TrainTimes :arrivals="group.upcoming" :color="routeColor(group.route_id)" />
+              <div class="d-flex align-center text-body-small text-medium-emphasis mt-2">
+                <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
+                Scheduled, not live
+              </div>
+            </div>
+            <v-skeleton-loader v-else-if="group.upcomingLoading" type="list-item-two-line" class="train-loader" />
+            <div v-else-if="!group.buses.length" class="d-flex align-start pa-3 text-body-medium text-medium-emphasis">
+              <v-icon icon="mdi-clock-outline" size="small" class="mr-2 mt-1" />
+              <div>
+                <div>No upcoming arrivals</div>
+                <div class="text-body-small">
+                  {{ describeNextArrival(group.nextArrival, today, group.rail ? 'train' : 'bus') }}
                 </div>
               </div>
-              <v-expand-transition>
-                <div v-if="bus.bus === selectedBusId" class="bus-details text-body-medium">
-                  <div v-if="selectedBusProgress?.stopsAway">
-                    <v-icon icon="mdi-map-marker-distance" size="small" class="mr-1" />
-                    <b>{{ formatStopsAway(selectedBusProgress.stopsAway) }}</b>
+            </div>
+            <v-list v-else density="compact" lines="two" class="py-0">
+              <TransitionGroup name="arrival">
+                <v-list-item
+                  v-for="bus in group.buses"
+                  :key="bus.bus"
+                  :active="bus.bus === selectedBusId"
+                  color="primary"
+                  @click="$emit('bus-click', bus)"
+                >
+                  <!-- kept beside the title so it stays put when the details open below -->
+                  <div class="d-flex align-center">
+                    <div class="flex-grow-1 min-width-0">
+                      <!-- the card is titled with where they go, so a bus only says so when it differs -->
+                      <template v-if="otherHeadsign(group, bus)">
+                        <v-list-item-title>{{ otherHeadsign(group, bus) }}</v-list-item-title>
+                        <v-list-item-subtitle>
+                          <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" /> · {{ positionLabel(bus) }}
+                        </v-list-item-subtitle>
+                      </template>
+                      <template v-else>
+                        <v-list-item-title>
+                          <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" />
+                        </v-list-item-title>
+                        <v-list-item-subtitle>{{ positionLabel(bus) }}</v-list-item-subtitle>
+                      </template>
+                    </div>
+                    <div v-if="bus.etaMinutes !== null" class="text-right flex-shrink-0 ml-2">
+                      <div class="text-title-medium">
+                        {{ bus.etaMinutes < 1 ? 'Due' : `≈ ${bus.etaMinutes} min` }}
+                      </div>
+                      <v-chip
+                        :color="scheduleStatus(bus.offsetMinutes).color"
+                        size="x-small"
+                        variant="tonal"
+                      >
+                        {{ scheduleStatus(bus.offsetMinutes).label }}
+                      </v-chip>
+                    </div>
                   </div>
-                  <div v-if="selectedBusProgress?.nextStopName">
-                    <v-icon icon="mdi-bus-stop" size="small" class="mr-1" />
-                    Next stop: {{ selectedBusProgress.nextStopName }}
-                  </div>
-                  <div>
-                    <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
-                    Scheduled here at {{ formatScheduledTime(bus.scheduledTime) }}
-                  </div>
-                  <v-btn
-                    :to="`/trips/${bus.trip_id}`"
-                    block
-                    variant="tonal"
-                    color="primary"
-                    class="mt-3"
-                    @click.stop
-                  >
-                    Trip details
-                  </v-btn>
-                </div>
-              </v-expand-transition>
-            </v-list-item>
-          </TransitionGroup>
-        </v-list>
-      </v-card>
-    </TransitionGroup>
+                  <v-expand-transition>
+                    <div v-if="bus.bus === selectedBusId" class="bus-details text-body-medium">
+                      <div v-if="selectedBusProgress?.stopsAway">
+                        <v-icon icon="mdi-map-marker-distance" size="small" class="mr-1" />
+                        <b>{{ formatStopsAway(selectedBusProgress.stopsAway) }}</b>
+                      </div>
+                      <div v-if="selectedBusProgress?.nextStopName">
+                        <v-icon icon="mdi-bus-stop" size="small" class="mr-1" />
+                        Next stop: {{ selectedBusProgress.nextStopName }}
+                      </div>
+                      <div>
+                        <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
+                        Scheduled here at {{ formatScheduledTime(bus.scheduledTime) }}
+                      </div>
+                      <v-btn
+                        :to="`/trips/${bus.trip_id}`"
+                        block
+                        variant="tonal"
+                        color="primary"
+                        class="mt-3"
+                        @click.stop
+                      >
+                        Trip details
+                      </v-btn>
+                    </div>
+                  </v-expand-transition>
+                </v-list-item>
+              </TransitionGroup>
+            </v-list>
+          </v-card>
+        </TransitionGroup>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -454,6 +500,26 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* switching platforms slides the list the way the toggle moved */
+  .platform-left-enter-active,
+  .platform-left-leave-active,
+  .platform-right-enter-active,
+  .platform-right-leave-active {
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+
+  .platform-left-leave-to,
+  .platform-right-enter-from {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+
+  .platform-left-enter-from,
+  .platform-right-leave-to {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+
   .arrival-enter-active {
     transition: opacity 400ms ease-out, transform 400ms ease-out;
   }
