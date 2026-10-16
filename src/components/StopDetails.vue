@@ -97,6 +97,12 @@ const positionLabel = (bus) => {
   return bus.passed ? `Passed ${distance} ago` : `${distance} away`;
 };
 
+/**
+ * Whether a line's next trains go to different places, so each needs its own label.
+ * @param {import('../composables/useStopArrivals').StopRouteGroup} group
+ */
+const hasMixedHeadsigns = (group) => new Set(group.upcoming.map((arrival) => arrival.headsign)).size > 1;
+
 /** @param {number} stopsAway */
 // "Next stop" would read twice beside the next stop's name
 const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : `${stopsAway} stops away`);
@@ -178,12 +184,37 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
           </a>
         </router-link>
         <v-divider />
-        <div v-if="!group.buses.length" class="d-flex align-start pa-3 text-body-medium text-medium-emphasis">
+        <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
+        <div v-if="group.upcoming.length" class="pa-3">
+          <div class="train-times">
+            <div v-for="arrival in group.upcoming" :key="arrival.trip_id" class="train-time min-width-0">
+              <div class="text-no-wrap">
+                <span class="text-title-large font-weight-medium">{{ arrival.minutes < 1 ? 'Due' : arrival.minutes }}</span>
+                <span v-if="arrival.minutes >= 1" class="text-body-medium"> min</span>
+              </div>
+              <div class="text-body-small">
+                {{ formatScheduledTime(arrival.time) }}
+              </div>
+              <div v-if="hasMixedHeadsigns(group)" class="text-body-small text-medium-emphasis text-truncate">
+                {{ arrival.headsign }}
+              </div>
+            </div>
+          </div>
+          <div class="d-flex align-center text-body-small text-medium-emphasis mt-2">
+            <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
+            <template v-if="!hasMixedHeadsigns(group)">
+              To {{ group.upcoming[0].headsign }} &middot;
+            </template>
+            Scheduled, not live
+          </div>
+        </div>
+        <v-skeleton-loader v-else-if="group.upcomingLoading" type="list-item-two-line" class="train-loader" />
+        <div v-else-if="!group.buses.length" class="d-flex align-start pa-3 text-body-medium text-medium-emphasis">
           <v-icon icon="mdi-clock-outline" size="small" class="mr-2 mt-1" />
           <div>
             <div>No upcoming arrivals</div>
             <div class="text-body-small">
-              {{ describeNextArrival(group.nextArrival, today) }}
+              {{ describeNextArrival(group.nextArrival, today, group.rail ? 'train' : 'bus') }}
             </div>
           </div>
         </div>
@@ -268,6 +299,22 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
 
 .min-width-0 {
   min-width: 0;
+}
+
+/* up to four trains side by side, each with its time and where it's going */
+.train-times {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.train-loader {
+  background: transparent;
+}
+
+.train-time {
+  border-left: 3px solid rgb(var(--v-theme-primary));
+  padding-left: 8px;
 }
 
 .bus-details {

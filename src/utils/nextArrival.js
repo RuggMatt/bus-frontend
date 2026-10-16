@@ -1,5 +1,6 @@
 import { formatScheduledTime } from "./busStatus";
 import { serviceRunsOnDay, timeToSeconds, weekdayOf } from "./serviceTime";
+import { addDays } from "./weeks";
 
 const DAY_SECONDS = 24 * 60 * 60;
 // far enough to reach a route that runs one day a week, including today's weekday next week
@@ -12,7 +13,7 @@ const LOOKAHEAD_DAYS = 7;
  * @property {number} seconds When it is, in seconds from today's midnight, for sorting
  */
 
-/** @param {import("../api").StopNextArrival} row */
+/** @param {{agency_name: string, route_id: string}} row */
 export const routeKey = (row) => `${row.agency_name}|${row.route_id}`;
 
 /**
@@ -81,13 +82,81 @@ export const nextArrivalByRoute = ({ today = [], afterMidnight = [], firstOfDay 
 /**
  * @param {NextArrival | null} arrival
  * @param {string} dateString Today in Edmonton, YYYY-MM-DD
+ * @param {string} [vehicle] what to call it, e.g. "train" for an LRT line
  */
-export const describeNextArrival = (arrival, dateString) => {
-  if (!arrival) return "No buses scheduled in the next week";
+export const describeNextArrival = (arrival, dateString, vehicle = "bus") => {
+  const plural = vehicle === "bus" ? "buses" : `${vehicle}s`;
+  if (!arrival) return `No ${plural} scheduled in the next week`;
   const time = formatScheduledTime(arrival.time);
-  if (arrival.daysAhead === 0) return `Next bus at ${time}`;
-  if (arrival.daysAhead === 1) return `Next bus tomorrow at ${time}`;
+  if (arrival.daysAhead === 0) return `Next ${vehicle} at ${time}`;
+  if (arrival.daysAhead === 1) return `Next ${vehicle} tomorrow at ${time}`;
   const day = weekdayOf(dateString, arrival.daysAhead);
   const dayName = day[0].toUpperCase() + day.slice(1);
-  return `Next bus ${arrival.daysAhead === 7 ? "next " : ""}${dayName} at ${time}`;
+  return `Next ${vehicle} ${arrival.daysAhead === 7 ? "next " : ""}${dayName} at ${time}`;
+};
+
+/**
+ * @typedef {Object} UpcomingArrival
+ * @property {string} trip_id
+ * @property {string} headsign
+ * @property {string} time HH:MM:SS as scheduled, where HH may be 24 or more
+ * @property {number} seconds When it is, in seconds from today's midnight
+ * @property {number} minutes Whole minutes from now, 0 when due
+ */
+
+/**
+ * The next few scheduled arrivals per route at a stop, for routes we can't follow live
+ * (LRT). Today's services count from now, and yesterday's ones still running past
+ * midnight count too. Something due this minute is kept, as "Due".
+ *
+ * Several service variants claim the same weekdays in their service_id (Weekday-1, -3,
+ * -4 …) though only one runs on a given date, so the calendar dates decide when they're
+ * known. Trips to the same place at the same time are kept once either way.
+ *
+ * @param {import("../api").StopScheduleEntry[]} entries The stop's schedule around now
+ * @param {string} dateString Today in Edmonton, YYYY-MM-DD
+ * @param {number} nowSeconds Seconds since today's midnight
+ * @param {Object} [options]
+ * @param {import("./serviceCalendar").ServiceDates | null} [options.serviceDates] The services' calendar dates
+ * @param {number} [options.limit] Arrivals per route
+ * @returns {Map<string, UpcomingArrival[]>} Keyed by routeKey, soonest first
+ */
+export const upcomingArrivals = (entries, dateString, nowSeconds, { serviceDates = null, limit = 4 } = {}) => {
+  const yesterday = addDays(dateString, -1);
+  /**
+   * @param {string} serviceId
+   * @param {string} date
+   */
+  const runsOn = (serviceId, date) =>
+    serviceDates ? !!serviceDates.get(serviceId)?.has(date) : serviceRunsOnDay(serviceId, weekdayOf(date));
+  const fromSeconds = Math.floor(nowSeconds / 60) * 60;
+  /** @type {Map<string, UpcomingArrival[]>} */
+  const byRoute = new Map();
+  const seen = new Set();
+  for (const entry of entries) {
+    const scheduled = timeToSeconds(entry.arrival_time);
+    const candidates = [];
+    if (runsOn(entry.service_id, dateString)) candidates.push(scheduled);
+    if (scheduled >= DAY_SECONDS && runsOn(entry.service_id, yesterday)) {
+      candidates.push(scheduled - DAY_SECONDS);
+    }
+    const seconds = candidates.find((candidate) => candidate >= fromSeconds);
+    if (seconds === undefined) continue;
+    const key = routeKey(entry);
+    const tripKey = `${key}|${entry.trip_headsign}|${seconds}`;
+    if (seen.has(tripKey)) continue;
+    seen.add(tripKey);
+    if (!byRoute.has(key)) byRoute.set(key, []);
+    byRoute.get(key)?.push({
+      trip_id: entry.trip_id,
+      headsign: entry.trip_headsign,
+      time: entry.arrival_time,
+      seconds,
+      minutes: Math.max(0, Math.floor((seconds - nowSeconds) / 60)),
+    });
+  }
+  for (const [key, arrivals] of byRoute) {
+    byRoute.set(key, arrivals.sort((a, b) => a.seconds - b.seconds).slice(0, limit));
+  }
+  return byRoute;
 };

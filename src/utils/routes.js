@@ -90,6 +90,9 @@ export const busesByHeadsign = (buses, summaries, routeId) => {
     .map(({ headsign, buses: groupBuses }) => ({ headsign, buses: groupBuses.sort(busOrder) }));
 };
 
+// GTFS route_type of LRT lines, which the bus tracker doesn't follow
+export const RAIL_ROUTE_TYPE = "0";
+
 // GTFS route_type values, as the routes dataset describes them
 const ROUTE_TYPE_LABELS = { 0: "LRT", 3: "Bus" };
 

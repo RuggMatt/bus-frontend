@@ -114,6 +114,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
 | `['service-dates', routeId, serviceIds]` | Calendar dates for a route's services, `staleTime: Infinity` |
+| `['rail-service-dates', serviceIds]` | Calendar dates for the LRT services in a stop's schedule window, `staleTime: Infinity` |
 | `['bus', busId]` | `/bus/:busId` |
 | `['bus-trips-week', busId, weekStart]` | `/bus/:busId/recent-trips` for one Sunday–Saturday week. `staleTime: Infinity` for past weeks |
 | `['bus-trip-counts', busId, by, from, to]` | `/bus/:busId/trip-counts`, `staleTime` 5 min |
@@ -178,6 +179,9 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   
   If a route has nothing left today, it looks ahead day by day for up to 7 days. That covers weekday-only routes on weekends, routes that run one day a week, and a route that has finished on its only day.
 - If the routes or next-arrival queries fail, the page shows just the live routes. It doesn't show an error.
+- **LRT lines** (`route_type` 0, `RAIL_ROUTE_TYPE`) aren't in the bus feed, so they're never matched to live buses. Instead their card shows the next four scheduled trains from the stop's schedule window (`upcomingArrivals`, `src/utils/nextArrival.js`): minutes from now large ("Due" this minute), the clock time under it, and the headsign per train only when they differ. A footnote says where they go and "Scheduled, not live". The countdown ticks every 30 s.
+  - Several LRT service variants claim the same weekdays in their `service_id` (Weekday-1, -3, -4 … all `1111100`), so going by the id alone lists every train once per variant. The calendar dates of the stop's LRT services (`['rail-service-dates', serviceIds]`) decide which run today (and yesterday, for trips past midnight). If the calendar fails it falls back to the `service_id` days, and trains to the same place at the same time are kept once either way.
+  - With no train in the window, the card falls back to "No upcoming arrivals" and "Next train at …" (`describeNextArrival` with `"train"`).
 - Cards ease in and out with the `arrival` TransitionGroup. This is turned off for reduced motion.
 
 ### Routes list (`/routes`)
