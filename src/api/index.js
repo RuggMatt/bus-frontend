@@ -347,7 +347,8 @@ export const getHydrogenBusStatsDaily = async () => {
  * @property {string} stop_lat
  * @property {string} stop_lon
  * @property {string} zone_id
- * @property {string} location_type
+ * @property {string} location_type 0 or empty for a stop or platform, 1 for a station, 2+ for entrances and the like
+ * @property {string} [parent_station] The station a platform or bay belongs to, e.g. "Q7000"
  * @property {GeometryPoint} geometry_point
  *
  */
@@ -751,6 +752,47 @@ export const getRouteSchedule = async (routeId, serviceIds, timeRanges) => {
     $select: "trip_id,route_id,route_long_name,agency_name,route_type,trip_headsign,service_id,arrival_time,stop_sequence,stop_id,stop_name",
     $order: "arrival_time",
     $limit: "10000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
+ * @typedef {Object} StopHeadsign
+ * @property {string} stop_id
+ * @property {string} route_id
+ * @property {string} agency_name
+ * @property {string} route_type
+ * @property {string} trip_headsign
+ * @property {string} trips How many trips in the feed stop here going there
+ */
+
+/**
+ * Fetches where each route at some stops goes, with how many trips go there, in the
+ * currently-active GTFS feed. Tells a stop's usual direction, and which platform of a
+ * station is which.
+ * @param {string[]} stopIds
+ * @returns {Promise<StopHeadsign[]>}
+ */
+export const getStopHeadsigns = async (stopIds) => {
+  if (!stopIds.length) return [];
+  const today = edmontonNow().dateString;
+  // Escape single quotes to prevent SoQL injection
+  const idList = stopIds.map((id) => `'${String(id).replace(/'/g, "''")}'`).join(",");
+  const group = "stop_id,route_id,agency_name,route_type,trip_headsign";
+  const params = new URLSearchParams({
+    $where: `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id IN (${idList})`,
+    $select: `${group},count(*) as trips`,
+    $group: group,
+    $limit: "5000",
   });
   const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
     headers: {

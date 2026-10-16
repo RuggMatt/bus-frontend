@@ -109,6 +109,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['buses-live']` | Raw `/bus/now` (`useLiveBuses`, `liveBusesQuery`) |
 | `['trip-shape', tripId]` | `getTrip`, `staleTime: Infinity` |
 | `['trip-stop-times', tripId]` | `getBusStopTimes`, `staleTime: Infinity` |
+| `['stop-headsigns', stopIds]` | Each route's headsigns and trip counts at a stop, or at every stop of its station (`getStopHeadsigns`), `staleTime: Infinity` |
 | `['stop-routes', stopId]` | Every route serving a stop, `staleTime: Infinity` |
 | `['route-direction-stops', routeId, tripIds]` | Stop times for one trip per shape in a direction, `staleTime: Infinity` |
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
@@ -163,8 +164,10 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Stops (`/stops/:stopId?`, `StopsPage.vue`, `StopDetails.vue`, `useStopArrivals`)
 - Map, search, and nearby stops. Picking a stop opens its details.
 - Service alerts naming the stop, in effect or still to come (`alertsForStop`), show above the routes as `ServiceAlertCard`s with the routes they affect.
+- **Other platforms and bays:** stops sharing a GTFS `parent_station` (`stationStops`, `src/utils/stations.js`, leaving out entrances and other `location_type`s) are linked under the stop's name. An LRT station's two platforms are its two directions, and their names and stop numbers don't say which is which, so they get a full-width toggle labelled by each platform's busiest headsign ("To Clareview" / "To Century Park"). A transit centre's bays are chips labelled by their routes ("9, 709"), with the busiest headsign added when two bays share routes ("55 to Meadows"), under "Stops at <station name>". Switching uses `router.replace`, like a toggle. The labels come from `getStopHeadsigns` (`describePlatforms`).
+- **Each route's card is titled with where it's going**, as a route's name doesn't say the direction: the badge, the headsign without the route number (the most common among its buses or trains on the way, else its busiest headsign at the stop from `getStopHeadsigns`, `mainHeadsigns`), and the route's long name in small text under it. The long name keeps the `route-name` view transition name, so it still morphs into the route page's heading. Without a headsign the long name is the title.
 - **Every route serving the stop is listed:**
-  - **Live routes first.** A route is live if it has a bus whose trip is in the stop's schedule window. Each bus shows the headsign, "Bus N · distance", an ETA, and a status chip. Buses are listed nearest first, and buses that have passed drop off after 500 m. Tapping a bus selects it on the map and expands its details: stops away, next stop, scheduled time, and a "Trip details" button.
+  - **Live routes first.** A route is live if it has a bus whose trip is in the stop's schedule window. Each bus shows "Bus N" and its distance (with its headsign first only when it differs from the card's title), an ETA, and a status chip. Buses are listed nearest first, and buses that have passed drop off after 500 m. Tapping a bus selects it on the map and expands its details: stops away, next stop, scheduled time, and a "Trip details" button.
   - **Quiet routes below.** These show "No upcoming arrivals" and the next scheduled bus:
     - "Next bus at …" (today)
     - "tomorrow at …"
@@ -179,7 +182,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   
   If a route has nothing left today, it looks ahead day by day for up to 7 days. That covers weekday-only routes on weekends, routes that run one day a week, and a route that has finished on its only day.
 - If the routes or next-arrival queries fail, the page shows just the live routes. It doesn't show an error.
-- **LRT lines** (`route_type` 0, `RAIL_ROUTE_TYPE`) aren't in the bus feed, so they're never matched to live buses. Instead their card shows the next four scheduled trains from the stop's schedule window (`upcomingArrivals`, `src/utils/nextArrival.js`): minutes from now large ("Due" this minute), the clock time under it, and the headsign per train only when they differ. A footnote says where they go and "Scheduled, not live". The countdown ticks every 30 s.
+- **LRT lines** (`route_type` 0, `RAIL_ROUTE_TYPE`) aren't in the bus feed, so they're never matched to live buses. Instead their card shows the next four scheduled trains from the stop's schedule window (`upcomingArrivals`, `src/utils/nextArrival.js`): minutes from now large ("Due" this minute), the clock time under it, and the headsign per train only when they differ. A footnote says "Scheduled, not live" (the card's title says where they go). The countdown ticks every 30 s.
   - Several LRT service variants claim the same weekdays in their `service_id` (Weekday-1, -3, -4 … all `1111100`), so going by the id alone lists every train once per variant. The calendar dates of the stop's LRT services (`['rail-service-dates', serviceIds]`) decide which run today (and yesterday, for trips past midnight). If the calendar fails it falls back to the `service_id` days, and trains to the same place at the same time are kept once either way.
   - With no train in the window, the card falls back to "No upcoming arrivals" and "Next train at …" (`describeNextArrival` with `"train"`).
 - Cards ease in and out with the `arrival` TransitionGroup. This is turned off for reduced motion.
