@@ -5,13 +5,13 @@ import { onBeforeUnmount, ref, watch } from 'vue';
 import { useBusTrip } from '../composables/useBusTrip';
 import { useDisplay } from 'vuetify';
 import { useBuses } from '../composables/useBuses';
-import { rememberedHomeView } from '../plugins/sharedMap';
+import { navigatingByHistory, rememberedHomeView } from '../plugins/sharedMap';
 
 const { mdAndUp } = useDisplay();
 const { buses } = useBuses();
 
-// coming back to the map reselects the bus the user left from, with its latest position
-const restoreBusId = rememberedHomeView?.busId ?? null;
+// going back to the map (not opening it from a tab or link) reselects the bus the user left from, with its latest position
+const restoreBusId = navigatingByHistory ? rememberedHomeView?.busId ?? null : null;
 const restoredBus = restoreBusId === null
   ? null
   : buses.value?.find((candidate) => String(candidate.bus) === String(restoreBusId)) ?? null;
