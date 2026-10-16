@@ -373,6 +373,9 @@ onBeforeUnmount(() => {
     releaseMap();
     detachSharedMap(mapToken);
 })
+
+// so the page can close the selection too, e.g. when the bottom sheet is swiped away
+defineExpose({ clearSelection: clearRouteSelection });
 </script>
 <template>
   <div class="map-wrapper">

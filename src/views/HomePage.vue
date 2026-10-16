@@ -70,6 +70,15 @@ const onSheetTouchEnd = () => {
   dragOffset.value = 0;
 };
 
+/** @type {import('vue').Ref<{clearSelection: () => void} | null>} */
+const busMap = ref(null);
+
+// however the sheet closes (swiped away included), the map lets go of the bus, so its
+// route line goes and every bus shows again
+watch(showBottomSheet, (open) => {
+  if (!open && bus.value && !mdAndUp.value) busMap.value?.clearSelection();
+});
+
 const viewBusDetails = (clickedBus) => {
     bus.value = clickedBus;
     if (!mdAndUp.value) {
@@ -88,7 +97,7 @@ const viewBusDetails = (clickedBus) => {
 
     <!-- Full Screen Map -->
     <div class="map-container">
-      <NewBusMap :restore-bus-id="restoredBus?.bus ?? null" @bus-details="viewBusDetails($event)" />
+      <NewBusMap ref="busMap" :restore-bus-id="restoredBus?.bus ?? null" @bus-details="viewBusDetails($event)" />
     </div>
 
     <!-- Mobile: Bottom Sheet -->

@@ -143,23 +143,40 @@ const directionTripIds = computed(() =>
   representativeTrips(activeTrips.value, selectedDirection.value).map((t) => t.trip_id),
 );
 
-const { data: directionStopTimes } = useQuery({
-  queryKey: computed(() => ['route-direction-stops', props.routeId, directionTripIds.value.join(',')]),
-  queryFn: () => getStopTimesByTripIds(directionTripIds.value),
-  enabled: () => directionTripIds.value.length > 0,
+/** @param {string[]} tripIds */
+const directionStopsQuery = (tripIds) => ({
+  queryKey: ['route-direction-stops', props.routeId, tripIds.join(',')],
+  queryFn: () => getStopTimesByTripIds(tripIds),
+  enabled: tripIds.length > 0,
   staleTime: Infinity,
+});
+
+const { data: directionStopTimes, isError: directionStopsError } = useQuery(
+  computed(() => directionStopsQuery(directionTripIds.value)),
+);
+
+// every direction's stops load up front, so switching direction has its map and
+// disruptions straight away. Same keys as above, so they share the cache
+useQueries({
+  queries: computed(() =>
+    directions.value.map((direction) =>
+      directionStopsQuery(representativeTrips(activeTrips.value, direction).map((t) => t.trip_id)))),
 });
 
 // --- Service disruptions in this direction, in effect now and still to come ---
 const serviceAlerts = useServiceAlerts();
 const nowLocal = useNowLocal();
 
-// shown for the whole route until the direction's stops load
 const directionStopIds = computed(() =>
   directionStopTimes.value ? new Set(directionStopTimes.value.map((st) => st.stop_id)) : null,
 );
 
-const routeAlerts = computed(() => alertsForRoute(serviceAlerts.value, props.routeId, nowLocal.value, directionStopIds.value));
+// waits for the direction's stops, as the whole route's alerts would include the other
+// direction's. Only if they can't be loaded does it fall back to the whole route
+const routeAlerts = computed(() =>
+  directionStopIds.value || directionStopsError.value
+    ? alertsForRoute(serviceAlerts.value, props.routeId, nowLocal.value, directionStopIds.value)
+    : { active: [], upcoming: [] });
 const showUpcomingAlerts = ref(false);
 
 // stops this route's alerts in effect name, ringed on the map
@@ -695,6 +712,15 @@ const stationTrains = computed(() => {
       </v-btn>
     </v-btn-toggle>
 
+    <TransitMap
+      :stops="mapStops"
+      :buses="activeBuses"
+      :paths="mapPaths"
+      :fit-key="selectedDirection"
+      class="mt-4"
+    />
+
+    <!-- disruptions under the map, as on the trip page -->
     <div v-if="routeAlerts.active.length || routeAlerts.upcoming.length" class="mt-4">
       <h2 class="text-title-large mb-2">
         Service disruptions
@@ -729,14 +755,6 @@ const stationTrains = computed(() => {
         </div>
       </v-expand-transition>
     </div>
-
-    <TransitMap
-      :stops="mapStops"
-      :buses="activeBuses"
-      :paths="mapPaths"
-      :fit-key="selectedDirection"
-      class="mt-4"
-    />
 
     <!-- LRT: the next trains at each station, as they aren't tracked live -->
     <template v-if="isRail">
