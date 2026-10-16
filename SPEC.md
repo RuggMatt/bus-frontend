@@ -5,8 +5,9 @@ This is a reference for how the app works and why. It covers the pages, data sou
 ## Stack
 
 - Vue 3 (`<script setup>`, JS with JSDoc types and `// @ts-check` in places), Vite 8, Vuetify 4, Vue Router 5
+- Vuetify components and directives are imported as the templates use them (`vite-plugin-vuetify` with `autoImport`), so `src/plugins/vuetify.js` doesn't register them all. That keeps the main chunk around 130 kB instead of nearly 700 kB
 - TanStack Vue Query for all fetching and caching
-- Leaflet maps with Mapbox tiles. The main map and the route, trip and bus pages share one map instance (see View transitions). Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`
+- Leaflet maps with Mapbox tiles. The main map and the route, trip and bus pages share one map instance (see View transitions). Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`. `src/plugins/leaflet.js` also imports Leaflet's CSS, so the stylesheet always matches the installed version
 - Vitest for unit tests, in `tests/`
 - ESLint with `eslint-plugin-vue`. The pre-commit hook runs `npm run lint`
 
@@ -35,7 +36,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/bus/trips/:tripId` | Recorded positions for a trip in the past 3 days, newest first (trip page without a date) |
 | `/bus/trips/:tripId/:date` | The run of a trip that started on an Edmonton day (trip page with `?date=`): `start`/`end`, `points`, `buses`, `avgSpeed`/`maxSpeed`, and `positions`, oldest first. A run past midnight belongs to the day it started. 404 if no run started that day |
 | `/routes/:routeId/trips/:date` | The trips of a route we recorded on an Edmonton day (trip picker, route timetable): `trips` of `trip`, `start`/`end` (epoch s), `points`, `buses`, oldest first. Route ids are GTFS ones (`008`). Only trips with positions are listed, and a run belongs to the day it started |
-| `/bus/electric`, `/bus/hydrogen` | Bus finders |
+| `/bus/electric`, `/bus/hydrogen` | Bus finders: the latest position of each electric bus (8000–8999), or of the hydrogen bus (6016), reported in the last 2 minutes. Same fields as `/bus/now` |
 | `/bus/stats/{electric,hydrogen}/{hourly,daily}`, `/bus/stats/disk` | Stats and status pages |
 | `/bus/:busId` | One bus (bus page): `latest` position, `firstSeen`/`lastSeen` (epoch s), and `active` (reported in the last 2 minutes). 404 if never seen. Bus ids are usually numbers, but not always |
 | `/bus/:busId/recent-trips?from=&to=` | A bus's trips, newest first (bus page): `trip`, `start`/`end` (first and last position, epoch s), `points`, `avgSpeed`/`maxSpeed`. Either `from`/`to`, Edmonton days (`YYYY-MM-DD`, inclusive, at most 7 days, `limit` default 1000), or `hours` back (up to 168, default 24, `limit` default 50). `limit` is at most 1000. A trip in a range only includes its positions inside it. A trip splits after a 30 min gap, so a trip id run on several days appears once per day. Out-of-service stretches have an empty or null `trip` |
@@ -118,6 +119,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['route-day-runs', routeId, date]` | `/routes/:routeId/trips/:date`, as a `Set` of trip ids (`useRecordedTrips`). `staleTime: Infinity` before yesterday, else 60 s, refetched every 60 s for today. No request for future days |
 | `['trip-start-times', tripIds]` | Each trip's first departure (`getTripStartTimes`), `staleTime: Infinity` |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
+| `['finder-buses', kind]` | `/bus/electric` or `/bus/hydrogen`, timed with `nextBusRefreshDelay` like `/bus/now` |
 | `['service-alerts']` | Every recent service alert, grouped (`useServiceAlerts`), `staleTime` and refetch 5 min. A failure shows no alerts |
 
 ## Pages
@@ -244,12 +246,19 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - While a trip with an id is expanded, the map shows that trip's route line and stops, and stops following the bus to fit them (`fitKey` is the trip). Collapsing it goes back to following the bus on its own trip. When the bus isn't on a trip, the map shows the newest trip of the current week, but not of an older week being browsed.
 - No record of the bus shows "Bus N hasn't been seen".
 
+### Bus finders (`/electric`, `/hydrogen`, `BusFinderPage.vue`)
+- One page for both, picked by the route's `kind` prop. The heading, a `TransitMap` of the buses (with age badges), and a list.
+- Each row is the route badge, the headsign (`headsignWithoutRoute`, or "Not in service"), "Bus N · X km/h", and the distance from the viewer (`formatDistance`). Routes and headsigns come from one `['trip-summaries', tripIds]` query.
+- The list is nearest the viewer first when the browser gives a location, otherwise by bus number (`finderRows`, `src/utils/busFinder.js`). A refused location shows no message.
+- The map follows the first bus: the nearest, or the one tapped. Tapping a row selects it (tinted) and shows a "Trip details" button. Tapping it again clears it.
+- No buses out shows "No electric buses are out right now." or "The hydrogen bus isn't out right now."
+
 ### Others
-- Electric and hydrogen bus finders and stats, the status page (disk stats), and About.
+- Electric and hydrogen bus stats, the status page (disk stats), and About.
 
 ## Shared UI
 
-- **`TransitMap.vue`**: the Leaflet map for the route and trip pages. Props:
+- **`TransitMap.vue`**: the Leaflet map for the route, trip, bus and bus finder pages. Props:
   - `stops`: `{ stop_id, stop_name, lat, lon, color?, tooltip?, disruption? }`. Drawn on a canvas, and tapping one opens `/stops/:id`. A `disruption` label draws an amber ring around the stop
   - `buses`: `Bus[]` as `createBusIcon` pins, with no age badges. Tapping one opens its trip, if it's on one
   - `paths`: route lines, under the stops
@@ -269,6 +278,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **`ServiceAlertCard.vue`**: one service alert (`AlertTiming`) as a tonal warning `v-alert`: the header, an effect chip, when it applies ("Until Thu, Oct 29 at 6:00 PM", "Starts tomorrow at 10:00 AM, until …", "Until further notice", "+ 11 more days" for a recurring one, `formatAlertPeriod`), and the description clamped to two lines with More/Less. `now` is the local time, and `show-routes` adds badges linking to each affected route.
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
 - **`createBusIcon`** (`src/plugins/busIcon.js`) options: `showAge` (a ticking age badge), `label` (a fixed badge, such as a time, with its own `.bus-time-badge` class so `refreshReportAges` leaves it alone), `history` (a smaller pin) and `selected`.
+- **`formatDistance`** (`src/utils/geo.js`): "350 m", or "1.2 km" from a kilometre. Used for the stop page's buses and the bus finders.
 - **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).
 - **`RouteBadge.vue`**: the only way to show a route number. A filled primary pill showing `routeNumber(routeId)`, in sizes `small`, `default` and `large`. Attributes pass through to the root, so callers can add `style` and `class`.
 - **Full-width actions** use `<v-btn block variant="tonal" color="primary">`, as with "Trip details" and "Stop details".
@@ -280,7 +290,7 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
 
 ### Shared map (main map, trip, bus and route pages)
 
-- **One map instance** (`src/plugins/sharedMap.js`). `NewBusMap` and `TransitMap` don't create maps. They draw their layers on one Leaflet map, which `attachSharedMap(container, release)` moves into the page and `detachSharedMap(token)` takes out. So tiles stay loaded between pages, and the map can fly from one page's view to the next. Only one page may show it at a time. The stops page keeps its own `StopsMap`.
+- **One map instance** (`src/plugins/sharedMap.js`). `NewBusMap` and `TransitMap` don't create maps. They draw their layers on one Leaflet map, which `attachSharedMap(container, release)` moves into the page and `detachSharedMap(token)` takes out. So tiles stay loaded between pages, and the map can fly from one page's view to the next. Only one page may show it at a time. The bus finders use it too, through `TransitMap`. The stops page keeps its own `StopsMap`.
   - It has the tile layer (`minZoom` 9, no tile bounds, so regional routes keep their tiles) and one `routePane` at z-index 350 for route lines. Each page puts its layers in groups and removes them when it leaves.
   - `invalidateSize` keeps the centre, so after a move the new box shows the same place. A `ResizeObserver` calls it when the box resizes, e.g. when the main map's bus panel opens.
   - `handedOver` is true when the map comes straight from another page in the same render. The page then flies to its view (0.8 s) instead of jumping.
