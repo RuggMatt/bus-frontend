@@ -5,6 +5,7 @@ import { getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTi
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
+import { usePageTitle } from '../composables/usePageTitle';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
@@ -179,6 +180,10 @@ const { data: routeData, isPlaceholderData: stopsPlaceholder } = useQuery({
 
 // part of what's shown is still the last trip's or day's. The pieces that depend on it wait,
 // while the route header, pickers and map stay
+// the headsign, e.g. "8 University", leads as it says more than the trip id. a
+// placeholder is the previous trip's, so it's left out
+usePageTitle(() => [tripPlaceholder.value ? null : tripData.value?.trip_headsign, `Trip ${props.tripId}`]);
+
 const switching = computed(
     () => tripPlaceholder.value
         || stopsPlaceholder.value

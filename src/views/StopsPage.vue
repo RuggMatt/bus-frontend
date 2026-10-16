@@ -2,6 +2,7 @@
 import StopsMap from '../components/StopsMap.vue';
 import StopDetails from '../components/StopDetails.vue';
 import { computed, ref, watch } from 'vue';
+import { usePageTitle } from '../composables/usePageTitle';
 import { useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import { useStops } from '../composables/useStops';
@@ -32,6 +33,7 @@ const { stops, keyedStops, isLoading: stopsLoading, error: stopsError } = useSto
 
 const selectedStop = computed(() => (props.stopId ? keyedStops.value[props.stopId] ?? null : null));
 const stopNotFound = computed(() => Boolean(props.stopId) && Boolean(stops.value) && !selectedStop.value);
+usePageTitle(() => (props.stopId ? [selectedStop.value?.stop_name, `Stop ${props.stopId}`] : ['Stops']));
 
 const { routeGroups, isLoading, isError } = useStopArrivals(selectedStop);
 const liveBuses = computed(() => routeGroups.value.flatMap((group) => group.buses));

@@ -14,7 +14,8 @@ import TransitMap from '../components/TransitMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
-import { directionLabels as labelDirections, representativeTrips } from '../utils/routes';
+import { directionLabels as labelDirections, representativeTrips, routeNumber } from '../utils/routes';
+import { usePageTitle } from '../composables/usePageTitle';
 import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
 import { addDays } from '../utils/weeks';
 import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
@@ -48,6 +49,7 @@ const route = computed(() => keyedroutes.value?.[props.routeId] ?? null);
 const handoff = window.history.state ?? {};
 
 const routeLongName = computed(() => route.value?.route_long_name ?? handoff.routeLongName ?? '');
+usePageTitle(() => [`Route ${routeNumber(props.routeId)}`, routeLongName.value]);
 
 // --- Trips for this route ---
 const { data: trips, isLoading: tripsLoading } = useQuery({
