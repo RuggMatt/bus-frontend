@@ -1,9 +1,9 @@
 <script setup>
-import { ref, toRef } from 'vue';
+import { computed, ref, toRef } from 'vue';
 import { useRouter } from 'vue-router';
 import { useBusTrip } from '../composables/useBusTrip';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
-import { routeNumber } from '../utils/routes';
+import { headsignWithoutRoute, routeNumber } from '../utils/routes';
 import { transitionLinkClick } from '../utils/viewTransition';
 import RouteBadge from './RouteBadge.vue';
 import BusLink from './BusLink.vue';
@@ -18,6 +18,10 @@ const props = defineProps({
 
 const router = useRouter();
 const { trip, isLoading, routeLongName, nextStop } = useBusTrip(toRef(props, 'bus'));
+
+// where the bus is going leads the card, as the route's name doesn't say the direction
+const headsign = computed(() =>
+  trip.value?.trip_headsign ? headsignWithoutRoute(trip.value.trip_headsign, trip.value.route_id) : '');
 
 // names are only set while heading to the route, trip or bus page
 const named = ref(false);
@@ -68,8 +72,16 @@ const openRoute = (event) => {
         @click="openRoute"
       >
         <RouteBadge :route-id="trip.route_id" :style="transitionName('route-number')" />
-        <div class="text-title-medium ml-3" :style="transitionName('route-name')">
-          {{ routeLongName }}
+        <div class="ml-3 min-width-0">
+          <div v-if="headsign" class="text-title-medium">
+            {{ headsign }}
+          </div>
+          <div
+            :class="headsign ? 'text-body-small text-medium-emphasis' : 'text-title-medium'"
+            :style="transitionName('route-name')"
+          >
+            {{ routeLongName }}
+          </div>
         </div>
         <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
       </a>
@@ -79,9 +91,6 @@ const openRoute = (event) => {
     <div class="bus-details pa-4 text-body-medium">
       <div class="d-flex align-start">
         <div class="flex-grow-1">
-          <div v-if="trip" class="text-title-medium">
-            {{ trip.trip_headsign }}
-          </div>
           <div class="text-medium-emphasis">
             <BusLink :bus="bus.bus" :style="transitionName(`bus-${bus.bus}`)" @click="named = true" />
             · {{ Math.round(bus.speed * 3.6) }} km/h
@@ -130,6 +139,10 @@ const openRoute = (event) => {
 
 .route-header:hover {
   background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.min-width-0 {
+  min-width: 0;
 }
 
 .bus-details {

@@ -9,7 +9,7 @@ import { usePageTitle } from '../composables/usePageTitle';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
-import { LOCAL_AGENCY } from '../utils/routes';
+import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor } from '../utils/routes';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
@@ -594,6 +594,14 @@ watchEffect(() => {
     shownMap.value = currentMap();
 });
 
+
+// where the trip goes leads the heading, as the route's name doesn't say the direction
+const headsign = computed(() =>
+  tripData.value?.trip_headsign && tripData.value.route_id
+    ? headsignWithoutRoute(tripData.value.trip_headsign, tripData.value.route_id)
+    : '');
+// LRT lines go by name and colour in Edmonton, not number
+const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?.route_type === RAIL_ROUTE_TYPE);
 </script>
 <template>
   <v-container>
@@ -613,18 +621,30 @@ watchEffect(() => {
           v-if="tripData?.route_id"
           :to="{ path: `/routes/${tripData.route_id}`, query: { direction: tripData.direction_id } }"
           class="route-header d-flex align-center pa-2"
+          :class="{ 'route-header--line': isRail }"
+          :style="isRail && routeColor(tripData.route_id) ? { borderLeftColor: routeColor(tripData.route_id) } : undefined"
         >
           <!-- named like the route page's heading, so they morph between the two -->
-          <RouteBadge :route-id="tripData.route_id" size="large" style="view-transition-name: route-number" />
-          <h1 class="text-headline-small ml-3 min-width-0" style="view-transition-name: route-name">
-            {{ keyedroutes[tripData.route_id]?.route_long_name }}
-          </h1>
+          <RouteBadge v-if="!isRail" :route-id="tripData.route_id" size="large" style="view-transition-name: route-number" />
+          <!-- where it's going says the direction, which the route's name doesn't -->
+          <div class="min-width-0" :class="{ 'ml-3': !isRail }">
+            <h1 class="text-headline-small my-0" :style="headsign ? undefined : { viewTransitionName: 'route-name' }">
+              {{ headsign || keyedroutes[tripData.route_id]?.route_long_name }}
+            </h1>
+            <div
+              v-if="headsign"
+              class="text-body-medium text-medium-emphasis"
+              style="view-transition-name: route-name"
+            >
+              {{ keyedroutes[tripData.route_id]?.route_long_name }}
+            </div>
+          </div>
           <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
         </router-link>
         <v-skeleton-loader v-if="switching" type="text, text" class="px-2" />
         <div v-else class="text-body-medium text-medium-emphasis px-2">
-          <div>
-            {{ tripData?.trip_headsign }}<span v-if="weekdayLabel"> &middot; {{ weekdayLabel }}</span><span v-if="startTime && endTime"> &middot; {{ startTime }} &ndash; {{ endTime }}</span>
+          <div v-if="weekdayLabel || (startTime && endTime)">
+            {{ [weekdayLabel, startTime && endTime ? `${startTime} – ${endTime}` : ''].filter(Boolean).join(' · ') }}
           </div>
           <div class="text-body-small">
             Trip {{ tripId }}<template v-if="isFuture">
@@ -634,7 +654,30 @@ watchEffect(() => {
             </template>
           </div>
         </div>
-        <div class="d-flex align-center flex-wrap ga-2 mt-2 px-1">
+      </template>
+      <TransitMap
+        ref="tripMap"
+        :stops="shownMap.stops"
+        :buses="shownMap.buses"
+        :paths="shownMap.paths"
+        :fit-key="shownMap.fitKey"
+        :positions="shownMap.positions"
+        :selected-position="selectedPosition"
+        class="trip-map mt-3"
+        @select-position="selectPosition"
+      />
+      <!-- disruptions under the map, then which day's run and which trip -->
+      <template v-if="!tripLoading">
+        <template v-if="!switching">
+          <ServiceAlertCard
+            v-for="timing in tripAlerts.alerts"
+            :key="timing.alert.id"
+            :timing="timing"
+            :now="nowLocal"
+            class="mt-3"
+          />
+        </template>
+        <div class="trip-pickers d-flex align-center flex-wrap ga-2 mt-3">
           <DayPicker
             :model-value="pickerDate"
             :min="pickerMin"
@@ -660,27 +703,7 @@ watchEffect(() => {
         >
           {{ pickerDate === today ? "Hasn't run yet today" : `Not recorded on ${pickerDateLabel}` }}
         </v-alert>
-        <template v-if="!switching">
-          <ServiceAlertCard
-            v-for="timing in tripAlerts.alerts"
-            :key="timing.alert.id"
-            :timing="timing"
-            :now="nowLocal"
-            class="mt-2"
-          />
-        </template>
       </template>
-      <TransitMap
-        ref="tripMap"
-        :stops="shownMap.stops"
-        :buses="shownMap.buses"
-        :paths="shownMap.paths"
-        :fit-key="shownMap.fitKey"
-        :positions="shownMap.positions"
-        :selected-position="selectedPosition"
-        class="trip-map mt-3"
-        @select-position="selectPosition"
-      />
       <v-btn-toggle
         :model-value="view"
         mandatory
@@ -688,7 +711,7 @@ watchEffect(() => {
         variant="outlined"
         divided
         color="primary"
-        class="mt-3"
+        class="view-toggle mt-3"
         @update:model-value="pickView"
       >
         <v-btn value="stops" prepend-icon="mdi-map-marker-outline">
@@ -868,6 +891,31 @@ watchEffect(() => {
 .route-header:hover,
 .stop-row:hover {
     background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+/* a bar in the line's colour, as on the stop page */
+.route-header--line {
+  border-left: 6px solid rgb(var(--v-theme-primary));
+}
+
+/* on phones the day, trip and stops/positions controls each take the full width */
+@media (max-width: 599px) {
+  .trip-pickers > * {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .trip-pickers > * > :deep(.v-btn:not(.v-btn--icon)) {
+    flex: 1 1 auto;
+  }
+
+  .view-toggle {
+    width: 100%;
+  }
+
+  .view-toggle .v-btn {
+    flex: 1 1 0;
+  }
 }
 
 .min-width-0 {

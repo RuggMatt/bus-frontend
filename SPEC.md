@@ -147,8 +147,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Tapping a bus highlights its route and opens `BusDetails.vue`. On desktop that's a left panel, on mobile a bottom sheet.
 - The mobile bottom sheet is full width and non-modal: there's no scrim, so the map can still be panned and zoomed while it's open. Tapping empty map or swiping down on the sheet (when its content is scrolled to the top) closes it, and tapping another bus switches it to that bus.
 - **BusDetails** shows:
-  - a route header: the badge, route name and a chevron to `/routes/:id`
-  - the headsign
+  - a route header: the badge, the headsign without the route number as the title (where the bus is going, which the route's name doesn't say), the route's long name in small text under it, and a chevron to `/routes/:id`
   - "Bus N · X km/h"
   - the next stop and its scheduled time
   - an On time / N min late / early chip
@@ -232,15 +231,16 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - There are no summary cards. The route id, the type (always bus) and the active-bus count were redundant and were removed.
 
 ### Trip details (`/trips/:tripId`, `TripDetails.vue`)
-- **Heading:** the route header pattern (a large badge, the route's long name as the title, and a chevron), linking to `/routes/:id?direction=` with the trip's direction. Under it, small subtext: the headsign, the service days, the start and end times, and "Trip N · Bus N" (the bus from the latest recorded position, linking to the bus page).
+- **Heading:** the route header pattern with a large badge and the headsign (without the route number) as the `h1`, the route's long name in small text under it, and a chevron, linking to `/routes/:id?direction=` with the trip's direction. LRT trips have no badge and a bar in the line's colour instead, like the stop page. Under it, small subtext: the service days, the start and end times, and "Trip N · Bus N" (the bus from the latest recorded position, linking to the bus page).
+- **Order:** heading, map, service disruptions, the day and trip pickers, then the Stops / Positions toggle and the list. On phones (under 600px) the day picker, the trip picker and the toggle each take the full width.
 - If the trip isn't in the feed (`getTrip` gives null, as for an old trip that's no longer scheduled), the page just says "Trip N not found."
-- **Day:** a `DayPicker` under the heading picks which day's run is shown, in the URL as `?date=` (written with `router.replace`, and read again on back and forward).
+- **Day:** a `DayPicker` under the map and disruptions picks which day's run is shown, in the URL as `?date=` (written with `router.replace`, and read again on back and forward).
   - Without `?date=` the page shows the latest recorded run, from `/bus/trips/:tripId` split at 30 min gaps. The positions come newest first, so the run is picked by its times. The picker shows the day that run started, or today. It refetches every 60 s while the run is active.
   - With a past or today's date it uses `/bus/trips/:tripId/:date`. A 404 keeps the schedule and map, with grey stops and no estimates, under "Not recorded on Wed, Oct 14" (or "Hasn't run yet today").
   - A future date makes no backend request. It shows the scheduled times only, and the subtitle says "Not run yet" instead of the bus.
   - Only days the route runs can be picked, from the calendar dates of all its services (`['service-dates', routeId, serviceIds]`, shared with the route page), up to the last date in the feed. Days before the calendar starts stay pickable, back about a year, as older feeds aren't in it. If the calendar fails, any day from a year back to 60 days ahead can be picked.
   - Picking a day this trip doesn't run on (a Saturday for a weekday trip) jumps, with `router.replace`, to the trip starting nearest to this one's start (`nearestByStart`).
-- **Service disruptions:** under the pickers, a `ServiceAlertCard` for each alert in effect at some point between the trip's first and last scheduled time on the picked day, on its route, naming one of its stops or none (`alertsForTrip`). Hidden while switching. The stops an alert names get a warning chip ("Detour", "Stop moved") beside "Stop N", and the effect in their map tooltip.
+- **Service disruptions:** under the map, a `ServiceAlertCard` for each alert in effect at some point between the trip's first and last scheduled time on the picked day, on its route, naming one of its stops or none (`alertsForTrip`). Hidden while switching. The stops an alert names get a warning chip ("Detour", "Stop moved") beside "Stop N", and the effect in their map tooltip.
 - **Trip picker:** a `TripPicker` beside the day picker steps through the route's trips going the same direction on the picked day.
   - The day's trips (`tripsOnDate`, `src/utils/dayTrips.js`) are the route's trips (`['route-trips', routeId]`, shared with the route page) in that direction whose `service_id` runs on the date. Without calendar dates for it, the days in each `service_id` are used, within the trip's schedule period.
   - They're ordered by their first departure (`['trip-start-times', tripIds]`, `getTripStartTimes`). Past-midnight starts sort last.
@@ -312,7 +312,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Route colours** (`routeColor`, `src/utils/routes.js`): GTFS `route_color`, which only ETS's static GTFS zip has (not the open data routes dataset or the backend). Only the LRT lines' are kept, as a constant: Capital `#0081BC`, Metro `#FF0000`, Valley `#008000`.
 - **`RouteBadge.vue`**: the only way to show a route number. A filled primary pill showing `routeNumber(routeId)`, in sizes `small`, `default` and `large`. Attributes pass through to the root, so callers can add `style` and `class`.
 - **Full-width actions** use `<v-btn block variant="tonal" color="primary">`, as with "Trip details" and "Stop details".
-- **Route header pattern:** a badge, the long name, and an `mdi-chevron-right` to the route page, in a `.route-header` link with a hover tint.
+- **Route header pattern:** a badge, the headsign as the title with the route's long name in small text under it (or the long name alone when there's no headsign), and an `mdi-chevron-right` to the route page, in a `.route-header` link with a hover tint. The long name carries the `route-name` view transition name, so it morphs into the route page's heading. Used by the map's bus card, the stop page's cards and the trip page. LRT lines drop the badge for a bar in the line's colour.
 
 ## View transitions
 
@@ -331,7 +331,7 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
   - The map must be in the DOM on the page's first render, so the trip and bus pages show it while they load.
   - New pages start at the top (the router's `scrollBehavior`), so the map is in view. Back and forward return to the saved position, and query-only changes don't scroll.
 - **Names that morph with the map:**
-  - `route-number` and `route-name`: always set on the route page's heading and the trip page's heading
+  - `route-number` and `route-name`: always set on the route page's heading and the trip page's heading (the badge, left out for LRT trips, and the long name under the headsign)
   - `bus-${bus}`: always set on the route page's Active Buses cards, the trip page's bus link and the bus page's "Bus N" heading
   - the main map's bus card sets all three only once one of its links is tapped (route header, "Trip details", bus link). It goes away with the page, so it never clashes with another page's names
   - each name must be unique on a page, so pages with many routes or buses (the bus page's trip rows) don't name them
