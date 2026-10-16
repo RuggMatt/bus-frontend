@@ -131,6 +131,10 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Mobile:** bottom tabs (Buses, Stops, Routes, More) with large 32px icons in a 76px bar and no sidebar. More opens a bottom sheet with the other pages. The Status page stays out of both menus.
 - The selected tab comes from the path, so detail pages light up their section: `/buses/:id` → Buses, `/stops/:id` → Stops, `/routes/:id` and `/trips/:id` → Routes, anything else but `/` → More. Buttons and items with `to` get an explicit `active`, because Vuetify otherwise uses the link's exact match.
 - Detail pages have no back button. Mobile relies on the browser's back gesture.
+- **Tab titles** are the most specific part first, then the site name, joined with " · " (`pageTitle`, `src/utils/pageTitle.js`): "Route 8 · Abbottsfield - Downtown - University · Edmonton Bus Tracker". The main map is the site name alone.
+  - Every route has a `meta.title`, a string or a function of the route ("Bus 4699", "Trip 32755477"), which the router's `afterEach` sets.
+  - Pages that load a better name refine it with `usePageTitle(() => parts)` (`src/composables/`): the route page adds the long name, the stop page the stop name ("109 Street & Kingsway · Stop 1987"), and the trip page leads with the headsign ("8 Abbottsfield · Trip 32755477", left out while it's the previous trip's placeholder). It runs after `afterEach`, and again when the router reuses the page for new params or query.
+- **Icon:** a white bus front on a primary (`#3f51b5`) rounded square. `public/favicon.svg` is the source, and `favicon.ico` (16, 32 and 48 px) and the 180 px `apple-touch-icon.png` are rendered from it. `theme-color` is the same primary.
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
 - Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away, flies back to the view the user left, and reselects the bus they had selected if it's still in the snapshot (the card or sheet opens with its latest position).
