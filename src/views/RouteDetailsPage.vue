@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQueries, useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -14,11 +14,13 @@ import TransitMap from '../components/TransitMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
-import { directionLabels as labelDirections, representativeTrips, routeNumber } from '../utils/routes';
+import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeNumber } from '../utils/routes';
+import { upcomingArrivals } from '../utils/nextArrival';
+import TrainTimes from '../components/TrainTimes.vue';
 import { usePageTitle } from '../composables/usePageTitle';
 import { useAgencies, useRouteAgencies } from '../composables/useAgencies';
 import { telHref } from '../utils/phone';
-import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
+import { edmontonNow, scheduleWindow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
 import { addDays } from '../utils/weeks';
 import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
 import {
@@ -28,7 +30,7 @@ import {
   serviceDatesFrom,
   servicesOnDate,
 } from '../utils/serviceCalendar';
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 const props = defineProps({
@@ -535,6 +537,78 @@ const { agencyByRoute } = useRouteAgencies();
 const { agenciesByName } = useAgencies();
 const agencyName = computed(() => agencyByRoute.value.get(props.routeId) ?? null);
 const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agencyName.value) ?? null : null));
+
+// --- LRT: each station's next scheduled trains, in place of Active Buses ---
+// trains aren't in the bus feed, so there's nothing live to show
+const isRail = computed(() => route.value?.route_type === RAIL_ROUTE_TYPE);
+// before the routes load, only buses handed over for the view transition are shown
+const showActiveBuses = computed(() => (route.value ? !isRail.value : activeBuses.value.length > 0));
+
+// the countdowns tick on their own, as nothing else refreshes for a train
+const clock = ref(edmontonNow());
+/** @type {ReturnType<typeof setInterval> | undefined} */
+let clockTimer;
+onMounted(() => {
+  clockTimer = setInterval(() => {
+    clock.value = edmontonNow();
+  }, 30 * 1000);
+});
+onBeforeUnmount(() => clearInterval(clockTimer));
+
+// the next two hours, refetched as that window moves on in 15 minute steps
+const TRAIN_WINDOW_SECONDS = 2 * 60 * 60;
+const TRAIN_WINDOW_STEP_SECONDS = 15 * 60;
+const trainWindowStart = computed(() =>
+  Math.floor(clock.value.secondsSinceMidnight / TRAIN_WINDOW_STEP_SECONDS) * TRAIN_WINDOW_STEP_SECONDS);
+
+// today's services, and yesterday's for trains still running past midnight
+const trainServiceIds = computed(() => {
+  const dates = [clock.value.dateString, addDays(clock.value.dateString, -1)];
+  const ids = new Set();
+  for (const date of dates) {
+    const running = serviceDates.value
+      ? servicesOnDate(serviceDates.value, date)
+      : routeServiceIds.value.filter((id) => serviceRunsOnDay(id, weekdayOf(date)));
+    running.forEach((id) => ids.add(id));
+  }
+  return [...ids].sort();
+});
+
+const { data: trainSchedule, isPending: trainsPending } = useQuery({
+  queryKey: computed(() => ['route-schedule', props.routeId, clock.value.dateString, trainWindowStart.value, trainServiceIds.value.join(',')]),
+  queryFn: () => getRouteSchedule(
+    props.routeId,
+    trainServiceIds.value,
+    scheduleWindow(trainWindowStart.value, 0, TRAIN_WINDOW_SECONDS + TRAIN_WINDOW_STEP_SECONDS),
+  ),
+  // waits for the calendar, as the service_id days alone list each train once per variant
+  enabled: () => isRail.value && !serviceDatesLoading.value && trainServiceIds.value.length > 0,
+  staleTime: Infinity,
+  placeholderData: (previous, previousQuery) =>
+    previousQuery?.queryKey[1] === props.routeId ? previous : undefined,
+});
+
+const stationTrains = computed(() => {
+  const entries = (trainSchedule.value ?? []).filter((entry) =>
+    directionByTrip.value.get(String(entry.trip_id)) === selectedDirection.value);
+  const byStop = upcomingArrivals(entries, clock.value.dateString, clock.value.secondsSinceMidnight, {
+    serviceDates: serviceDates.value,
+    keyOf: (entry) => entry.stop_id,
+    limit: 3,
+  });
+  // stations in the order trains reach them
+  /** @type {Map<string, {name: string, sequence: number}>} */
+  const stations = new Map();
+  for (const entry of entries) {
+    const sequence = Number(entry.stop_sequence);
+    const known = stations.get(entry.stop_id);
+    if (!known || sequence < known.sequence) stations.set(entry.stop_id, { name: entry.stop_name, sequence });
+  }
+  return [...stations]
+    .sort(([, a], [, b]) => a.sequence - b.sequence)
+    .map(([stopId, station]) => ({ stopId, name: station.name, arrivals: byStop.get(stopId) ?? [] }))
+    .filter((station) => station.arrivals.length);
+});
 </script>
 
 <template>
@@ -664,24 +738,52 @@ const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agenc
       class="mt-4"
     />
 
+    <!-- LRT: the next trains at each station, as they aren't tracked live -->
+    <template v-if="isRail">
+      <h2 class="text-headline-small mt-8 mb-1">
+        Next Trains
+      </h2>
+      <div class="d-flex align-center text-body-small text-medium-emphasis mb-3">
+        <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
+        Scheduled, not live
+      </div>
+      <v-skeleton-loader v-if="trainsPending && !trainSchedule" type="list-item-two-line@4" class="trains-loader" />
+      <div v-else-if="!stationTrains.length" class="text-medium-emphasis mb-4">
+        No trains in the next two hours.
+      </div>
+      <v-card v-else variant="outlined" class="mb-4">
+        <template v-for="(station, index) in stationTrains" :key="station.stopId">
+          <v-divider v-if="index > 0" />
+          <div class="station-row pa-3">
+            <router-link :to="`/stops/${station.stopId}`" class="station-name text-title-small">
+              {{ station.name }}
+            </router-link>
+            <TrainTimes :arrivals="station.arrivals" :columns="3" />
+          </div>
+        </template>
+      </v-card>
+    </template>
+
     <!-- Active Buses -->
-    <h2 class="text-headline-small mt-8 mb-3">
-      Active Buses
-    </h2>
-    <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
-      {{ routeBuses.length ? 'No buses currently active in this direction.' : 'No buses currently active on this route.' }}
-    </div>
-    <v-row v-else dense class="mb-4">
-      <v-col
-        v-for="bus in activeBuses"
-        :key="bus.bus"
-        cols="12"
-        sm="6"
-        lg="4"
-      >
-        <RouteBusCard :bus="bus" />
-      </v-col>
-    </v-row>
+    <template v-if="showActiveBuses">
+      <h2 class="text-headline-small mt-8 mb-3">
+        Active Buses
+      </h2>
+      <div v-if="activeBuses.length === 0" class="text-medium-emphasis mb-4">
+        {{ routeBuses.length ? 'No buses currently active in this direction.' : 'No buses currently active on this route.' }}
+      </div>
+      <v-row v-else dense class="mb-4">
+        <v-col
+          v-for="bus in activeBuses"
+          :key="bus.bus"
+          cols="12"
+          sm="6"
+          lg="4"
+        >
+          <RouteBusCard :bus="bus" />
+        </v-col>
+      </v-row>
+    </template>
 
     <!-- Timetable -->
     <h2 class="text-headline-small mt-8 mb-4">
@@ -877,6 +979,33 @@ const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agenc
 .direction-label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.trains-loader {
+  background: transparent;
+}
+
+/* the station beside its trains on wide screens, above them on phones */
+.station-row {
+  align-items: center;
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+}
+
+@media (max-width: 599px) {
+  .station-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.station-name {
+  color: inherit;
+  text-decoration: none;
+}
+
+.station-name:hover {
+  text-decoration: underline;
 }
 
 .agency-line {

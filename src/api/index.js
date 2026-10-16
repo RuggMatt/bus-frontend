@@ -726,6 +726,45 @@ export const getStopSchedule = async (stopId, timeRanges) => {
 };
 
 /**
+ * @typedef {StopScheduleEntry & {stop_id: string, stop_name: string}} RouteScheduleEntry
+ */
+
+/**
+ * Fetches a route's stop times within the given time ranges, on some services, from
+ * the currently-active GTFS feed. For lines we can't follow live (LRT), to show each
+ * station's next trains.
+ * @param {string} routeId
+ * @param {string[]} serviceIds
+ * @param {[string, string][]} timeRanges Pairs of HH:MM:SS bounds on the arrival time
+ * @returns {Promise<RouteScheduleEntry[]>}
+ */
+export const getRouteSchedule = async (routeId, serviceIds, timeRanges) => {
+  if (!serviceIds.length) return [];
+  const today = edmontonNow().dateString;
+  // Escape single quotes to prevent SoQL injection
+  const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+  const timeFilter = timeRanges
+    .map(([from, to]) => `arrival_time between '${from}' and '${to}'`)
+    .join(" OR ");
+  const params = new URLSearchParams({
+    $where: `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND route_id = ${quote(routeId)} AND service_id IN (${serviceIds.map(quote).join(",")}) AND (${timeFilter})`,
+    $select: "trip_id,route_id,route_long_name,agency_name,route_type,trip_headsign,service_id,arrival_time,stop_sequence,stop_id,stop_name",
+    $order: "arrival_time",
+    $limit: "10000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
  * @typedef {Object} StopRoute
  * @property {string} route_id
  * @property {string} route_long_name

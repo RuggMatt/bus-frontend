@@ -6,6 +6,7 @@ import { formatDistance } from '../utils/geo';
 import { describeNextArrival } from '../utils/nextArrival';
 import { edmontonNow } from '../utils/serviceTime';
 import RouteBadge from './RouteBadge.vue';
+import TrainTimes from './TrainTimes.vue';
 import BusLink from './BusLink.vue';
 import ServiceAlertCard from './ServiceAlertCard.vue';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
@@ -186,20 +187,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
         <v-divider />
         <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
         <div v-if="group.upcoming.length" class="pa-3">
-          <div class="train-times">
-            <div v-for="arrival in group.upcoming" :key="arrival.trip_id" class="train-time min-width-0">
-              <div class="text-no-wrap">
-                <span class="text-title-large font-weight-medium">{{ arrival.minutes < 1 ? 'Due' : arrival.minutes }}</span>
-                <span v-if="arrival.minutes >= 1" class="text-body-medium"> min</span>
-              </div>
-              <div class="text-body-small">
-                {{ formatScheduledTime(arrival.time) }}
-              </div>
-              <div v-if="hasMixedHeadsigns(group)" class="text-body-small text-medium-emphasis text-truncate">
-                {{ arrival.headsign }}
-              </div>
-            </div>
-          </div>
+          <TrainTimes :arrivals="group.upcoming" />
           <div class="d-flex align-center text-body-small text-medium-emphasis mt-2">
             <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
             <template v-if="!hasMixedHeadsigns(group)">
@@ -301,20 +289,8 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
   min-width: 0;
 }
 
-/* up to four trains side by side, each with its time and where it's going */
-.train-times {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .train-loader {
   background: transparent;
-}
-
-.train-time {
-  border-left: 3px solid rgb(var(--v-theme-primary));
-  padding-left: 8px;
 }
 
 .bus-details {
