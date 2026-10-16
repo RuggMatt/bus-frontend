@@ -9,7 +9,6 @@ import { useStops } from '../composables/useStops';
 import { useBuses } from '../composables/useBuses';
 import { attachSharedMap, detachSharedMap, rememberedHomeView, rememberHomeView, ROUTE_PANE } from '../plugins/sharedMap';
 import { prefersReducedMotion } from '../utils/viewTransition';
-// import 'leaflet/dist/leaflet.css'
 /** @type {import('leaflet').Map | null} */
 let map = null
 /** @type {object | null} the shared map's owner token */
