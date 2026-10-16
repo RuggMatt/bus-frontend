@@ -209,31 +209,17 @@ const applySelectedStyling = () => {
 // the trip watcher doesn't fire when the trip lookup fails or returns the same value
 watch(selectedBus, applySelectedStyling);
 
+// with a bus picked, only its route's buses stay on the map
 const applyRouteHighlighting = () => {
     const selectedRouteId = selectedBus.value ? trip.value?.route_id : null;
     for (const marker of Object.values(buses)) {
-        marker.setOpacity(1);
-        marker.setZIndexOffset(0);
+        const isSelected = marker.options.title === selectedBus.value?.bus;
+        const onRoute = !selectedRouteId || marker.options?.route_id === selectedRouteId;
+        // hidden rather than faded, so they can't be tapped or focused either
+        marker.getElement()?.classList.toggle("bus-marker-icon--hidden", !isSelected && !onRoute);
+        marker.setZIndexOffset(isSelected ? 2000 : selectedRouteId && onRoute ? 1000 : 0);
     }
     applySelectedStyling();
-    if (!selectedRouteId) {
-        return;
-    }
-    for (const markerBus of Object.values(buses)) {
-        if (markerBus.options.title === selectedBus.value?.bus) {
-            markerBus.setOpacity(1);
-            markerBus.setZIndexOffset(2000);
-            continue;
-        }
-        const markerRouteId = markerBus.options?.route_id;
-        if (markerRouteId === selectedRouteId) {
-            markerBus.setOpacity(1);
-            markerBus.setZIndexOffset(1000);
-        } else {
-            markerBus.setOpacity(0.35);
-            markerBus.setZIndexOffset(0);
-        }
-    }
 }
 
 watch(trip, () => {

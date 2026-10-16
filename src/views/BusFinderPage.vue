@@ -156,6 +156,7 @@ const mapBuses = computed(() => {
             v-if="row.bus.bus === selectedBus && row.bus.trip"
             :to="`/trips/${row.bus.trip}`"
             block
+            size="large"
             variant="tonal"
             color="primary"
             class="mt-3"

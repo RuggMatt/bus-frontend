@@ -469,6 +469,7 @@ const tripDays = computed(() => {
                   :to="{ path: `/trips/${encodeURIComponent(row.tripId)}`, query: { date: row.date } }"
                   :disabled="notInSchedule(row)"
                   block
+                  size="large"
                   variant="tonal"
                   color="primary"
                   class="mt-3"
