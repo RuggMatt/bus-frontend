@@ -1,21 +1,10 @@
 <script setup>
-import { LOCAL_AGENCY, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
-import { describePlatforms, mainHeadsigns, stationStops } from '../utils/stations';
-import { getStopHeadsigns } from '../api';
+import { routeNumber } from '../utils/routes';
+import { describePlatforms } from '../utils/stations';
 import { useStops } from '../composables/useStops';
-import { useQuery } from '@tanstack/vue-query';
-import { transitionLinkClick } from '../utils/viewTransition';
-import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
-import { formatDistance } from '../utils/geo';
-import { describeNextArrival } from '../utils/nextArrival';
-import { edmontonNow } from '../utils/serviceTime';
-import RouteBadge from './RouteBadge.vue';
-import TrainTimes from './TrainTimes.vue';
-import BusLink from './BusLink.vue';
-import ServiceAlertCard from './ServiceAlertCard.vue';
-import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
-import { alertsForStop } from '../utils/serviceAlerts';
-import { computed, ref, watch } from 'vue';
+import { useStationHeadsigns } from '../composables/useStationHeadsigns';
+import StopArrivalsList from './StopArrivalsList.vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 const props = defineProps({
@@ -45,76 +34,29 @@ const props = defineProps({
     type: Object,
     default: null,
   },
+  // an LRT station's other platform, loaded alongside so it can be swiped to
+  otherStop: {
+    type: Object,
+    default: null,
+  },
+  /** @type {import('vue').PropType<import('../composables/useStopArrivals').StopRouteGroup[]>} */
+  otherRouteGroups: {
+    type: Array,
+    default: () => [],
+  },
+  otherIsLoading: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 defineEmits(["close", "bus-click"]);
 
 const router = useRouter();
 
-// closures and detours naming this stop, in effect now or still to come
-const serviceAlerts = useServiceAlerts();
-const nowLocal = useNowLocal();
-const stopAlerts = computed(() => {
-  const { active, upcoming } = alertsForStop(serviceAlerts.value, props.stop.stop_id, nowLocal.value);
-  return [...active, ...upcoming];
-});
-
-// the day the next-bus labels count from
-const today = computed(() => edmontonNow().dateString);
-
-// only the tapped route's elements are named, as each name must be unique on the page
-/** @type {import('vue').Ref<string | null>} */
-const transitionKey = ref(null);
-
-/**
- * @param {import('../composables/useStopArrivals').StopRouteGroup} group
- * @param {string} name
- */
-const transitionName = (group, name) =>
-  group.key === transitionKey.value ? { viewTransitionName: name } : undefined;
-
-/**
- * Morphs the route number, name and buses into the route page. The route page's own
- * data is usually still loading, so what this page knows rides along in history state.
- *
- * @param {MouseEvent} event
- * @param {import('../composables/useStopArrivals').StopRouteGroup} group
- */
-const openRoute = (event, group) =>
-  transitionLinkClick(
-    event,
-    router,
-    {
-      path: `/routes/${group.route_id}`,
-      state: {
-        routeLongName: group.route_long_name,
-        buses: group.buses.map((bus) => ({ bus: bus.bus, trip: bus.trip_id })),
-      },
-    },
-    (named) => { transitionKey.value = named ? group.key : null; },
-  );
-
-
-/** @param {import('../composables/useStopArrivals').StopBus} bus */
-const positionLabel = (bus) => {
-  const distance = formatDistance(bus.distance);
-  if (bus.passed === null) return `${distance} from stop`;
-  return bus.passed ? `Passed ${distance} ago` : `${distance} away`;
-};
-
 // --- the other platforms or bays of the stop's station ---
-const { stops, keyedStops } = useStops();
-const platformStops = computed(() => stationStops(props.stop, stops.value ?? []));
-
-// where each route goes from here (and from the station's other platforms, to tell them apart)
-const headsignStopIds = computed(() =>
-  (platformStops.value.length ? platformStops.value.map((stop) => stop.stop_id) : [props.stop.stop_id]).sort());
-const { data: headsignRows } = useQuery({
-  queryKey: computed(() => ['stop-headsigns', headsignStopIds.value.join(',')]),
-  queryFn: () => getStopHeadsigns(headsignStopIds.value),
-  staleTime: Infinity,
-});
-const usualHeadsigns = computed(() => mainHeadsigns(headsignRows.value ?? []));
+const { keyedStops } = useStops();
+const { platformStops, headsignRows } = useStationHeadsigns(() => props.stop);
 
 const platforms = computed(() =>
   headsignRows.value ? describePlatforms(platformStops.value, headsignRows.value) : []);
@@ -142,86 +84,137 @@ const bayLabels = computed(() => {
 const stationName = computed(() =>
   (props.stop.parent_station && keyedStops.value[props.stop.parent_station]?.stop_name) || 'this station');
 
-// which way the list slides when switching platforms, so it moves like the toggle
-/** @type {import('vue').Ref<'left' | 'right' | null>} */
-const slideDirection = ref(null);
+// --- switching an LRT station's direction slides the lists, following a swipe ---
+const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const SETTLE_MS = 220;
+// how far, as a share of the width, a swipe must go to switch on release
+const COMMIT_SHARE = 0.25;
+// or how fast, in px per ms, for a flick
+const FLICK_SPEED = 0.4;
+// a touch must move this far before it's known to be a swipe or a scroll
+const AXIS_LOCK_PX = 8;
+
+/** @type {import('vue').Ref<HTMLElement | null>} */
+const viewport = ref(null);
+// how far the lists are moved sideways, in px
+const offset = ref(0);
+// the other platform's side: 1 to the right, -1 to the left
+const otherSide = ref(1);
+// whether the other platform's list is drawn beside the stop's
+const showOther = ref(false);
+// whether the lists are animating to rest, rather than following a finger
+const settling = ref(false);
+/** @type {string | null} where the lists are sliding to, switched to once they're there */
+let pendingStopId = null;
+// set from switching until the new stop shows, so nothing resets the lists in between
+let navigating = false;
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let settleTimer;
+
+const canSlide = computed(() => directionPlatforms.value && !!props.otherStop);
+
+const width = () => viewport.value?.clientWidth || window.innerWidth;
+
+/**
+ * Slides the lists to rest: across to the other platform, or back.
+ * @param {boolean} commit
+ */
+const settle = (commit) => {
+  settling.value = true;
+  pendingStopId = commit ? props.otherStop?.stop_id ?? null : null;
+  const target = commit ? -otherSide.value * width() : 0;
+  // nothing to animate when already there
+  if (offset.value === target) onSettled();
+  else offset.value = target;
+  // in case the transition never ends, e.g. the tab was hidden
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(onSettled, SETTLE_MS + 100);
+};
+
+const onSettled = () => {
+  if (!settling.value || navigating) return;
+  clearTimeout(settleTimer);
+  if (pendingStopId) {
+    // the lists reset once the new stop is showing, in the watch below
+    navigating = true;
+    router.replace(`/stops/${encodeURIComponent(pendingStopId)}`);
+    pendingStopId = null;
+    return;
+  }
+  settling.value = false;
+  showOther.value = false;
+};
+
+// the stop's own list now shows what slid in, so put everything back in place unseen
+watch(() => props.stop.stop_id, () => {
+  navigating = false;
+  clearTimeout(settleTimer);
+  settling.value = false;
+  offset.value = 0;
+  showOther.value = false;
+});
 
 /**
  * @param {string} stopId
- * @param {'left' | 'right'} [direction] which way to slide, else by where it sits in the toggle
  */
-const switchPlatform = (stopId, direction) => {
+const switchPlatform = async (stopId) => {
   if (!stopId || stopId === props.stop.stop_id) return;
+  if (!canSlide.value || reducedMotion || stopId !== props.otherStop?.stop_id) {
+    router.replace(`/stops/${encodeURIComponent(stopId)}`);
+    return;
+  }
+  // slides the way the toggle moves
   const ids = platforms.value.map((platform) => platform.stop_id);
-  slideDirection.value = direction ?? (ids.indexOf(stopId) > ids.indexOf(props.stop.stop_id) ? 'left' : 'right');
-  router.replace(`/stops/${encodeURIComponent(stopId)}`);
+  otherSide.value = ids.indexOf(stopId) > ids.indexOf(props.stop.stop_id) ? 1 : -1;
+  showOther.value = true;
+  await nextTick();
+  // a frame with the other list in place first, so the slide animates
+  requestAnimationFrame(() => settle(true));
 };
 
-// any other way to a new stop (the map, search) just swaps the list
-watch(() => props.stop.stop_id, () => {
-  setTimeout(() => { slideDirection.value = null; }, 300);
-});
-
-// --- swiping sideways on an LRT station switches direction, like the toggle ---
-const SWIPE_MIN_PX = 60;
-/** @type {{x: number, y: number} | null} */
-let swipeStart = null;
+/** @type {{x: number, y: number, time: number, axis: 'x' | 'y' | null} | null} */
+let touch = null;
 
 /** @param {TouchEvent} event */
 const onTouchStart = (event) => {
-  swipeStart = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY } : null;
+  if (!canSlide.value || settling.value || event.touches.length !== 1) {
+    touch = null;
+    return;
+  }
+  touch = { x: event.touches[0].clientX, y: event.touches[0].clientY, time: event.timeStamp, axis: null };
+};
+
+/** @param {TouchEvent} event */
+const onTouchMove = (event) => {
+  if (!touch) return;
+  const dx = event.touches[0].clientX - touch.x;
+  const dy = event.touches[0].clientY - touch.y;
+  if (!touch.axis) {
+    if (Math.abs(dx) < AXIS_LOCK_PX && Math.abs(dy) < AXIS_LOCK_PX) return;
+    // a mostly downward drag is a scroll, and leaves the lists alone
+    touch.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+  }
+  if (touch.axis !== 'x') return;
+  // with two directions the other one is on whichever side the finger pulls from
+  otherSide.value = dx < 0 ? 1 : -1;
+  showOther.value = true;
+  offset.value = dx;
 };
 
 /** @param {TouchEvent} event */
 const onTouchEnd = (event) => {
-  if (!swipeStart || !directionPlatforms.value) return;
-  const dx = event.changedTouches[0].clientX - swipeStart.x;
-  const dy = event.changedTouches[0].clientY - swipeStart.y;
-  swipeStart = null;
-  // mostly sideways, so scrolling the list doesn't switch
-  if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < 2 * Math.abs(dy)) return;
-  // with two directions, either way goes to the other one
-  const other = platforms.value.find((platform) => platform.stop_id !== props.stop.stop_id);
-  if (other) switchPlatform(other.stop_id, dx < 0 ? 'left' : 'right');
+  if (!touch) return;
+  const { axis, x, time } = touch;
+  touch = null;
+  if (axis !== 'x') return;
+  const dx = (event.changedTouches[0]?.clientX ?? x) - x;
+  const speed = Math.abs(dx) / Math.max(1, event.timeStamp - time);
+  settle(Math.abs(dx) > width() * COMMIT_SHARE || (Math.abs(dx) > 40 && speed > FLICK_SPEED));
 };
-
-/**
- * Where a route's next buses or trains go, the most common of them, or else where it
- * usually goes from this stop. Without the route number, as the badge is beside it.
- * @param {import('../composables/useStopArrivals').StopRouteGroup} group
- * @returns {string | null}
- */
-const groupHeadsign = (group) => {
-  const upcoming = [...group.buses.map((bus) => bus.headsign), ...group.upcoming.map((arrival) => arrival.headsign)];
-  /** @type {Map<string, number>} */
-  const counts = new Map();
-  upcoming.filter(Boolean).forEach((headsign) => counts.set(headsign, (counts.get(headsign) ?? 0) + 1));
-  const headsign = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0]
-    ?? usualHeadsigns.value.get(`${props.stop.stop_id}|${group.agency_name}|${group.route_id}`);
-  return headsign ? headsignWithoutRoute(headsign, group.route_id) : null;
-};
-
-/**
- * A bus's headsign, only when it's not the one its card is titled with.
- * @param {import('../composables/useStopArrivals').StopRouteGroup} group
- * @param {import('../composables/useStopArrivals').StopBus} bus
- */
-const otherHeadsign = (group, bus) => {
-  const headsign = headsignWithoutRoute(bus.headsign || '', group.route_id);
-  return headsign && headsign !== groupHeadsign(group) ? headsign : null;
-};
-
-/** @param {number} stopsAway */
-// "Next stop" would read twice beside the next stop's name
-const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : `${stopsAway} stops away`);
 </script>
 
 <template>
-  <div
-    class="stop-details"
-    @touchstart.passive="onTouchStart"
-    @touchend.passive="onTouchEnd"
-  >
+  <div class="stop-details">
     <div class="d-flex align-start pa-4">
       <div class="flex-grow-1">
         <div class="text-title-large">
@@ -284,191 +277,47 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
       </template>
     </div>
 
-    <Transition :name="slideDirection ? `platform-${slideDirection}` : 'platform'" mode="out-in">
-      <div :key="stop.stop_id">
-        <ServiceAlertCard
-          v-for="timing in stopAlerts"
-          :key="timing.alert.id"
-          :timing="timing"
-          :now="nowLocal"
-          show-routes
-          class="mx-4 mb-3"
+    <!-- the stop's list, with the other direction's beside it while swiping between them -->
+    <div
+      ref="viewport"
+      class="swipe-viewport"
+      :class="{ 'swipe-viewport--slidable': canSlide }"
+      @touchstart.passive="onTouchStart"
+      @touchmove.passive="onTouchMove"
+      @touchend.passive="onTouchEnd"
+      @touchcancel.passive="onTouchEnd"
+    >
+      <div
+        class="swipe-track"
+        :class="{ 'swipe-track--settling': settling }"
+        :style="offset ? { transform: `translateX(${offset}px)` } : undefined"
+        @transitionend.self="onSettled"
+      >
+        <StopArrivalsList
+          :stop="stop"
+          :route-groups="routeGroups"
+          :is-loading="isLoading"
+          :is-error="isError"
+          :selected-bus-id="selectedBusId"
+          :selected-bus-progress="selectedBusProgress"
+          @bus-click="$emit('bus-click', $event)"
         />
-
-        <v-alert v-if="isError" type="error" variant="tonal" class="mx-4 mb-3">
-          Buses for this stop could not be loaded.
-        </v-alert>
-
-        <div v-else-if="isLoading && !routeGroups.length" class="d-flex justify-center py-8">
-          <v-progress-circular indeterminate color="primary" />
-        </div>
-
-        <div v-else-if="!routeGroups.length" class="text-medium-emphasis px-4 pb-4">
-          No buses currently running to this stop.
-        </div>
-
-        <!-- buses come and go as the list refreshes, so ease them in rather than popping -->
-        <TransitionGroup name="arrival">
-          <v-card
-            v-for="group in routeGroups"
-            :key="group.key"
-            variant="outlined"
-            class="mx-4 mb-3"
-          >
-            <router-link
-              v-slot="{ href }"
-              :to="`/routes/${group.route_id}`"
-              custom
-            >
-              <a
-                :href="href"
-                class="route-header d-flex align-center pa-3"
-                :class="{ 'route-header--line': group.rail }"
-                :style="group.rail && routeColor(group.route_id) ? { borderLeftColor: routeColor(group.route_id) } : undefined"
-                :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
-                @click="openRoute($event, group)"
-              >
-                <!-- LRT lines go by name and colour in Edmonton, not number -->
-                <RouteBadge v-if="!group.rail" :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
-                <!-- where it's going says the direction, which the route's name doesn't -->
-                <div class="min-width-0" :class="{ 'ml-3': !group.rail }">
-                  <div v-if="groupHeadsign(group)" class="text-title-medium">
-                    {{ groupHeadsign(group) }}
-                  </div>
-                  <div
-                    :class="groupHeadsign(group) ? 'text-body-small text-medium-emphasis' : 'text-title-medium'"
-                    :style="transitionName(group, 'route-name')"
-                  >
-                    {{ group.route_long_name }}
-                  </div>
-                  <div
-                    v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
-                    class="text-body-small text-medium-emphasis"
-                  >
-                    {{ group.agency_name }}
-                  </div>
-                </div>
-                <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
-              </a>
-            </router-link>
-            <v-divider />
-            <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
-            <div v-if="group.upcoming.length" class="pa-3">
-              <TrainTimes :arrivals="group.upcoming" :color="routeColor(group.route_id)" />
-              <div class="d-flex align-center text-body-small text-medium-emphasis mt-2">
-                <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
-                Scheduled, not live
-              </div>
-            </div>
-            <v-skeleton-loader v-else-if="group.upcomingLoading" type="list-item-two-line" class="train-loader" />
-            <div v-else-if="!group.buses.length" class="d-flex align-start pa-3 text-body-medium text-medium-emphasis">
-              <v-icon icon="mdi-clock-outline" size="small" class="mr-2 mt-1" />
-              <div>
-                <div>No upcoming arrivals</div>
-                <div class="text-body-small">
-                  {{ describeNextArrival(group.nextArrival, today, group.rail ? 'train' : 'bus') }}
-                </div>
-              </div>
-            </div>
-            <v-list v-else density="compact" lines="two" class="py-0">
-              <TransitionGroup name="arrival">
-                <v-list-item
-                  v-for="bus in group.buses"
-                  :key="bus.bus"
-                  :active="bus.bus === selectedBusId"
-                  color="primary"
-                  @click="$emit('bus-click', bus)"
-                >
-                  <!-- kept beside the title so it stays put when the details open below -->
-                  <div class="d-flex align-center">
-                    <div class="flex-grow-1 min-width-0">
-                      <!-- the card is titled with where they go, so a bus only says so when it differs -->
-                      <template v-if="otherHeadsign(group, bus)">
-                        <v-list-item-title>{{ otherHeadsign(group, bus) }}</v-list-item-title>
-                        <v-list-item-subtitle>
-                          <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" /> · {{ positionLabel(bus) }}
-                        </v-list-item-subtitle>
-                      </template>
-                      <template v-else>
-                        <v-list-item-title>
-                          <BusLink :bus="bus.bus" :style="transitionName(group, `bus-${bus.bus}`)" />
-                        </v-list-item-title>
-                        <v-list-item-subtitle>{{ positionLabel(bus) }}</v-list-item-subtitle>
-                      </template>
-                    </div>
-                    <div v-if="bus.etaMinutes !== null" class="text-right flex-shrink-0 ml-2">
-                      <div class="text-title-medium">
-                        {{ bus.etaMinutes < 1 ? 'Due' : `≈ ${bus.etaMinutes} min` }}
-                      </div>
-                      <v-chip
-                        :color="scheduleStatus(bus.offsetMinutes).color"
-                        size="x-small"
-                        variant="tonal"
-                      >
-                        {{ scheduleStatus(bus.offsetMinutes).label }}
-                      </v-chip>
-                    </div>
-                  </div>
-                  <v-expand-transition>
-                    <div v-if="bus.bus === selectedBusId" class="bus-details text-body-medium">
-                      <div v-if="selectedBusProgress?.stopsAway">
-                        <v-icon icon="mdi-map-marker-distance" size="small" class="mr-1" />
-                        <b>{{ formatStopsAway(selectedBusProgress.stopsAway) }}</b>
-                      </div>
-                      <div v-if="selectedBusProgress?.nextStopName">
-                        <v-icon icon="mdi-bus-stop" size="small" class="mr-1" />
-                        Next stop: {{ selectedBusProgress.nextStopName }}
-                      </div>
-                      <div>
-                        <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
-                        Scheduled here at {{ formatScheduledTime(bus.scheduledTime) }}
-                      </div>
-                      <v-btn
-                        :to="`/trips/${bus.trip_id}`"
-                        block
-                        variant="tonal"
-                        color="primary"
-                        class="mt-3"
-                        @click.stop
-                      >
-                        Trip details
-                      </v-btn>
-                    </div>
-                  </v-expand-transition>
-                </v-list-item>
-              </TransitionGroup>
-            </v-list>
-          </v-card>
-        </TransitionGroup>
+        <StopArrivalsList
+          v-if="showOther && otherStop"
+          class="swipe-other"
+          :style="{ left: `${otherSide * 100}%` }"
+          :stop="otherStop"
+          :route-groups="otherRouteGroups"
+          :is-loading="otherIsLoading"
+          aria-hidden="true"
+          inert
+        />
       </div>
-    </Transition>
+    </div>
   </div>
 </template>
 
 <style scoped>
-/* anchors the cards while they fade out */
-.stop-details {
-  position: relative;
-}
-
-.route-header {
-  color: inherit;
-  text-decoration: none;
-}
-
-/* a bar in the line's colour, as on the LRT maps */
-.route-header--line {
-  border-left: 6px solid rgb(var(--v-theme-primary));
-}
-
-.route-header:hover {
-  background: rgba(var(--v-theme-on-surface), 0.04);
-}
-
-.min-width-0 {
-  min-width: 0;
-}
-
 /* long headsigns share the width instead of pushing past the panel */
 .platform-toggle {
   width: 100%;
@@ -479,71 +328,27 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
   min-width: 0;
 }
 
-.train-loader {
-  background: transparent;
+/* clips sideways only, so the cards' shadows and fades still show above and below */
+.swipe-viewport {
+  overflow-x: clip;
 }
 
-.bus-details {
-  color: rgb(var(--v-theme-on-surface));
-  padding-top: 8px;
+/* sideways drags are the page's, up and down still scrolls */
+.swipe-viewport--slidable {
+  touch-action: pan-y;
 }
 
-.bus-details > div:not(:last-child) {
-  margin-bottom: 2px;
+.swipe-track {
+  position: relative;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .expand-transition-enter-active,
-  .expand-transition-leave-active {
-    transition: none !important;
-  }
+.swipe-track--settling {
+  transition: transform 220ms cubic-bezier(0.2, 0, 0, 1); /* SETTLE_MS */
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  /* switching platforms slides the list the way the toggle moved */
-  .platform-left-enter-active,
-  .platform-left-leave-active,
-  .platform-right-enter-active,
-  .platform-right-leave-active {
-    transition: opacity 120ms ease, transform 120ms ease;
-  }
-
-  .platform-left-leave-to,
-  .platform-right-enter-from {
-    opacity: 0;
-    transform: translateX(-32px);
-  }
-
-  .platform-left-enter-from,
-  .platform-right-leave-to {
-    opacity: 0;
-    transform: translateX(32px);
-  }
-
-  .arrival-enter-active {
-    transition: opacity 400ms ease-out, transform 400ms ease-out;
-  }
-
-  /* rows already in the list slide to make room instead of jumping */
-  .arrival-move {
-    transition: transform 400ms ease;
-  }
-
-  .arrival-enter-from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-
-  /* taken out of the flow so the rows below can slide up while it fades */
-  .arrival-leave-active {
-    left: 0;
-    position: absolute;
-    right: 0;
-    transition: opacity 250ms ease-in;
-  }
-
-  .arrival-leave-to {
-    opacity: 0;
-  }
+.swipe-other {
+  position: absolute;
+  top: 0;
+  width: 100%;
 }
 </style>

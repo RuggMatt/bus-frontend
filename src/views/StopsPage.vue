@@ -47,7 +47,10 @@ const otherPlatform = computed(() =>
   platformStops.value.length === 2
     ? platformStops.value.find((stop) => stop.stop_id !== selectedStop.value?.stop_id) ?? null
     : null);
-useStopArrivals(otherPlatform);
+const {
+  routeGroups: otherRouteGroups,
+  isLoading: otherIsLoading,
+} = useStopArrivals(otherPlatform);
 const liveBuses = computed(() => routeGroups.value.flatMap((group) => group.buses));
 
 const map = ref(null);
@@ -323,6 +326,9 @@ const nearbyStops = computed(() => {
         :is-error="isError"
         :selected-bus-id="selectedBusId"
         :selected-bus-progress="selectedBusProgress"
+        :other-stop="otherPlatform"
+        :other-route-groups="otherRouteGroups"
+        :other-is-loading="otherIsLoading"
         @close="clearStop"
         @bus-click="selectBus"
       />
