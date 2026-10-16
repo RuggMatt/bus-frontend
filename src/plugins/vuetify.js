@@ -2,12 +2,8 @@ import { createVuetify } from 'vuetify';
 import '@mdi/font/css/materialdesignicons.css'
 import 'roboto-fontface/css/roboto/roboto-fontface.css'
 import 'vuetify/styles'
-import * as components from 'vuetify/components'
-import * as directives from 'vuetify/directives'
 
 export default createVuetify({
-  components,
-  directives,
   display: {
     thresholds: {
       md: 960,

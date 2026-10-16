@@ -1,8 +1,10 @@
 import { defineConfig } from "vite"
 import vue from '@vitejs/plugin-vue'
+import vuetify from 'vite-plugin-vuetify'
 
 export default defineConfig({
-  plugins: [vue()],
+  // imports only the vuetify components and directives the templates use
+  plugins: [vue(), vuetify({ autoImport: true })],
   optimizeDeps: {
     include: [
       'vuetify/components/VOverlay',
