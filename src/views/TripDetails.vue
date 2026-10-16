@@ -788,9 +788,10 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
       <v-card v-else-if="stopRows.length" variant="outlined" class="mt-3">
         <template v-for="(row, index) in stopRows" :key="row.stop.stop_sequence">
           <v-divider v-if="index > 0" />
+          <!-- top-aligned, so the stop's name sits level with its time however tall either side is -->
           <div
             v-ripple
-            class="stop-row d-flex align-center pa-3"
+            class="stop-row d-flex align-start pa-3"
             :class="{ 'stop-row--expanded': expandedSequence === row.stop.stop_sequence }"
             role="button"
             tabindex="0"
