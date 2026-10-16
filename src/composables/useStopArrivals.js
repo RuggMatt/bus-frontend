@@ -321,8 +321,11 @@ export const useStopArrivals = (stop, at = ref(null)) => {
         };
       })
       .filter((group) => !liveKeys.has(group.key))
+      // LRT lines by name, so they keep their places when switching platforms
       .sort(
         (a, b) =>
+          Number(b.rail) - Number(a.rail) ||
+          (a.rail && b.rail ? a.route_long_name.localeCompare(b.route_long_name) : 0) ||
           (a.upcoming[0]?.seconds ?? a.nextArrival?.seconds ?? Infinity) -
             (b.upcoming[0]?.seconds ?? b.nextArrival?.seconds ?? Infinity) ||
           a.route_id.localeCompare(b.route_id, undefined, { numeric: true }),
