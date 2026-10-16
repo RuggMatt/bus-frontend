@@ -27,6 +27,17 @@ let handingOver = false;
  */
 export let rememberedHomeView = null;
 
+/**
+ * Whether the navigation in progress is a back or forward step, rather than a link or tab.
+ * Only those bring back the bus that was open on the map.
+ */
+export let navigatingByHistory = false;
+
+/** @param {boolean} value */
+export const setNavigatingByHistory = (value) => {
+    navigatingByHistory = value;
+};
+
 /** @param {typeof rememberedHomeView} view */
 export const rememberHomeView = (view) => {
     rememberedHomeView = view;

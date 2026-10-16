@@ -1,6 +1,8 @@
+import { nextTick } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 import { routeNumber } from "../utils/routes";
 import { pageTitle } from "../utils/pageTitle";
+import { setNavigatingByHistory } from "../plugins/sharedMap";
 
 const routes = [
   {
@@ -93,6 +95,13 @@ const router = createRouter({
     if (to.path === from.path) return false;
     return { top: 0 };
   },
+});
+
+// back and forward bring the map's open bus back; links and tabs open the map clean
+router.options.history.listen((to, from, info) => setNavigatingByHistory(info.type === "pop"));
+router.afterEach(() => {
+  // after the new page has rendered
+  nextTick(() => setNavigatingByHistory(false));
 });
 
 // the plain title for every page. pages that load a name, like a route's, refine it
