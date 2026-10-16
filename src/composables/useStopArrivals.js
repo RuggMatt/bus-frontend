@@ -1,9 +1,11 @@
-import { useQueries, useQuery } from "@tanstack/vue-query";
-import { computed, ref } from "vue";
-import { getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
+import { keepPreviousData, useQueries, useQuery } from "@tanstack/vue-query";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { getServiceDates, getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
+import { serviceDatesFrom } from "../utils/serviceCalendar";
 import { alongRouteMetres, distanceMetres } from "../utils/geo";
 import { edmontonNow, scheduledSecondsNear, scheduleWindow, secondsToTime } from "../utils/serviceTime";
-import { nextArrivalByRoute } from "../utils/nextArrival";
+import { nextArrivalByRoute, upcomingArrivals } from "../utils/nextArrival";
+import { RAIL_ROUTE_TYPE } from "../utils/routes";
 import { liveBusesQuery } from "./useBuses";
 
 // how far either side of now a trip can be scheduled and still be matched to a live bus
@@ -44,6 +46,10 @@ const LATEST_PREVIOUS_DAY_SECONDS = 6 * 60 * 60;
  * @property {StopBus[]} buses Nearest first; empty for a route with no bus on the way
  * @property {import("../utils/nextArrival").NextArrival | null} nextArrival When the next bus is
  *   scheduled, for a route with no bus on the way; null when live, or nothing is scheduled in the coming week
+ * @property {boolean} rail An LRT line, which isn't tracked live
+ * @property {import("../utils/nextArrival").UpcomingArrival[]} upcoming An LRT line's next few
+ *   scheduled arrivals, soonest first; empty for buses
+ * @property {boolean} upcomingLoading Whether an LRT line's calendar is still loading
  */
 
 /**
@@ -116,8 +122,12 @@ export const useStopArrivals = (stop, at = ref(null)) => {
     return map;
   });
 
+  // LRT isn't in the bus feed, and its schedule is shown on its own
   const matchedBuses = computed(() =>
-    (buses.value || []).filter((bus) => scheduleByTrip.value.has(String(bus.trip))),
+    (buses.value || []).filter((bus) => {
+      const entry = scheduleByTrip.value.get(String(bus.trip));
+      return !!entry && entry.route_type !== RAIL_ROUTE_TYPE;
+    }),
   );
 
   const tripIds = computed(() => [...new Set(matchedBuses.value.map((bus) => String(bus.trip)))]);
@@ -185,6 +195,9 @@ export const useStopArrivals = (stop, at = ref(null)) => {
         agency_name: entry.agency_name,
         buses: [],
         nextArrival: null,
+        rail: false,
+        upcoming: [],
+        upcomingLoading: false,
       };
       group.buses.push({
         bus: bus.bus,
@@ -255,6 +268,40 @@ export const useStopArrivals = (stop, at = ref(null)) => {
     ),
   );
 
+  // the LRT countdowns tick on their own, as nothing else refreshes for a train
+  const clock = ref(edmontonNow());
+  /** @type {ReturnType<typeof setInterval> | undefined} */
+  let clockTimer;
+  onMounted(() => {
+    clockTimer = setInterval(() => {
+      clock.value = edmontonNow();
+    }, 30 * 1000);
+  });
+  onBeforeUnmount(() => clearInterval(clockTimer));
+
+  const railEntries = computed(() => (schedule.value || []).filter((entry) => entry.route_type === RAIL_ROUTE_TYPE));
+
+  // which of the LRT's service variants actually run today
+  const railServiceIds = computed(() => [...new Set(railEntries.value.map((entry) => entry.service_id))].sort());
+  const { data: railServiceDateRows, isPending: railDatesPending, isError: railDatesError } = useQuery({
+    queryKey: computed(() => ["rail-service-dates", railServiceIds.value.join(",")]),
+    queryFn: () => getServiceDates(railServiceIds.value),
+    enabled: () => railServiceIds.value.length > 0,
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+  });
+  // the days in each service_id stand in when the calendar can't be loaded
+  const railServiceDates = computed(() =>
+    railServiceDateRows.value?.length ? serviceDatesFrom(railServiceDateRows.value) : null,
+  );
+  const railLoading = computed(() => railServiceIds.value.length > 0 && railDatesPending.value && !railDatesError.value);
+
+  const upcomingByRoute = computed(() =>
+    upcomingArrivals(railEntries.value, clock.value.dateString, clock.value.secondsSinceMidnight, {
+      serviceDates: railServiceDates.value,
+    }),
+  );
+
   /** @type {import("vue").ComputedRef<StopRouteGroup[]>} */
   const quietGroups = computed(() => {
     const liveKeys = new Set(liveGroups.value.map((group) => group.key));
@@ -268,12 +315,16 @@ export const useStopArrivals = (stop, at = ref(null)) => {
           agency_name: route.agency_name,
           buses: [],
           nextArrival: nextArrivals.value.get(key) ?? null,
+          rail: route.route_type === RAIL_ROUTE_TYPE,
+          upcoming: route.route_type === RAIL_ROUTE_TYPE && !railLoading.value ? upcomingByRoute.value.get(key) ?? [] : [],
+          upcomingLoading: route.route_type === RAIL_ROUTE_TYPE && railLoading.value,
         };
       })
       .filter((group) => !liveKeys.has(group.key))
       .sort(
         (a, b) =>
-          (a.nextArrival?.seconds ?? Infinity) - (b.nextArrival?.seconds ?? Infinity) ||
+          (a.upcoming[0]?.seconds ?? a.nextArrival?.seconds ?? Infinity) -
+            (b.upcoming[0]?.seconds ?? b.nextArrival?.seconds ?? Infinity) ||
           a.route_id.localeCompare(b.route_id, undefined, { numeric: true }),
       );
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeNextArrival, nextArrivalByRoute } from "../src/utils/nextArrival";
+import { describeNextArrival, nextArrivalByRoute, upcomingArrivals } from "../src/utils/nextArrival";
 
 const SATURDAY = "2026-10-17";
 const MONDAY = "2026-10-19";
@@ -119,5 +119,81 @@ describe("describeNextArrival", () => {
     [null, "No buses scheduled in the next week"],
   ])("describes %o", (arrival, expected) => {
     expect(describeNextArrival(arrival && { ...arrival, seconds: 0 }, SATURDAY)).toBe(expected);
+  });
+});
+
+describe("describeNextArrival for trains", () => {
+  it("names the vehicle", () => {
+    expect(describeNextArrival({ time: "05:30:00", daysAhead: 1, seconds: 0 }, SATURDAY, "train")).toBe("Next train tomorrow at 5:30 AM");
+    expect(describeNextArrival(null, SATURDAY, "train")).toBe("No trains scheduled in the next week");
+  });
+});
+
+describe("upcomingArrivals", () => {
+  /**
+   * @param {string} tripId
+   * @param {string} days MTWTFSS
+   * @param {string} time
+   * @param {string} [headsign]
+   */
+  const entry = (tripId, days, time, headsign = "Century Park") => ({
+    trip_id: tripId,
+    route_id: "021R",
+    route_long_name: "Capital Line",
+    agency_name: "Edmonton Transit Service",
+    route_type: "0",
+    trip_headsign: headsign,
+    service_id: `DX-021R-Service-1-26-09-${days}`,
+    arrival_time: time,
+    stop_sequence: "5",
+  });
+  const NOON = 12 * 3600;
+
+  it("keeps today's next few, soonest first, with minutes from now", () => {
+    const entries = [
+      entry("a", WEEKDAYS, "12:20:00"),
+      entry("b", WEEKDAYS, "11:58:00"),
+      entry("c", WEEKDAYS, "12:05:30", "Health Sciences"),
+      entry("d", SATURDAYS, "12:10:00"),
+      entry("e", WEEKDAYS, "12:00:00"),
+      entry("f", WEEKDAYS, "12:30:00"),
+      entry("g", WEEKDAYS, "12:40:00"),
+    ];
+    const arrivals = upcomingArrivals(entries, MONDAY, NOON + 20).get(key("021R"));
+    expect(arrivals?.map((arrival) => [arrival.trip_id, arrival.minutes, arrival.headsign])).toEqual([
+      ["e", 0, "Century Park"],
+      ["c", 5, "Health Sciences"],
+      ["a", 19, "Century Park"],
+      ["f", 29, "Century Park"],
+    ]);
+  });
+
+  it("keeps only the services the calendar runs today", () => {
+    const entries = [
+      entry("variant-1", WEEKDAYS, "12:05:00"),
+      { ...entry("variant-3", WEEKDAYS, "12:05:00"), service_id: "DX-021R-Weekday-3-26-09-1111100" },
+      { ...entry("special", WEEKDAYS, "12:07:00"), service_id: "DX-021R-Weekday-5-26-09-1111100" },
+    ];
+    const serviceDates = new Map([
+      [entries[0].service_id, new Set([MONDAY])],
+      ["DX-021R-Weekday-3-26-09-1111100", new Set(["2026-10-20"])],
+      ["DX-021R-Weekday-5-26-09-1111100", new Set(["2026-09-30"])],
+    ]);
+    const arrivals = upcomingArrivals(entries, MONDAY, NOON, { serviceDates }).get(key("021R"));
+    expect(arrivals?.map((arrival) => arrival.trip_id)).toEqual(["variant-1"]);
+  });
+
+  it("keeps a train once when several variants claim the day", () => {
+    const entries = [
+      entry("variant-1", WEEKDAYS, "12:05:00"),
+      { ...entry("variant-3", WEEKDAYS, "12:05:00"), service_id: "DX-021R-Weekday-3-26-09-1111100" },
+    ];
+    expect(upcomingArrivals(entries, MONDAY, NOON).get(key("021R"))).toHaveLength(1);
+  });
+
+  it("counts yesterday's trips running past midnight", () => {
+    // Saturday 12:30 AM, on Friday's service
+    const arrivals = upcomingArrivals([entry("late", WEEKDAYS, "24:40:00")], SATURDAY, 30 * 60).get(key("021R"));
+    expect(arrivals?.map((arrival) => [arrival.seconds, arrival.minutes])).toEqual([[40 * 60, 10]]);
   });
 });

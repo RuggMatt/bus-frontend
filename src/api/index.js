@@ -643,6 +643,7 @@ export const getServiceDates = async (serviceIds) => {
  * @property {string} route_id
  * @property {string} route_long_name
  * @property {string} agency_name The transit agency running the route, e.g. "St. Albert Transit"
+ * @property {string} route_type GTFS route type, "0" for LRT and "3" for bus
  * @property {string} trip_headsign
  * @property {string} service_id
  * @property {string} arrival_time HH:MM:SS, 24:00:00 or later for times after midnight on the service day
@@ -664,7 +665,7 @@ export const getStopSchedule = async (stopId, timeRanges) => {
     .map(([from, to]) => `arrival_time between '${from}' and '${to}'`)
     .join(" OR ");
   const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = '${safeStopId}' AND (${timeFilter})`;
-  const select = "trip_id,route_id,route_long_name,agency_name,trip_headsign,service_id,arrival_time,stop_sequence";
+  const select = "trip_id,route_id,route_long_name,agency_name,route_type,trip_headsign,service_id,arrival_time,stop_sequence";
   const pageSize = 1000;
   const query = async (params) => {
     const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&${params}`;
@@ -729,6 +730,7 @@ export const getStopSchedule = async (stopId, timeRanges) => {
  * @property {string} route_id
  * @property {string} route_long_name
  * @property {string} agency_name
+ * @property {string} route_type GTFS route type, "0" for LRT and "3" for bus
  */
 
 /**
@@ -741,7 +743,7 @@ export const getStopRoutes = async (stopId) => {
   // Escape single quotes to prevent SoQL injection
   const safeStopId = String(stopId).replace(/'/g, "''");
   const where = `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = '${safeStopId}'`;
-  const fields = "route_id,route_long_name,agency_name";
+  const fields = "route_id,route_long_name,agency_name,route_type";
   const url = `https://data.edmonton.ca/resource/4fvt-p2se.json?$where=${encodeURIComponent(where)}&$select=${fields}&$group=${fields}&$order=route_id`;
   const result = await fetch(url, {
     headers: {
