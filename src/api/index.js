@@ -757,6 +757,32 @@ export const getStopRoutes = async (stopId) => {
 };
 
 /**
+ * @typedef {Object} Agency
+ * @property {string} agency_id
+ * @property {string} agency_name
+ * @property {string} [agency_url]
+ * @property {string} [agency_fare_url]
+ * @property {string} [agency_phone]
+ */
+
+/**
+ * Fetches the transit agencies in the GTFS feed, with their website, fares page and phone.
+ * @returns {Promise<Agency[]>}
+ */
+export const getAgencies = async () => {
+  const result = await fetch("https://data.edmonton.ca/resource/isug-45sj.json", {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
  * @typedef {Object} RouteAgency
  * @property {string} route_id
  * @property {string} agency_name
