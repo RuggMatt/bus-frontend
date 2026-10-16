@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busesByHeadsign, directionLabels, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
+import { busesByHeadsign, directionLabels, filterRoutes, routeTypeLabel, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
 
 const trip = (trip_id, direction_id, shape_id, trip_headsign = "") => ({ trip_id, direction_id, shape_id, trip_headsign });
 
@@ -80,5 +80,41 @@ describe("busesByHeadsign", () => {
   it("puts buses on unknown trips last", () => {
     const buses = [{ bus: "1", trip: 99 }, { bus: "2", trip: 2 }];
     expect(busesByHeadsign(buses, summaries, "008").map((group) => group.headsign)).toEqual(["University", null]);
+  });
+});
+
+describe("filterRoutes", () => {
+  const routes = [
+    { route_id: "008", route_long_name: "Abbottsfield - Downtown - University", route_type: "3" },
+    { route_id: "021R", route_long_name: "Capital Line", route_type: "0" },
+    { route_id: "201", route_long_name: "St. Albert Exchange", route_type: "3" },
+  ];
+  const ids = (list) => list.map((route) => route.route_id);
+  const agencies = new Map([["008", "Edmonton Transit Service"], ["021R", "Edmonton Transit Service"], ["201", "St. Albert Transit"]]);
+
+  it("searches names, ids and route numbers", () => {
+    expect(ids(filterRoutes(routes, { search: "capital" }))).toEqual(["021R"]);
+    expect(ids(filterRoutes(routes, { search: "8" }))).toEqual(["008"]);
+    expect(ids(filterRoutes(routes, { search: "" }))).toEqual(["008", "021R", "201"]);
+  });
+
+  it("filters by type and agency", () => {
+    expect(ids(filterRoutes(routes, { type: "0" }))).toEqual(["021R"]);
+    expect(ids(filterRoutes(routes, { type: "3", agency: "St. Albert Transit" }, { agencies }))).toEqual(["201"]);
+  });
+
+  it("ignores the agency until agencies load", () => {
+    expect(ids(filterRoutes(routes, { agency: "St. Albert Transit" }, { agencies: new Map() }))).toHaveLength(3);
+  });
+
+  it("keeps live or disrupted routes", () => {
+    const context = { liveRoutes: new Set(["008", "201"]), disruptedRoutes: new Set(["201"]) };
+    expect(ids(filterRoutes(routes, { live: true }, context))).toEqual(["008", "201"]);
+    expect(ids(filterRoutes(routes, { live: true, disrupted: true }, context))).toEqual(["201"]);
+  });
+
+  it("labels route types", () => {
+    expect(routeTypeLabel("0")).toBe("LRT");
+    expect(routeTypeLabel("3")).toBe("Bus");
   });
 });

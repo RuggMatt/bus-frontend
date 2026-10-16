@@ -89,3 +89,39 @@ export const busesByHeadsign = (buses, summaries, routeId) => {
       String(a.headsign).localeCompare(String(b.headsign)))
     .map(({ headsign, buses: groupBuses }) => ({ headsign, buses: groupBuses.sort(busOrder) }));
 };
+
+// GTFS route_type values, as the routes dataset describes them
+const ROUTE_TYPE_LABELS = { 0: "LRT", 3: "Bus" };
+
+/** @param {string} routeType */
+export const routeTypeLabel = (routeType) => ROUTE_TYPE_LABELS[routeType] ?? "Other";
+
+/**
+ * @typedef {Object} RouteFilters
+ * @property {string} [search] matched against the long name and route id
+ * @property {string|null} [type] a GTFS route_type
+ * @property {string|null} [agency] an agency_name
+ * @property {boolean} [live] only routes with a bus on them now
+ * @property {boolean} [disrupted] only routes with a service alert in effect
+ */
+
+/**
+ * The routes list's search and filters. A route with no known agency is kept under any
+ * agency until the agencies load.
+ * @template {{route_id: string, route_long_name?: string, route_type?: string}} R
+ * @param {R[]} routes
+ * @param {RouteFilters} filters
+ * @param {{agencies?: Map<string, string>, liveRoutes?: Set<string>, disruptedRoutes?: Set<string>}} context
+ * @returns {R[]}
+ */
+export const filterRoutes = (routes, filters, { agencies, liveRoutes, disruptedRoutes } = {}) => {
+  const term = (filters.search ?? "").trim().toLowerCase();
+  return routes.filter((route) => {
+    if (term && !(route.route_long_name ?? "").toLowerCase().includes(term) && !route.route_id.toLowerCase().includes(term)) return false;
+    if (filters.type && route.route_type !== filters.type) return false;
+    if (filters.agency && agencies?.size && agencies.get(route.route_id) !== filters.agency) return false;
+    if (filters.live && !liveRoutes?.has(route.route_id)) return false;
+    if (filters.disrupted && !disruptedRoutes?.has(route.route_id)) return false;
+    return true;
+  });
+};
