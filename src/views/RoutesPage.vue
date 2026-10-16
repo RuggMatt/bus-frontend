@@ -2,7 +2,10 @@
 import { useRoutes } from '../composables/useRoutes';
 import { ref, computed } from 'vue';
 import { useBuses } from '../composables/useBuses';
-import { RouterLink, useRouter } from 'vue-router';
+import { useRouter } from 'vue-router';
+import { keepPreviousData, useQuery } from '@tanstack/vue-query';
+import { getTripSummaries } from '../api';
+import { busesByHeadsign } from '../utils/routes';
 import RouteBadge from '../components/RouteBadge.vue';
 import { transitionLinkClick } from '../utils/viewTransition';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
@@ -10,15 +13,50 @@ import { routesWithActiveAlerts } from '../utils/serviceAlerts';
 
 const { routes } = useRoutes();
 const { buses } = useBuses();
-// const { trips } = useTrips();
 
-/**
- * @return {import("../api").Bus[]}
- */
-const getCurrentBusesOnRoute = (routeId) => {
-  if (!buses.value || !routes.value) return "";
-  return buses.value.filter(bus => bus.route_id === routeId)
+// each route's live buses, looked up once per snapshot rather than per row
+const busesByRoute = computed(() => {
+  /** @type {Map<string, import("../api").Bus[]>} */
+  const byRoute = new Map();
+  for (const bus of buses.value ?? []) {
+    if (!bus.route_id) continue;
+    if (!byRoute.has(bus.route_id)) byRoute.set(bus.route_id, []);
+    byRoute.get(bus.route_id)?.push(bus);
+  }
+  return byRoute;
+});
+
+/** @type {import('vue').Ref<string | null>} */
+const expandedRouteId = ref(null);
+
+/** @param {string} routeId */
+const toggleRoute = (routeId) => {
+  expandedRouteId.value = expandedRouteId.value === routeId ? null : routeId;
 };
+
+const expandedBuses = computed(() =>
+  expandedRouteId.value ? busesByRoute.value.get(expandedRouteId.value) ?? [] : []);
+
+// the expanded route's headsigns, shared with the bus page and finders
+const tripIds = computed(() => [...new Set(expandedBuses.value.map((bus) => String(bus.trip)))].sort());
+const { data: tripSummaries, isFetching: summariesFetching } = useQuery({
+  queryKey: computed(() => ['trip-summaries', tripIds.value]),
+  queryFn: () => getTripSummaries(tripIds.value),
+  enabled: () => tripIds.value.length > 0,
+  staleTime: Infinity,
+  placeholderData: keepPreviousData,
+});
+
+// kept data covers a refresh, but another route's needs its own lookup first
+const summariesLoading = computed(() => {
+  const known = new Set((tripSummaries.value ?? []).map((summary) => String(summary.trip_id)));
+  return summariesFetching.value && tripIds.value.some((tripId) => !known.has(tripId));
+});
+
+const headsignGroups = computed(() =>
+  expandedRouteId.value
+    ? busesByHeadsign(expandedBuses.value, tripSummaries.value ?? [], expandedRouteId.value)
+    : []);
 
 const router = useRouter();
 
@@ -79,50 +117,114 @@ const filteredRoutes = computed(() => {
           class="mb-4"
           clearable
         />
-        <v-list two-line>
-          <template v-for="route in filteredRoutes" :key="route.route">
-            <v-list-item>
-              <v-list-item-content>
-                <v-list-item-title>
-                  <RouteBadge
-                    :route-id="route.route_id"
+        <v-card variant="outlined">
+          <template v-for="(route, index) in filteredRoutes" :key="route.route_id">
+            <v-divider v-if="index > 0" />
+            <div
+              v-ripple
+              class="route-row d-flex align-center pa-3"
+              :class="{ 'route-row--expanded': expandedRouteId === route.route_id }"
+              role="button"
+              tabindex="0"
+              :aria-expanded="expandedRouteId === route.route_id"
+              @click="toggleRoute(route.route_id)"
+              @keydown.enter.prevent="toggleRoute(route.route_id)"
+              @keydown.space.prevent="toggleRoute(route.route_id)"
+            >
+              <RouteBadge
+                :route-id="route.route_id"
+                size="small"
+                class="mr-2 flex-shrink-0"
+                :style="transitionName(route.route_id, 'route-number')"
+              />
+              <v-icon
+                v-if="disruptedRoutes.has(route.route_id)"
+                v-tooltip="'Service disruption'"
+                icon="mdi-alert"
+                color="warning"
+                size="small"
+                class="mr-2 flex-shrink-0"
+                aria-label="Service disruption"
+                role="img"
+              />
+              <span class="text-body-large flex-grow-1 min-width-0" :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span>
+              <span
+                v-if="busesByRoute.get(route.route_id)?.length"
+                class="text-body-medium text-medium-emphasis flex-shrink-0 ml-2 text-no-wrap"
+                :aria-label="`${busesByRoute.get(route.route_id)?.length} active buses`"
+              >
+                <v-icon icon="mdi-bus" size="small" />
+                {{ busesByRoute.get(route.route_id)?.length }}
+              </span>
+            </div>
+            <v-expand-transition>
+              <div v-if="expandedRouteId === route.route_id" class="route-details text-body-medium px-3 pb-3">
+                <div v-if="!expandedBuses.length" class="text-medium-emphasis">
+                  No buses on this route right now
+                </div>
+                <v-skeleton-loader v-else-if="summariesLoading" type="text" class="group-loader" />
+                <div v-for="group in headsignGroups" v-else :key="group.headsign ?? ''" class="mb-1">
+                  <div class="text-title-small">
+                    {{ group.headsign ?? 'Not in the current schedule' }}
+                  </div>
+                  <v-chip
+                    v-for="bus in group.buses"
+                    :key="bus.bus"
+                    :to="`/buses/${encodeURIComponent(bus.bus)}`"
+                    class="mr-1 mt-1"
+                    color="primary"
                     size="small"
-                    class="mr-2"
-                    :style="transitionName(route.route_id, 'route-number')"
-                  /><v-icon
-                    v-if="disruptedRoutes.has(route.route_id)"
-                    v-tooltip="'Service disruption'"
-                    icon="mdi-alert"
-                    color="warning"
-                    size="small"
-                    class="mr-2"
-                    aria-label="Service disruption"
-                    role="img"
-                  /><span :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span>
-                </v-list-item-title>
-                <v-list-item-subtitle>
-                  <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/buses/${encodeURIComponent(bus.bus)}`">
-                    <v-chip class="ma-1" color="primary" text-color="white" small>
-                      {{ bus.bus }}
-                    </v-chip>
-                  </router-link>
-                </v-list-item-subtitle>
-              </v-list-item-content>
-              <template #append>
+                    prepend-icon="mdi-bus"
+                  >
+                    {{ bus.bus }}
+                  </v-chip>
+                </div>
                 <v-btn
-                  icon
                   :href="`/routes/${route.route_id}`"
-                  :aria-label="`Route ${route.route_long_name}`"
+                  block
+                  variant="tonal"
+                  color="primary"
+                  class="mt-3"
                   @click="openRoute($event, route)"
                 >
-                  <v-icon>mdi-chevron-right</v-icon>
+                  View details
                 </v-btn>
-              </template>
-            </v-list-item>
-            <v-divider />
+              </div>
+            </v-expand-transition>
           </template>
-        </v-list>
+        </v-card>
       </v-col>
     </v-row>
   </v-container>
 </template>
+<style scoped>
+.min-width-0 {
+  min-width: 0;
+}
+
+.route-row {
+  cursor: pointer;
+}
+
+.route-row:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.route-row--expanded,
+.route-row--expanded:hover,
+.route-details {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.group-loader {
+  background: transparent;
+  max-width: 240px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expand-transition-enter-active,
+  .expand-transition-leave-active {
+    transition: none !important;
+  }
+}
+</style>
