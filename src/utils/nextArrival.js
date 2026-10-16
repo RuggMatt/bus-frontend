@@ -113,15 +113,17 @@ export const describeNextArrival = (arrival, dateString, vehicle = "bus") => {
  * -4 …) though only one runs on a given date, so the calendar dates decide when they're
  * known. Trips to the same place at the same time are kept once either way.
  *
- * @param {import("../api").StopScheduleEntry[]} entries The stop's schedule around now
+ * @template {import("../api").StopScheduleEntry} E
+ * @param {E[]} entries The schedule around now
  * @param {string} dateString Today in Edmonton, YYYY-MM-DD
  * @param {number} nowSeconds Seconds since today's midnight
  * @param {Object} [options]
  * @param {import("./serviceCalendar").ServiceDates | null} [options.serviceDates] The services' calendar dates
- * @param {number} [options.limit] Arrivals per route
- * @returns {Map<string, UpcomingArrival[]>} Keyed by routeKey, soonest first
+ * @param {number} [options.limit] Arrivals per group
+ * @param {(entry: E) => string} [options.keyOf] What to group by, the route by default
+ * @returns {Map<string, UpcomingArrival[]>} Soonest first in each group
  */
-export const upcomingArrivals = (entries, dateString, nowSeconds, { serviceDates = null, limit = 4 } = {}) => {
+export const upcomingArrivals = (entries, dateString, nowSeconds, { serviceDates = null, limit = 4, keyOf = routeKey } = {}) => {
   const yesterday = addDays(dateString, -1);
   /**
    * @param {string} serviceId
@@ -142,7 +144,7 @@ export const upcomingArrivals = (entries, dateString, nowSeconds, { serviceDates
     }
     const seconds = candidates.find((candidate) => candidate >= fromSeconds);
     if (seconds === undefined) continue;
-    const key = routeKey(entry);
+    const key = keyOf(entry);
     const tripKey = `${key}|${entry.trip_headsign}|${seconds}`;
     if (seen.has(tripKey)) continue;
     seen.add(tripKey);

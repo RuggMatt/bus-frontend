@@ -197,3 +197,27 @@ describe("upcomingArrivals", () => {
     expect(arrivals?.map((arrival) => [arrival.seconds, arrival.minutes])).toEqual([[40 * 60, 10]]);
   });
 });
+
+describe("upcomingArrivals by stop", () => {
+  it("groups by whatever key it's given", () => {
+    const base = {
+      route_id: "021R",
+      route_long_name: "Capital Line",
+      agency_name: "Edmonton Transit Service",
+      route_type: "0",
+      trip_headsign: "Century Park",
+      service_id: "DX-021R-Weekday-1-26-09-1111100",
+      stop_sequence: "1",
+    };
+    const entries = [
+      { ...base, trip_id: "a", stop_id: "1", arrival_time: "12:05:00" },
+      { ...base, trip_id: "a", stop_id: "2", arrival_time: "12:08:00" },
+      { ...base, trip_id: "b", stop_id: "1", arrival_time: "12:20:00" },
+    ];
+    const byStop = upcomingArrivals(entries, MONDAY, 12 * 3600, { keyOf: (entry) => entry.stop_id, limit: 3 });
+    expect([...byStop].map(([stop, arrivals]) => [stop, arrivals.map((arrival) => arrival.minutes)])).toEqual([
+      ["1", [5, 20]],
+      ["2", [8]],
+    ]);
+  });
+});
