@@ -2,6 +2,7 @@
 import { LOCAL_AGENCY, routeNumber } from '../utils/routes';
 import { transitionLinkClick } from '../utils/viewTransition';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
+import { formatDistance } from '../utils/geo';
 import { describeNextArrival } from '../utils/nextArrival';
 import { edmontonNow } from '../utils/serviceTime';
 import RouteBadge from './RouteBadge.vue';
@@ -88,10 +89,6 @@ const openRoute = (event, group) =>
     (named) => { transitionKey.value = named ? group.key : null; },
   );
 
-
-/** @param {number} metres */
-const formatDistance = (metres) =>
-  metres < 1000 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1000).toFixed(1)} km`;
 
 /** @param {import('../composables/useStopArrivals').StopBus} bus */
 const positionLabel = (bus) => {

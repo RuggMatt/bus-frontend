@@ -106,3 +106,11 @@ export const pathBetween = (path, fromAlong, toAlong) => {
   }
   return points;
 };
+
+/**
+ * "350 m" or "1.2 km"
+ * @param {number} metres
+ * @returns {string}
+ */
+export const formatDistance = (metres) =>
+  metres < 1000 ? `${Math.round(metres / 10) * 10} m` : `${(metres / 1000).toFixed(1)} km`;

@@ -20,12 +20,14 @@ const routes = [
   {
     path: "/electric",
     name: "Electric Buses",
-    component: () => import("../components/ElectricBus.vue"),
+    component: () => import("../views/BusFinderPage.vue"),
+    props: { kind: "electric" },
   },
   {
     path: "/hydrogen",
     name: "Hydrogen Buses",
-    component: () => import("../components/HydrogenBus.vue"),
+    component: () => import("../views/BusFinderPage.vue"),
+    props: { kind: "hydrogen" },
   },
   {
     path: "/electric-bus-stats",
@@ -40,11 +42,7 @@ const routes = [
   {
     path: "/about",
     name: "About",
-    // route level code-splitting
-    // this generates a separate chunk (about.[hash].js) for this route
-    // which is lazy-loaded when the route is visited.
-    component: () =>
-      import(/* webpackChunkName: "about" */ "../views/AboutPage.vue"),
+    component: () => import("../views/AboutPage.vue"),
   },
   {
     path: "/routes/:routeId",
