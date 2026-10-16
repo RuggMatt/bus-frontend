@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { getElectricBuses, getHydrogenBuses, getTripSummaries } from '../api';
 import { nextBusRefreshDelay } from '../utils/busRefresh';
@@ -45,14 +45,29 @@ const { data: tripSummaries } = useQuery({
 });
 const tripsById = computed(() => new Map((tripSummaries.value ?? []).map((trip) => [String(trip.trip_id), trip])));
 
+// only asked for when the locate button is tapped, never on load. until then the
+// list goes by bus number
 /** @type {import('vue').Ref<[number, number] | null>} */
 const userLocation = ref(null);
-onMounted(() => {
-  // without it the list goes by bus number, so a refusal needs no message
-  navigator.geolocation?.getCurrentPosition((position) => {
-    userLocation.value = [position.coords.latitude, position.coords.longitude];
-  });
-});
+const locating = ref(false);
+const showLocationError = ref(false);
+const locate = () => {
+  if (!navigator.geolocation) {
+    showLocationError.value = true;
+    return;
+  }
+  locating.value = true;
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      userLocation.value = [position.coords.latitude, position.coords.longitude];
+      locating.value = false;
+    },
+    () => {
+      showLocationError.value = true;
+      locating.value = false;
+    },
+  );
+};
 
 const rows = computed(() => finderRows(buses.value ?? [], tripsById.value, userLocation.value));
 
@@ -78,7 +93,27 @@ const mapBuses = computed(() => {
     <h1 class="text-headline-small px-2">
       {{ finder.title }}
     </h1>
-    <TransitMap :buses="mapBuses" follow-bus show-age class="finder-map mt-3" />
+    <div class="finder-map-wrapper mt-3">
+      <TransitMap
+        :buses="mapBuses"
+        :user-location="userLocation"
+        follow-bus
+        show-age
+        class="finder-map"
+      />
+      <v-btn
+        class="locate-button"
+        icon="mdi-crosshairs-gps"
+        size="small"
+        elevation="2"
+        aria-label="Sort by distance from my location"
+        :loading="locating"
+        @click="locate"
+      />
+    </div>
+    <v-snackbar v-model="showLocationError" location="bottom" :timeout="3000" color="error">
+      Your location could not be determined
+    </v-snackbar>
 
     <div v-if="isLoading" class="d-flex justify-center py-6">
       <v-progress-circular indeterminate color="primary" />
@@ -141,6 +176,17 @@ const mapBuses = computed(() => {
 
 .finder-map {
     --transit-map-height: max(40vh, 280px);
+}
+
+.finder-map-wrapper {
+    position: relative;
+}
+
+.locate-button {
+    bottom: 24px;
+    position: absolute;
+    right: 12px;
+    z-index: 1;
 }
 
 .finder-row {

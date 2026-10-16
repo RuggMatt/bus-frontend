@@ -65,6 +65,11 @@ const props = defineProps({
         type: Object,
         default: null,
     },
+    /** @type {import('vue').PropType<[number, number] | null>} the viewer, as a blue dot, once they've asked to be located */
+    userLocation: {
+        type: Array,
+        default: null,
+    },
 });
 
 const emit = defineEmits(['select-position']);
@@ -75,6 +80,14 @@ const STOP_STYLE = {
     fillColor: "#ffffff",
     fillOpacity: 1,
     weight: 2,
+};
+const USER_STYLE = {
+    radius: 8,
+    color: "#ffffff",
+    fillColor: "#1a73e8",
+    fillOpacity: 1,
+    weight: 3,
+    interactive: false,
 };
 const PATH_STYLE = {
     color: "#3f51b5",
@@ -102,6 +115,7 @@ let pathLayer = null;
 let busLayer = null;
 let positionLayer = null;
 let selectedLayer = null;
+let userLayer = null;
 /** @type {Map<number | string, {marker: import('leaflet').Marker, bus: import('../api').Bus}>} */
 const busMarkers = new Map();
 let fitted = false;
@@ -259,6 +273,16 @@ const drawSelectedPosition = () => {
     }
 }
 
+const drawUserLocation = () => {
+    if (!map) {
+        return;
+    }
+    userLayer.clearLayers();
+    if (props.userLocation) {
+        L.circleMarker(props.userLocation, USER_STYLE).addTo(userLayer);
+    }
+}
+
 const flyToSelectedPosition = () => {
     const position = props.selectedPosition;
     if (!map || !position) {
@@ -271,7 +295,7 @@ const flyToSelectedPosition = () => {
 
 const removeLayers = () => {
     map?.off("zoomend moveend", drawPositions);
-    for (const layer of [pathLayer, stopLayer, busLayer, positionLayer, selectedLayer, stopRenderer]) {
+    for (const layer of [pathLayer, stopLayer, userLayer, busLayer, positionLayer, selectedLayer, stopRenderer]) {
         layer?.remove();
     }
     busMarkers.clear();
@@ -287,6 +311,7 @@ const createMap = () => {
     stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 }).addTo(map);
     pathLayer = L.layerGroup().addTo(map);
     stopLayer = L.layerGroup().addTo(map);
+    userLayer = L.layerGroup().addTo(map);
     positionLayer = L.layerGroup().addTo(map);
     busLayer = L.layerGroup().addTo(map);
     selectedLayer = L.layerGroup().addTo(map);
@@ -314,6 +339,7 @@ watch(() => props.stops, drawStops);
 watch(() => props.paths, drawPaths);
 watch(() => props.buses, drawBuses);
 watch(() => props.positions, drawPositions);
+watch(() => props.userLocation, drawUserLocation);
 watch(() => props.selectedPosition, () => {
     drawSelectedPosition();
     drawPositions();
@@ -328,6 +354,7 @@ onMounted(() => {
     drawBuses();
     drawPositions();
     drawSelectedPosition();
+    drawUserLocation();
     if (props.showAge) {
         reportAgeInterval = setInterval(() => refreshReportAges(mapElement.value), 1000);
     }

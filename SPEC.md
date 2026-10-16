@@ -249,7 +249,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ### Bus finders (`/electric`, `/hydrogen`, `BusFinderPage.vue`)
 - One page for both, picked by the route's `kind` prop. The heading, a `TransitMap` of the buses (with age badges), and a list.
 - Each row is the route badge, the headsign (`headsignWithoutRoute`, or "Not in service"), "Bus N · X km/h", and the distance from the viewer (`formatDistance`). Routes and headsigns come from one `['trip-summaries', tripIds]` query.
-- The list is nearest the viewer first when the browser gives a location, otherwise by bus number (`finderRows`, `src/utils/busFinder.js`). A refused location shows no message.
+- The list is sorted by bus number until the viewer taps the locate button at the map's bottom right (same style as the main map's). Then it's nearest first, with distances, and the map shows their blue dot (`finderRows`, `src/utils/busFinder.js`). A snackbar shows if the location can't be found.
 - The map follows the first bus: the nearest, or the one tapped. Tapping a row selects it (tinted) and shows a "Trip details" button. Tapping it again clears it.
 - No buses out shows "No electric buses are out right now." or "The hydrogen bus isn't out right now."
 
@@ -267,6 +267,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - `followBus`: centre on the first bus and fly to it as it moves, instead of fitting the stops. Turning it off fits the stops and lines, and turning it back on re-centres on the bus
   - `positions`: past positions (`Bus` plus `key` and `label`), as small pins with a time badge, thinned to the zoom and the view
   - `selectedPosition`: one of them, always drawn, larger and on top, and flown to when its key changes. Tapping a position pin emits `select-position` with its key
+  - `userLocation`: `[lat, lon]` of the viewer, drawn as a blue dot
 
   - when the shared map comes straight from another page, its first fit (or centring on the bus) flies there instead of jumping, unless reduced motion is preferred
 
@@ -319,6 +320,7 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
 
 - **Branches:** before starting or pushing, `git fetch origin main`. PRs are often merged as new commits with different hashes, so drop commits that are already upstream and rebase onto `origin/main` (`git cherry -v origin/main HEAD` shows them).
 - **Commits** follow conventional style (`feat:`, `fix:`, `perf:`, `refactor:`, `test:`, `ci:`, `chore:`), lowercase, with a body explaining why.
+- **Location is only asked for when the user taps a locate button.** Never call `navigator.geolocation` on load or from a watcher, for privacy. The main map, stops map and bus finders each have their own button.
 - **Comments** are short, lowercase, and explain *why*. Match the surrounding density.
 - **Code:** reuse the utilities above rather than re-deriving (time, service days, route numbers, geo, status labels in `src/utils/busStatus.js`). Keep pure logic in `src/utils/` so it can be unit tested.
 - **Tests:** put Vitest tests in `tests/*.test.js` and import from `vitest` (no globals). Test against fixed dates. 2026-10-14 is a Wednesday.
