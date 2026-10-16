@@ -1,32 +1,35 @@
-# bus-frontend 🚌  
+# bus-frontend 🚌
 
-This is the frontend project for https://bus.mattschlosser.me 
+The frontend for https://bus.mattschlosser.me: live Edmonton Transit buses on a map, stop arrivals, route timetables, and the recorded history of every trip and bus.
 
-See https://github.com/mattschlosser/bus for a full explanation
+It reads live and recorded positions from [bus-data-collection](https://github.com/mattschlosser/bus-data-collection), and the schedule from the City of Edmonton's open data. See https://github.com/mattschlosser/bus for the background.
 
-## Front end
+Built with Vue 3, Vite, Vuetify, TanStack Vue Query and Leaflet.
 
-This project uses Vue.js. Will slowly add new features using Vuetify to help. 
+## Setup
 
-## Project setup
-```
-yarn install
-```
+Requires Node 22.
 
-### Compiles and hot-reloads for development
-```
-yarn serve
+```sh
+npm ci
+cp .env.example .env
 ```
 
-### Compiles and minifies for production
-```
-yarn build
+Then fill in `.env`:
+
+- `VITE_APP_API_URL`: the bus-data-collection backend
+- `VITE_APP_SODA_APP_TOKEN`: a City of Edmonton open data app token
+- `VITE_APP_MAPBOX_ACCESS_TOKEN`: a Mapbox token for the map tiles
+
+## Scripts
+
+```sh
+npm run dev     # dev server with hot reload
+npm run build   # production build in dist/
+npm run lint    # eslint over src/ and tests/ (also runs on pre-commit)
+npm test        # vitest unit tests
 ```
 
-### Lints and fixes files
-```
-yarn lint
-```
+## How it works
 
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
+[SPEC.md](SPEC.md) describes the pages, data sources, shared components and conventions. Keep it up to date when behaviour changes.
