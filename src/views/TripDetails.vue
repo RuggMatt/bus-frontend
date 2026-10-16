@@ -867,6 +867,7 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
               <v-btn
                 :to="`/stops/${encodeURIComponent(row.stop.stop_id)}`"
                 block
+                size="large"
                 variant="tonal"
                 color="primary"
                 class="mt-2"

@@ -111,3 +111,8 @@
     background: #0a1a2f;
     font-size: 11px;
 }
+
+/* other routes' buses while one is picked on the main map */
+.bus-marker-icon--hidden {
+    visibility: hidden;
+}

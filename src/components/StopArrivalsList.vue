@@ -277,6 +277,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
                   <v-btn
                     :to="`/trips/${bus.trip_id}`"
                     block
+                    size="large"
                     variant="tonal"
                     color="primary"
                     class="mt-3"

@@ -58,6 +58,7 @@ const hasSpeed = computed(() => Number.isFinite(Number(props.bus.speed)));
     <v-btn
       :to="`/trips/${bus.trip}`"
       block
+      size="large"
       variant="tonal"
       color="primary"
       class="mt-4"

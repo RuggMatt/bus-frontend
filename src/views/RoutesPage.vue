@@ -320,6 +320,7 @@ const listLoading = computed(() => !routes.value || agenciesPending.value);
                   <v-btn
                     :href="`/routes/${route.route_id}`"
                     block
+                    size="large"
                     variant="tonal"
                     color="primary"
                     class="mt-3"

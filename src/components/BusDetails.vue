@@ -120,6 +120,7 @@ const openRoute = (event) => {
         v-if="trip"
         :to="`/trips/${trip.trip_id}`"
         block
+        size="large"
         variant="tonal"
         color="primary"
         class="mt-4"
