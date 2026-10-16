@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directionLabels, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
+import { busesByHeadsign, directionLabels, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
 
 const trip = (trip_id, direction_id, shape_id, trip_headsign = "") => ({ trip_id, direction_id, shape_id, trip_headsign });
 
@@ -55,5 +55,30 @@ describe("headsignWithoutRoute", () => {
     expect(headsignWithoutRoute("2-Owl Clareview", "002")).toBe("2-Owl Clareview");
     expect(headsignWithoutRoute("10 Leduc Express", "L10")).toBe("10 Leduc Express");
     expect(headsignWithoutRoute("Bethel", "411")).toBe("Bethel");
+  });
+});
+
+describe("busesByHeadsign", () => {
+  const summaries = [
+    { trip_id: "1", trip_headsign: "8 Abbottsfield", direction_id: "1" },
+    { trip_id: "2", trip_headsign: "8 University", direction_id: "0" },
+    { trip_id: "3", trip_headsign: "8 Abbottsfield", direction_id: "1" },
+  ];
+
+  it("groups by headsign, by direction then name, with buses by number", () => {
+    const buses = [
+      { bus: "4710", trip: 1 },
+      { bus: "812", trip: 3 },
+      { bus: "4699", trip: 2 },
+    ];
+    expect(busesByHeadsign(buses, summaries, "008")).toEqual([
+      { headsign: "University", buses: [{ bus: "4699", trip: 2 }] },
+      { headsign: "Abbottsfield", buses: [{ bus: "812", trip: 3 }, { bus: "4710", trip: 1 }] },
+    ]);
+  });
+
+  it("puts buses on unknown trips last", () => {
+    const buses = [{ bus: "1", trip: 99 }, { bus: "2", trip: 2 }];
+    expect(busesByHeadsign(buses, summaries, "008").map((group) => group.headsign)).toEqual(["University", null]);
   });
 });

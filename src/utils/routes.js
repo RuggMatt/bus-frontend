@@ -59,3 +59,33 @@ export const directionLabels = (trips) => {
   });
   return labels;
 };
+
+/**
+ * A route's live buses grouped by where they're headed, for the routes list. Groups go
+ * by direction then headsign, and buses by number. Buses whose trip isn't in the feed
+ * come last, with a null headsign.
+ * @template {{bus: string|number, trip: string|number}} B
+ * @param {B[]} buses
+ * @param {{trip_id: string, trip_headsign?: string, direction_id?: string}[]} summaries
+ * @param {string} routeId
+ * @returns {{headsign: string|null, buses: B[]}[]}
+ */
+export const busesByHeadsign = (buses, summaries, routeId) => {
+  const tripsById = new Map(summaries.map((summary) => [String(summary.trip_id), summary]));
+  /** @type {Map<string|null, {headsign: string|null, direction: string, buses: B[]}>} */
+  const groups = new Map();
+  for (const bus of buses) {
+    const trip = tripsById.get(String(bus.trip));
+    const headsign = trip?.trip_headsign ? headsignWithoutRoute(trip.trip_headsign, routeId) : null;
+    if (!groups.has(headsign)) groups.set(headsign, { headsign, direction: trip?.direction_id ?? "", buses: [] });
+    groups.get(headsign)?.buses.push(bus);
+  }
+  const busOrder = (/** @type {B} */ a, /** @type {B} */ b) =>
+    String(a.bus).localeCompare(String(b.bus), undefined, { numeric: true });
+  return [...groups.values()]
+    .sort((a, b) =>
+      (a.headsign === null ? 1 : 0) - (b.headsign === null ? 1 : 0) ||
+      a.direction.localeCompare(b.direction) ||
+      String(a.headsign).localeCompare(String(b.headsign)))
+    .map(({ headsign, buses: groupBuses }) => ({ headsign, buses: groupBuses.sort(busOrder) }));
+};

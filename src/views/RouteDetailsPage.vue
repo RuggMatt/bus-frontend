@@ -561,7 +561,7 @@ function openTripCell(event) {
         :value="dir"
         class="text-none"
       >
-        <span class="text-truncate">{{ directionLabels[dir] }}</span>
+        <span class="direction-label">{{ directionLabels[dir] }}</span>
         <v-badge
           v-if="busCounts[dir]"
           :content="busCounts[dir]"
@@ -794,16 +794,39 @@ function openTripCell(event) {
   max-width: 100%;
 }
 
-@media (max-width: 599px) {
-  .direction-toggle {
-    width: 100%;
-  }
-}
-
 /* long headsigns share the width instead of pushing past the screen edge */
 .direction-toggle .v-btn {
   flex: 1 1 0;
   min-width: 0;
+}
+
+/* on phones the directions stack, so a long headsign gets the full width */
+@media (max-width: 599px) {
+  .direction-toggle {
+    flex-direction: column;
+    height: auto;
+    width: 100%;
+  }
+
+  .direction-toggle .v-btn {
+    flex: 0 0 auto;
+    min-height: 48px;
+    width: 100%;
+  }
+
+  .direction-toggle .v-btn :deep(.v-btn__content) {
+    white-space: normal;
+  }
+
+  .direction-toggle.v-btn-group--divided .v-btn:not(:last-child) {
+    border-inline-end-width: 0;
+    border-bottom-width: thin;
+  }
+}
+
+.direction-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .route-heading {

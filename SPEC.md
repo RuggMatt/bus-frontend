@@ -178,12 +178,13 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Cards ease in and out with the `arrival` TransitionGroup. This is turned off for reduced motion.
 
 ### Routes list (`/routes`)
-- A searchable list. Each row has a `RouteBadge` (small), a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`, before the name so a long name can't push it off a narrow screen), the long name, and chips for the active buses.
+- A searchable list in one outlined card, in the same rows as the bus page's trips (no `v-list` or chevron). Each row has a `RouteBadge` (small), a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`, before the name so a long name can't push it off a narrow screen), the long name, and a bus icon with the live bus count.
+- Tapping a row expands it (one at a time). It shows the route's live buses grouped by headsign (`busesByHeadsign`, `src/utils/routes.js`: by direction then headsign, buses by number, trips not in the feed last under "Not in the current schedule"), each bus a chip linking to its bus page, and a full-width "View details" button to the route page. The headsigns come from `['trip-summaries', tripIds]`, only fetched for the expanded route.
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
 - `getTripsByRouteId` loads every trip for the route (1,300 for route 8), without shapes. It used to cap at 500 with shapes, which dropped whole services and came to nearly 10 MB.
-- **The page is split by direction.** A toggle under the heading lists each direction by its most common headsign (`directionLabels` in `src/utils/routes.js`), with a badge for its live bus count. It's hidden for one-direction routes. The map, the Active Buses and the timetable all follow it.
+- **The page is split by direction.** A toggle under the heading lists each direction by its most common headsign (`directionLabels` in `src/utils/routes.js`), with a badge for its live bus count. It's hidden for one-direction routes. On phones (under 600px) the directions stack full width and long headsigns wrap, rather than squeezing side by side. The map, the Active Buses and the timetable all follow it.
   - The direction is in the URL as `?direction=`. It's read on load and written back with `router.replace`, so reloads and shared links keep it. An unknown or missing value falls back to the first direction.
   - The trip page's route button and the main map's bus card (`BusDetails`) pass their trip's `direction_id`. The stop page doesn't, as a stop's route group can have buses going both ways.
   - Buses are matched to a direction through their trip, using the route's trips. Until those load, the buses are shown unsplit.
@@ -317,7 +318,7 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
 - `transitionLinkClick(event, router, to, setNamed)` is the click handler for a `<router-link custom>` + `<a :href>`. It leaves modifier and middle clicks to the browser, so they still open new tabs. It switches the caller's names on before the old page is captured and off afterwards.
 - **Names:** `route-number` (badge), `route-name` (long name) and `bus-${bus}` (bus label → Active Buses chip). Every name must be unique on the page, so the source side only sets names on the tapped route. The route page always sets them (see the names above).
 - **Handoff:** the source passes `history.state = { routeLongName, buses: [{ bus, trip }] }`. The route page shows these until its own `routes` and `buses` queries load, so the new snapshot has something to morph into.
-- The routes list's chevron button does the same for `route-number` and `route-name` (only the tapped row is named), passing just `routeLongName` in history state.
+- The routes list's "View details" button does the same for `route-number` and `route-name` (only the tapped row is named), passing just `routeLongName` in history state.
 - From the routes list and the stop page these only morph going forward. To and from the map pages, the shared-map transition covers both directions.
 
 ## Conventions
