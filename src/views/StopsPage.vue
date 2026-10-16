@@ -12,6 +12,7 @@ import { tripPath, useStopArrivals } from '../composables/useStopArrivals';
 import { alongRouteMetres, distanceMetres } from '../utils/geo';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { disruptedStops as stopsWithAlerts } from '../utils/serviceAlerts';
+import { stationStops } from '../utils/stations';
 
 const props = defineProps({
   stopId: {
@@ -36,6 +37,17 @@ const stopNotFound = computed(() => Boolean(props.stopId) && Boolean(stops.value
 usePageTitle(() => (props.stopId ? [selectedStop.value?.stop_name, `Stop ${props.stopId}`] : ['Stops']));
 
 const { routeGroups, isLoading, isError } = useStopArrivals(selectedStop);
+
+// the platforms or bays sharing the stop's station, the stop included
+const platformStops = computed(() => (selectedStop.value ? stationStops(selectedStop.value, stops.value ?? []) : []));
+
+// an LRT station's other platform is its other direction, so it's loaded alongside and
+// switching to it is instant. Its queries share their keys, so it fills the same cache
+const otherPlatform = computed(() =>
+  platformStops.value.length === 2
+    ? platformStops.value.find((stop) => stop.stop_id !== selectedStop.value?.stop_id) ?? null
+    : null);
+useStopArrivals(otherPlatform);
 const liveBuses = computed(() => routeGroups.value.flatMap((group) => group.buses));
 
 const map = ref(null);
@@ -190,15 +202,34 @@ const selectedBusProgress = computed(() => {
 const selectStop = (stop) => router.push(`/stops/${encodeURIComponent(stop.stop_id)}`);
 const clearStop = () => router.push('/stops');
 
+/**
+ * Where the map centres for the picked stop: the middle of its station's platforms, so
+ * switching between them (an LRT station's two directions) doesn't nudge the map.
+ */
+const mapFocus = computed(() => {
+  const stop = selectedStop.value;
+  if (!stop) return null;
+  const points = platformStops.value.length ? platformStops.value : [stop];
+  return {
+    key: platformStops.value.length ? `station:${stop.parent_station}` : `stop:${stop.stop_id}`,
+    lat: points.reduce((sum, point) => sum + Number(point.stop_lat), 0) / points.length,
+    lon: points.reduce((sum, point) => sum + Number(point.stop_lon), 0) / points.length,
+  };
+});
+
 // a stop opened straight from its link shouldn't start with a flight across the city
 let hasCentredOnStop = false;
-watch([selectedStop, map], () => {
-  if (selectedStop.value && map.value) {
-    map.value.centerOn(Number(selectedStop.value.stop_lat), Number(selectedStop.value.stop_lon), 16, {
-      animate: hasCentredOnStop,
-    });
-    hasCentredOnStop = true;
+/** @type {string | null} */
+let centredKey = null;
+watch([mapFocus, map], () => {
+  if (!mapFocus.value) {
+    centredKey = null;
+    return;
   }
+  if (!map.value || mapFocus.value.key === centredKey) return;
+  map.value.centerOn(mapFocus.value.lat, mapFocus.value.lon, 16, { animate: hasCentredOnStop });
+  hasCentredOnStop = true;
+  centredKey = mapFocus.value.key;
 }, { immediate: true });
 
 const locate = () => {
