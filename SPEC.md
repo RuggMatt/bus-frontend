@@ -178,7 +178,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - Cards ease in and out with the `arrival` TransitionGroup. This is turned off for reduced motion.
 
 ### Routes list (`/routes`)
-- A searchable list. Each row has a `RouteBadge` (small), the long name, a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`), and chips for the active buses.
+- A searchable list. Each row has a `RouteBadge` (small), a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`, before the name so a long name can't push it off a narrow screen), the long name, and chips for the active buses.
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
 - The heading is a large `RouteBadge` beside the long name. It renders straight away from the `routeId` prop, without waiting for the routes query.
