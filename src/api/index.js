@@ -757,6 +757,37 @@ export const getStopRoutes = async (stopId) => {
 };
 
 /**
+ * @typedef {Object} RouteAgency
+ * @property {string} route_id
+ * @property {string} agency_name
+ */
+
+/**
+ * Fetches the agency running each route in the currently-active GTFS feed. The routes
+ * dataset doesn't say, so this groups the stop schedule view instead.
+ * @returns {Promise<RouteAgency[]>}
+ */
+export const getRouteAgencies = async () => {
+  const today = edmontonNow().dateString;
+  const params = new URLSearchParams({
+    $where: `feed_start_date <= '${today}' AND feed_end_date >= '${today}'`,
+    $select: "route_id,agency_name",
+    $group: "route_id,agency_name",
+    $limit: "5000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
  * @typedef {Object} StopNextArrival
  * @property {string} route_id
  * @property {string} agency_name

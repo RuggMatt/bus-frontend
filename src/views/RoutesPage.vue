@@ -2,10 +2,10 @@
 import { useRoutes } from '../composables/useRoutes';
 import { ref, computed } from 'vue';
 import { useBuses } from '../composables/useBuses';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getTripSummaries } from '../api';
-import { busesByHeadsign } from '../utils/routes';
+import { getRouteAgencies, getTripSummaries } from '../api';
+import { LOCAL_AGENCY, busesByHeadsign, filterRoutes, routeTypeLabel } from '../utils/routes';
 import RouteBadge from '../components/RouteBadge.vue';
 import { transitionLinkClick } from '../utils/viewTransition';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
@@ -91,17 +91,79 @@ const openRoute = (event, route) =>
   );
 
 const search = ref('');
-const filteredRoutes = computed(() => {
-  if (!routes.value) return [];
-  const term = search.value.trim().toLowerCase();
-  if (!term) return routes.value;
-  return routes.value.filter(route => {
-    return (
-      (route.route_long_name && route.route_long_name.toLowerCase().includes(term)) ||
-      (route.route_id && route.route_id.toLowerCase().includes(term))
-    );
-  });
+
+const pageRoute = useRoute();
+
+/**
+ * A filter kept in the URL, so reloads and shared links keep it.
+ * @param {string} key
+ */
+const queryFilter = (key) => computed({
+  get: () => {
+    const value = pageRoute.query[key];
+    return typeof value === 'string' && value ? value : null;
+  },
+  /** @param {string | null | undefined} value */
+  set: (value) => {
+    router.replace({ query: { ...pageRoute.query, [key]: value || undefined } });
+  },
 });
+
+const typeFilter = queryFilter('type');
+const agencyFilter = queryFilter('agency');
+const liveParam = queryFilter('live');
+const disruptedParam = queryFilter('disrupted');
+const liveOnly = computed({
+  get: () => liveParam.value === '1',
+  set: (on) => { liveParam.value = on ? '1' : null; },
+});
+const disruptedOnly = computed({
+  get: () => disruptedParam.value === '1',
+  set: (on) => { disruptedParam.value = on ? '1' : null; },
+});
+
+// the routes dataset has no agency, so it comes from the schedule
+const { data: routeAgencies } = useQuery({
+  queryKey: ['route-agencies'],
+  queryFn: getRouteAgencies,
+  staleTime: Infinity,
+});
+const agencyByRoute = computed(() =>
+  new Map((routeAgencies.value ?? []).map((entry) => [entry.route_id, entry.agency_name])));
+
+// the local agency first, then the regional ones by name
+const agencyOptions = computed(() =>
+  [...new Set(agencyByRoute.value.values())].sort((a, b) =>
+    (b === LOCAL_AGENCY ? 1 : 0) - (a === LOCAL_AGENCY ? 1 : 0) || a.localeCompare(b)));
+
+const typeOptions = computed(() =>
+  [...new Set((routes.value ?? []).map((r) => r.route_type))]
+    .sort()
+    .reverse()
+    .map((type) => ({ value: type, title: routeTypeLabel(type) })));
+
+const liveRoutes = computed(() => new Set(busesByRoute.value.keys()));
+
+const filtersActive = computed(() =>
+  !!(typeFilter.value || agencyFilter.value || liveOnly.value || disruptedOnly.value));
+
+const clearFilters = () => {
+  search.value = '';
+  router.replace({ query: { ...pageRoute.query, type: undefined, agency: undefined, live: undefined, disrupted: undefined } });
+};
+
+const filteredRoutes = computed(() =>
+  filterRoutes(
+    routes.value ?? [],
+    {
+      search: search.value ?? '',
+      type: typeFilter.value,
+      agency: agencyFilter.value,
+      live: liveOnly.value,
+      disrupted: disruptedOnly.value,
+    },
+    { agencies: agencyByRoute.value, liveRoutes: liveRoutes.value, disruptedRoutes: disruptedRoutes.value },
+  ));
 </script>
 <template>
   <v-container>
@@ -114,10 +176,77 @@ const filteredRoutes = computed(() => {
           v-model="search"
           label="Search by Route Name or ID"
           prepend-inner-icon="mdi-magnify"
-          class="mb-4"
           clearable
+          hide-details
         />
-        <v-card variant="outlined">
+        <div class="filters d-flex flex-wrap align-center ga-2 mt-3 mb-2">
+          <v-select
+            v-model="agencyFilter"
+            :items="agencyOptions"
+            :loading="!routeAgencies"
+            placeholder="All agencies"
+            aria-label="Agency"
+            prepend-inner-icon="mdi-domain"
+            density="compact"
+            variant="outlined"
+            class="agency-select"
+            clearable
+            hide-details
+            persistent-placeholder
+          />
+          <v-chip-group
+            v-model="typeFilter"
+            selected-class="text-primary"
+            filter
+            class="py-0"
+            aria-label="Vehicle type"
+          >
+            <v-chip
+              v-for="option in typeOptions"
+              :key="option.value"
+              :value="option.value"
+              variant="outlined"
+              :prepend-icon="option.title === 'LRT' ? 'mdi-train' : 'mdi-bus'"
+            >
+              {{ option.title }}
+            </v-chip>
+          </v-chip-group>
+          <v-chip
+            :variant="liveOnly ? 'tonal' : 'outlined'"
+            :color="liveOnly ? 'primary' : undefined"
+            :prepend-icon="liveOnly ? 'mdi-check' : 'mdi-access-point'"
+            :aria-pressed="liveOnly"
+            @click="liveOnly = !liveOnly"
+          >
+            Running now
+          </v-chip>
+          <v-chip
+            :variant="disruptedOnly ? 'tonal' : 'outlined'"
+            :color="disruptedOnly ? 'warning' : undefined"
+            :prepend-icon="disruptedOnly ? 'mdi-check' : 'mdi-alert'"
+            :aria-pressed="disruptedOnly"
+            @click="disruptedOnly = !disruptedOnly"
+          >
+            Disruptions
+          </v-chip>
+        </div>
+        <div v-if="routes" class="d-flex align-center text-body-medium text-medium-emphasis mb-2 px-1">
+          {{ filteredRoutes.length }} {{ filteredRoutes.length === 1 ? 'route' : 'routes' }}
+          <v-btn
+            v-if="filtersActive"
+            variant="text"
+            size="small"
+            color="primary"
+            class="ml-auto"
+            @click="clearFilters"
+          >
+            Clear filters
+          </v-btn>
+        </div>
+        <div v-if="routes && !filteredRoutes.length" class="text-medium-emphasis pa-4 text-center">
+          No routes match
+        </div>
+        <v-card v-else variant="outlined">
           <template v-for="(route, index) in filteredRoutes" :key="route.route_id">
             <v-divider v-if="index > 0" />
             <div
@@ -147,7 +276,17 @@ const filteredRoutes = computed(() => {
                 aria-label="Service disruption"
                 role="img"
               />
-              <span class="text-body-large flex-grow-1 min-width-0" :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span>
+              <div class="flex-grow-1 min-width-0">
+                <div class="text-body-large" :style="transitionName(route.route_id, 'route-name')">
+                  {{ route.route_long_name }}
+                </div>
+                <div
+                  v-if="agencyByRoute.get(route.route_id) && agencyByRoute.get(route.route_id) !== LOCAL_AGENCY"
+                  class="text-body-small text-medium-emphasis"
+                >
+                  {{ agencyByRoute.get(route.route_id) }}
+                </div>
+              </div>
               <span
                 v-if="busesByRoute.get(route.route_id)?.length"
                 class="text-body-medium text-medium-emphasis flex-shrink-0 ml-2 text-no-wrap"
@@ -214,6 +353,11 @@ const filteredRoutes = computed(() => {
 .route-row--expanded:hover,
 .route-details {
   background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.agency-select {
+  flex: 1 1 220px;
+  max-width: 320px;
 }
 
 .group-loader {

@@ -102,6 +102,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | Key | Data |
 | --- | --- |
 | `['routes']` | All routes |
+| `['route-agencies']` | Each route's agency in the active feed (`getRouteAgencies`), `staleTime: Infinity` |
 | `['buses']` | `/bus/now` with `route_id` assigned (`useBuses`). The first load is slow, as it looks up every trip |
 | `['buses-live']` | Raw `/bus/now` (`useLiveBuses`, `liveBusesQuery`) |
 | `['trip-shape', tripId]` | `getTrip`, `staleTime: Infinity` |
@@ -179,6 +180,8 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Routes list (`/routes`)
 - A searchable list in one outlined card, in the same rows as the bus page's trips (no `v-list` or chevron). Each row has a `RouteBadge` (small), a warning icon when the route has a service alert in effect (`routesWithActiveAlerts`, before the name so a long name can't push it off a narrow screen), the long name, and a bus icon with the live bus count.
+- **Filters** under the search: an agency select, vehicle type chips (Bus, LRT, from `route_type`, `routeTypeLabel`), "Running now" (routes with a live bus) and "Disruptions" (an alert in effect). They're in the URL as `?agency=`, `?type=`, `?live=1` and `?disrupted=1`, written with `router.replace`; the search isn't. A count of matching routes shows above the list, with "Clear filters" when any is on, and "No routes match" when none do. The matching is `filterRoutes` (`src/utils/routes.js`).
+- The routes dataset has no agency, so `getRouteAgencies` groups the stop schedule view by route and agency for the active feed (`['route-agencies']`, `staleTime: Infinity`). The agency filter is ignored until it loads. Rows of routes run by another agency than `LOCAL_AGENCY` show it under the name.
 - Tapping a row expands it (one at a time). It shows the route's live buses grouped by headsign (`busesByHeadsign`, `src/utils/routes.js`: by direction then headsign, buses by number, trips not in the feed last under "Not in the current schedule"), each bus a chip linking to its bus page, and a full-width "View details" button to the route page. The headsigns come from `['trip-summaries', tripIds]`, only fetched for the expanded route.
 
 ### Route details (`/routes/:routeId`, `RouteDetailsPage.vue`)
