@@ -93,6 +93,21 @@ export const busesByHeadsign = (buses, summaries, routeId) => {
 // GTFS route_type of LRT lines, which the bus tracker doesn't follow
 export const RAIL_ROUTE_TYPE = "0";
 
+// route_color from ETS's static GTFS routes.txt. The open data routes dataset and the
+// backend don't carry it, so the LRT lines' are kept here
+const ROUTE_COLORS = {
+  "021R": "#0081BC",
+  "022R": "#FF0000",
+  "023R": "#008000",
+};
+
+/**
+ * A route's colour from GTFS, or null when it has none here.
+ * @param {string} routeId
+ * @returns {string | null}
+ */
+export const routeColor = (routeId) => ROUTE_COLORS[routeId] ?? null;
+
 // GTFS route_type values, as the routes dataset describes them
 const ROUTE_TYPE_LABELS = { 0: "LRT", 3: "Bus" };
 

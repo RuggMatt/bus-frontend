@@ -13,6 +13,11 @@ const props = defineProps({
     type: Number,
     default: 4,
   },
+  // the line's colour for the bars, else the theme's primary
+  color: {
+    type: String,
+    default: null,
+  },
 });
 
 // each train only needs its own label when they go to different places
@@ -22,7 +27,12 @@ const mixedHeadsigns = computed(() => new Set(props.arrivals.map((arrival) => ar
 <template>
   <!-- LRT isn't tracked live, so scheduled trains stand in, soonest first -->
   <div class="train-times" :style="{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }">
-    <div v-for="arrival in arrivals" :key="arrival.trip_id" class="train-time">
+    <div
+      v-for="arrival in arrivals"
+      :key="arrival.trip_id"
+      class="train-time"
+      :style="color ? { borderLeftColor: color } : undefined"
+    >
       <div class="text-no-wrap">
         <span class="text-title-large font-weight-medium">{{ arrival.minutes < 1 ? 'Due' : arrival.minutes }}</span>
         <span v-if="arrival.minutes >= 1" class="text-body-medium"> min</span>

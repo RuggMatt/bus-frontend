@@ -14,7 +14,7 @@ import TransitMap from '../components/TransitMap.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
-import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeNumber } from '../utils/routes';
+import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeColor, routeNumber } from '../utils/routes';
 import { upcomingArrivals } from '../utils/nextArrival';
 import TrainTimes from '../components/TrainTimes.vue';
 import { usePageTitle } from '../composables/usePageTitle';
@@ -758,7 +758,7 @@ const stationTrains = computed(() => {
             <router-link :to="`/stops/${station.stopId}`" class="station-name text-title-small">
               {{ station.name }}
             </router-link>
-            <TrainTimes :arrivals="station.arrivals" :columns="3" />
+            <TrainTimes :arrivals="station.arrivals" :columns="3" :color="routeColor(routeId)" />
           </div>
         </template>
       </v-card>

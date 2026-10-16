@@ -1,5 +1,5 @@
 <script setup>
-import { LOCAL_AGENCY, headsignWithoutRoute, routeNumber } from '../utils/routes';
+import { LOCAL_AGENCY, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
 import { describePlatforms, mainHeadsigns, stationStops } from '../utils/stations';
 import { getStopHeadsigns } from '../api';
 import { useStops } from '../composables/useStops';
@@ -279,12 +279,15 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
           <a
             :href="href"
             class="route-header d-flex align-center pa-3"
-            :aria-label="`Timetable for route ${routeNumber(group.route_id)}`"
+            :class="{ 'route-header--line': group.rail }"
+            :style="group.rail && routeColor(group.route_id) ? { borderLeftColor: routeColor(group.route_id) } : undefined"
+            :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
             @click="openRoute($event, group)"
           >
-            <RouteBadge :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
+            <!-- LRT lines go by name and colour in Edmonton, not number -->
+            <RouteBadge v-if="!group.rail" :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
             <!-- where it's going says the direction, which the route's name doesn't -->
-            <div class="ml-3 min-width-0">
+            <div class="min-width-0" :class="{ 'ml-3': !group.rail }">
               <div v-if="groupHeadsign(group)" class="text-title-medium">
                 {{ groupHeadsign(group) }}
               </div>
@@ -307,7 +310,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
         <v-divider />
         <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
         <div v-if="group.upcoming.length" class="pa-3">
-          <TrainTimes :arrivals="group.upcoming" />
+          <TrainTimes :arrivals="group.upcoming" :color="routeColor(group.route_id)" />
           <div class="d-flex align-center text-body-small text-medium-emphasis mt-2">
             <v-icon icon="mdi-calendar-clock" size="x-small" class="mr-1" />
             Scheduled, not live
@@ -405,6 +408,11 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
 .route-header {
   color: inherit;
   text-decoration: none;
+}
+
+/* a bar in the line's colour, as on the LRT maps */
+.route-header--line {
+  border-left: 6px solid rgb(var(--v-theme-primary));
 }
 
 .route-header:hover {
