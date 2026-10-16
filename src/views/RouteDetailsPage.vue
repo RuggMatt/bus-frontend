@@ -16,6 +16,7 @@ import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
 import { directionLabels as labelDirections, representativeTrips } from '../utils/routes';
 import { edmontonNow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
+import { addDays } from '../utils/weeks';
 import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
 import {
   regularServices,
@@ -277,16 +278,44 @@ const dayToggle = computed({
 
 const datePickerOpen = ref(false);
 
-/** @param {unknown} value the picker's local-midnight Date */
-const pickDate = (value) => {
-  if (!(value instanceof Date)) return;
-  const date = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+/** @param {string} date YYYY-MM-DD */
+const selectDate = (date) => {
   selectedDate.value = date;
   selectedDay.value = weekdayOf(date);
   const period = periodOn(date);
   if (period) selectedPeriodKey.value = period.key;
+};
+
+/** @param {unknown} value the picker's local-midnight Date */
+const pickDate = (value) => {
+  if (!(value instanceof Date)) return;
+  selectDate(`${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`);
   datePickerOpen.value = false;
 };
+
+/**
+ * The nearest date before or after the selected one that the route runs on, within
+ * the calendar. Null on a typical week.
+ * @param {-1 | 1} step
+ * @returns {string | null}
+ */
+const nearestServiceDate = (step) => {
+  const dates = serviceDates.value;
+  const first = periods.value[0]?.start;
+  const last = periods.value[periods.value.length - 1]?.end;
+  if (!dates || !selectedDate.value || !first || !last) return null;
+  for (let date = addDays(selectedDate.value, step); date >= first && date <= last; date = addDays(date, step)) {
+    if (servicesOnDate(dates, date).size) return date;
+  }
+  return null;
+};
+
+const previousDate = computed(() => nearestServiceDate(-1));
+const nextDate = computed(() => nearestServiceDate(1));
+
+// trip links open the trip on the shown date, so its page shows that day's run
+/** @param {string} tripId */
+const tripHref = (tripId) => (selectedDate.value ? `/trips/${tripId}?date=${selectedDate.value}` : `/trips/${tripId}`);
 
 const pickerValue = computed(() => (selectedDate.value ? new Date(`${selectedDate.value}T00:00:00`) : null));
 
@@ -643,29 +672,46 @@ function openTripCell(event) {
           </v-btn>
         </v-btn-toggle>
 
-        <v-menu
-          v-if="serviceDates"
-          v-model="datePickerOpen"
-          :close-on-content-click="false"
-        >
-          <template #activator="{ props: menuProps }">
-            <v-btn
-              v-bind="menuProps"
-              :variant="selectedDate ? 'tonal' : 'outlined'"
-              color="primary"
-              prepend-icon="mdi-calendar"
-              class="text-none"
-            >
-              {{ dateLabel }}
-            </v-btn>
-          </template>
-          <v-date-picker
-            :model-value="pickerValue"
-            :min="periods[0]?.start"
-            :max="periods[periods.length - 1]?.end"
-            @update:model-value="pickDate"
+        <div v-if="serviceDates" class="d-flex align-center ga-1">
+          <v-btn
+            icon="mdi-chevron-left"
+            variant="text"
+            size="small"
+            aria-label="Previous date"
+            :disabled="!previousDate"
+            @click="previousDate && selectDate(previousDate)"
           />
-        </v-menu>
+          <v-menu
+            v-model="datePickerOpen"
+            :close-on-content-click="false"
+          >
+            <template #activator="{ props: menuProps }">
+              <v-btn
+                v-bind="menuProps"
+                :variant="selectedDate ? 'tonal' : 'outlined'"
+                color="primary"
+                prepend-icon="mdi-calendar"
+                class="text-none"
+              >
+                {{ dateLabel }}
+              </v-btn>
+            </template>
+            <v-date-picker
+              :model-value="pickerValue"
+              :min="periods[0]?.start"
+              :max="periods[periods.length - 1]?.end"
+              @update:model-value="pickDate"
+            />
+          </v-menu>
+          <v-btn
+            icon="mdi-chevron-right"
+            variant="text"
+            size="small"
+            aria-label="Next date"
+            :disabled="!nextDate"
+            @click="nextDate && selectDate(nextDate)"
+          />
+        </div>
 
         <v-chip
           v-if="isSpecialDay"
@@ -696,7 +742,7 @@ function openTripCell(event) {
           <!-- a copy of the header row that sticks to the page, see useStickyTableHeader -->
           <div ref="timetableHead" class="timetable-head">
             <table ref="timetableHeadTable" class="timetable-table">
-              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" />
+              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" :href="tripHref" />
             </table>
           </div>
           <div
@@ -706,7 +752,7 @@ function openTripCell(event) {
           >
             <table ref="timetableTable" class="timetable-table">
               <!-- the real header keeps the table's layout, hidden under the copy -->
-              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" class="timetable-layout-head" />
+              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" :href="tripHref" class="timetable-layout-head" />
               <tbody @click="openTripCell">
                 <tr v-for="stop in timetableStops" :key="stop.stop_id">
                   <td class="stop-col">
@@ -720,7 +766,7 @@ function openTripCell(event) {
                     class="time-col"
                   >
                     <!-- plain links, as a router-link per cell is thousands of components; openTripCell routes them -->
-                    <a :href="`/trips/${trip.trip_id}`" class="timetable-link" data-trip-link>
+                    <a :href="tripHref(trip.trip_id)" class="timetable-link" data-trip-link>
                       <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
                         {{ cellTime(trip.trip_id, stop.stop_id) }}
                       </strong>

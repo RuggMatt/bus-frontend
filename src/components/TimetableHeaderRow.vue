@@ -10,6 +10,11 @@ defineProps({
     type: /** @type {import('vue').PropType<Set<string>>} */ (Set),
     default: () => new Set(),
   },
+  // a trip's link, e.g. with the shown date
+  href: {
+    type: /** @type {import('vue').PropType<(tripId: string) => string>} */ (Function),
+    default: (/** @type {string} */ tripId) => `/trips/${tripId}`,
+  },
 });
 </script>
 
@@ -24,7 +29,7 @@ defineProps({
         :key="trip.trip_id"
         class="time-col"
       >
-        <router-link :to="`/trips/${trip.trip_id}`" class="timetable-link">
+        <router-link :to="href(trip.trip_id)" class="timetable-link">
           <strong v-if="trip.headerPM">{{ trip.headerTime }}</strong>
           <span v-else>{{ trip.headerTime }}</span>
         </router-link>
