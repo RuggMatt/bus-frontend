@@ -89,16 +89,16 @@ const filteredRoutes = computed(() => {
                     size="small"
                     class="mr-2"
                     :style="transitionName(route.route_id, 'route-number')"
-                  /><span :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span><v-icon
+                  /><v-icon
                     v-if="disruptedRoutes.has(route.route_id)"
                     v-tooltip="'Service disruption'"
                     icon="mdi-alert"
                     color="warning"
                     size="small"
-                    class="ml-2"
+                    class="mr-2"
                     aria-label="Service disruption"
                     role="img"
-                  />
+                  /><span :style="transitionName(route.route_id, 'route-name')">{{ route.route_long_name }}</span>
                 </v-list-item-title>
                 <v-list-item-subtitle>
                   <router-link v-for="bus in getCurrentBusesOnRoute(route.route_id)" :key="bus.bus" :to="`/buses/${encodeURIComponent(bus.bus)}`">
