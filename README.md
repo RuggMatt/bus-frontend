@@ -1,8 +1,8 @@
 # bus-frontend 🚌
 
-The frontend for https://bus.mattschlosser.me: live Edmonton Transit buses on a map, stop arrivals, route timetables, and the recorded history of every trip and bus.
+The frontend for https://bus.ruggmatt.dev: live Edmonton Transit buses on a map, stop arrivals, route timetables, and the recorded history of every trip and bus.
 
-It reads live and recorded positions from [bus-data-collection](https://github.com/mattschlosser/bus-data-collection), and the schedule from the City of Edmonton's open data. See https://github.com/mattschlosser/bus for the background.
+It reads live and recorded positions from [bus-data-collection](https://github.com/ruggmatt/bus-data-collection), and the schedule from the City of Edmonton's open data. See https://github.com/mattschlosser/bus for the background.
 
 Built with Vue 3, Vite, Vuetify, TanStack Vue Query and Leaflet.
 
