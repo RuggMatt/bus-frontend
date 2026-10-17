@@ -12,7 +12,12 @@ import ServiceAlertCard from './ServiceAlertCard.vue';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { useStationHeadsigns } from '../composables/useStationHeadsigns';
 import { alertsForStop } from '../utils/serviceAlerts';
-import { computed, ref } from 'vue';
+import { getRouteStopStats } from '../api';
+import { typicalStatus } from '../utils/delayStats';
+import { hasDelayStats } from '../utils/stopRoutes';
+import RouteStopStats from './RouteStopStats.vue';
+import { useQueries } from '@tanstack/vue-query';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 // one stop's alerts and route cards. The stop panel draws two while swiping between an
@@ -130,6 +135,42 @@ const otherHeadsign = (group, bus) => {
   return headsign && headsign !== groupHeadsign(group) ? headsign : null;
 };
 
+// a week of delays per route here, for the "Usually …" chip and its histogram. Worked
+// out nightly, so there's nothing new to fetch for a while
+const STATS_STALE_MS = 60 * 60 * 1000;
+const statsGroups = computed(() => props.routeGroups.filter(hasDelayStats));
+const statsQueries = useQueries({
+  queries: computed(() =>
+    statsGroups.value.map((group) => ({
+      // shared with the trip page's stop details
+      queryKey: ['route-stop-stats', group.route_id, props.stop.stop_id, null],
+      queryFn: () => getRouteStopStats(group.route_id, props.stop.stop_id),
+      staleTime: STATS_STALE_MS,
+    })),
+  ),
+});
+const statsByKey = computed(() => {
+  /** @type {Map<string, Awaited<ReturnType<typeof getRouteStopStats>>>} */
+  const map = new Map();
+  statsGroups.value.forEach((group, index) => {
+    const stats = statsQueries.value[index]?.data;
+    if (stats?.count && stats.mean !== null) map.set(group.key, stats);
+  });
+  return map;
+});
+
+// the routes whose histogram is open
+const openStats = ref(new Set());
+watch(() => props.stop.stop_id, () => {
+  openStats.value = new Set();
+});
+/** @param {string} key */
+const toggleStats = (key) => {
+  const next = new Set(openStats.value);
+  if (!next.delete(key)) next.add(key);
+  openStats.value = next;
+};
+
 /** @param {number} stopsAway */
 // "Next stop" would read twice beside the next stop's name
 const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : `${stopsAway} stops away`);
@@ -166,42 +207,71 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
         variant="outlined"
         class="mx-4 mb-3"
       >
-        <router-link
-          v-slot="{ href }"
-          :to="`/routes/${group.route_id}`"
-          custom
+        <!-- the link covers the whole header from underneath, so the stats chip can sit
+             beside the headsign without a button inside a link -->
+        <div
+          class="route-header d-flex align-center pa-3"
+          :class="{ 'route-header--line': group.rail }"
+          :style="group.rail && routeColor(group.route_id) ? { borderLeftColor: routeColor(group.route_id) } : undefined"
         >
-          <a
-            :href="href"
-            class="route-header d-flex align-center pa-3"
-            :class="{ 'route-header--line': group.rail }"
-            :style="group.rail && routeColor(group.route_id) ? { borderLeftColor: routeColor(group.route_id) } : undefined"
-            :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
-            @click="openRoute($event, group)"
+          <router-link
+            v-slot="{ href }"
+            :to="`/routes/${group.route_id}`"
+            custom
           >
-            <!-- LRT lines go by name and colour in Edmonton, not number -->
-            <RouteBadge v-if="!group.rail" :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
-            <!-- where it's going says the direction, which the route's name doesn't -->
-            <div class="min-width-0" :class="{ 'ml-3': !group.rail }">
-              <div v-if="groupHeadsign(group)" class="text-title-medium">
-                {{ groupHeadsign(group) }}
+            <a
+              :href="href"
+              class="route-header__link"
+              :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
+              @click="openRoute($event, group)"
+            />
+          </router-link>
+          <!-- LRT lines go by name and colour in Edmonton, not number -->
+          <RouteBadge v-if="!group.rail" :route-id="group.route_id" :style="transitionName(group, 'route-number')" />
+          <!-- where it's going says the direction, which the route's name doesn't -->
+          <div class="min-width-0" :class="{ 'ml-3': !group.rail }">
+            <div class="route-header__title d-flex align-center flex-wrap">
+              <div class="text-title-medium" :style="groupHeadsign(group) ? undefined : transitionName(group, 'route-name')">
+                {{ groupHeadsign(group) ?? group.route_long_name }}
               </div>
-              <div
-                :class="groupHeadsign(group) ? 'text-body-small text-medium-emphasis' : 'text-title-medium'"
-                :style="transitionName(group, 'route-name')"
+              <v-chip
+                v-if="statsByKey.get(group.key)"
+                tag="button"
+                type="button"
+                :color="typicalStatus(statsByKey.get(group.key).mean).color"
+                size="x-small"
+                variant="tonal"
+                class="route-header__stats"
+                :append-icon="openStats.has(group.key) ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                :aria-expanded="openStats.has(group.key)"
+                :aria-label="`Usually ${typicalStatus(statsByKey.get(group.key).mean).label.toLowerCase()} here. ${openStats.has(group.key) ? 'Hide' : 'Show'} last week's delays`"
+                @click.stop="toggleStats(group.key)"
               >
-                {{ group.route_long_name }}
-              </div>
-              <div
-                v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
-                class="text-body-small text-medium-emphasis"
-              >
-                {{ group.agency_name }}
-              </div>
+                Usually {{ typicalStatus(statsByKey.get(group.key).mean).label.toLowerCase() }}
+              </v-chip>
             </div>
-            <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
-          </a>
-        </router-link>
+            <div
+              v-if="groupHeadsign(group)"
+              class="text-body-small text-medium-emphasis"
+              :style="transitionName(group, 'route-name')"
+            >
+              {{ group.route_long_name }}
+            </div>
+            <div
+              v-if="group.agency_name && group.agency_name !== LOCAL_AGENCY"
+              class="text-body-small text-medium-emphasis"
+            >
+              {{ group.agency_name }}
+            </div>
+          </div>
+          <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
+        </div>
+        <v-expand-transition>
+          <div v-if="openStats.has(group.key) && statsByKey.get(group.key)">
+            <v-divider />
+            <RouteStopStats :stats="statsByKey.get(group.key)" class="pa-3" />
+          </div>
+        </v-expand-transition>
         <v-divider />
         <!-- LRT isn't tracked live, so its next few scheduled trains stand in -->
         <div v-if="group.upcoming.length" class="pa-3">
@@ -303,8 +373,28 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
 }
 
 .route-header {
+  position: relative;
+}
+
+.route-header__link {
+  position: absolute;
+  inset: 0;
   color: inherit;
-  text-decoration: none;
+}
+
+.route-header__link:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: -2px;
+}
+
+.route-header__title {
+  column-gap: 8px;
+}
+
+/* above the link, so tapping it opens the histogram instead */
+.route-header__stats {
+  position: relative;
+  z-index: 1;
 }
 
 /* a bar in the line's colour, as on the LRT maps */

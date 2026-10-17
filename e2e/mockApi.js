@@ -120,6 +120,39 @@ const filterTrips = (rows, url) => {
   return ids ? rows.filter((row) => ids.includes(row.trip_id)) : rows;
 };
 
+// a second route at every stop with nothing on the way, which the stops page lists below route 8
+export const QUIET_ROUTE = { route_id: "002", route_long_name: "Lessard - Downtown - Clareview" };
+const AGENCY = "Edmonton Transit Service";
+
+/** The stop schedule view: every trip at a stop whatever the time, or the routes serving it. */
+const stopSchedule = (url) => {
+  const select = url.searchParams.get("$select") ?? "";
+  const stopId = (url.searchParams.get("$where") ?? "").match(/stop_id = '([^']*)'/)?.[1];
+  if (!stopId) return [];
+  if (url.searchParams.get("$group") === "route_id,route_long_name,agency_name,route_type") {
+    return [ROUTE, QUIET_ROUTE].map(({ route_id, route_long_name }) => ({
+      route_id, route_long_name, agency_name: AGENCY, route_type: "3",
+    }));
+  }
+  const rows = stopTimes
+    .filter((row) => row.stop_id === stopId)
+    .map((row) => ({
+      trip_id: row.trip_id,
+      route_id: ROUTE.route_id,
+      route_long_name: ROUTE.route_long_name,
+      agency_name: AGENCY,
+      route_type: "3",
+      trip_headsign: HEADSIGN,
+      service_id: SERVICE_ID,
+      arrival_time: row.arrival_time,
+      stop_sequence: row.stop_sequence,
+    }));
+  if (select.startsWith("count(*)")) return [{ count: String(rows.length) }];
+  if (select.startsWith("trip_id,")) return url.searchParams.get("$offset") > 0 ? [] : rows;
+  // headsigns and next arrivals: nothing to show
+  return [];
+};
+
 /** Answers one data.edmonton.ca request by its dataset. */
 const openData = (url) => {
   const dataset = url.pathname.match(/resource\/([^.]+)\.json/)?.[1];
@@ -145,10 +178,12 @@ const openData = (url) => {
     }
     case "f2sy-bth7": // calendar dates
       return calendarDates;
+    case "4fvt-p2se": // the stop schedule view
+      return stopSchedule(url);
     case "5yvt-mcye": // service alerts
       return [DETOUR];
     default:
-      // the stop schedule view and agencies: nothing to show
+      // agencies: nothing to show
       return [];
   }
 };

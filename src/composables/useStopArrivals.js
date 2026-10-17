@@ -6,6 +6,7 @@ import { alongRouteMetres, distanceMetres } from "../utils/geo";
 import { edmontonNow, scheduledSecondsNear, scheduleWindow, secondsToTime } from "../utils/serviceTime";
 import { nextArrivalByRoute, upcomingArrivals } from "../utils/nextArrival";
 import { RAIL_ROUTE_TYPE } from "../utils/routes";
+import { compareStopRouteGroups } from "../utils/stopRoutes";
 import { liveBusesQuery } from "./useBuses";
 
 // how far either side of now a trip can be scheduled and still be matched to a live bus
@@ -65,8 +66,8 @@ const byNearest = (a, b) =>
   Number(a.passed === true) - Number(b.passed === true) || a.distance - b.distance;
 
 /**
- * Every route serving a stop: those with buses currently on the way first, nearest
- * first, then the rest by when their next bus is scheduled.
+ * Every route serving a stop: those with buses currently on the way first, then the
+ * rest, each by route number. A route's buses are nearest first.
  *
  * @param {import("vue").Ref<import("../api").BusStop | null>} stop
  * @param {import("vue").Ref<Date | null>} at The moment to look at. Only null (now) is supported.
@@ -217,9 +218,7 @@ export const useStopArrivals = (stop, at = ref(null)) => {
       groups.set(key, group);
     }
 
-    return [...groups.values()]
-      .map((group) => ({ ...group, buses: group.buses.sort(byNearest) }))
-      .sort((a, b) => byNearest(a.buses[0], b.buses[0]));
+    return [...groups.values()].map((group) => ({ ...group, buses: group.buses.sort(byNearest) }));
   });
 
   // --- routes with no bus on the way ---
@@ -320,19 +319,10 @@ export const useStopArrivals = (stop, at = ref(null)) => {
           upcomingLoading: route.route_type === RAIL_ROUTE_TYPE && railLoading.value,
         };
       })
-      .filter((group) => !liveKeys.has(group.key))
-      // LRT lines by name, so they keep their places when switching platforms
-      .sort(
-        (a, b) =>
-          Number(b.rail) - Number(a.rail) ||
-          (a.rail && b.rail ? a.route_long_name.localeCompare(b.route_long_name) : 0) ||
-          (a.upcoming[0]?.seconds ?? a.nextArrival?.seconds ?? Infinity) -
-            (b.upcoming[0]?.seconds ?? b.nextArrival?.seconds ?? Infinity) ||
-          a.route_id.localeCompare(b.route_id, undefined, { numeric: true }),
-      );
+      .filter((group) => !liveKeys.has(group.key));
   });
 
-  const routeGroups = computed(() => [...liveGroups.value, ...quietGroups.value]);
+  const routeGroups = computed(() => [...liveGroups.value, ...quietGroups.value].sort(compareStopRouteGroups));
 
   return {
     routeGroups,
