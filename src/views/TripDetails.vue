@@ -6,6 +6,7 @@ import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
 import { usePageTitle } from '../composables/usePageTitle';
+import { useBusTrip } from '../composables/useBusTrip';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
@@ -445,6 +446,18 @@ const tripAlerts = computed(() => {
     );
 });
 
+// the disruptions naming each stop, shown when its row is opened
+const stopAlerts = computed(() => {
+    /** @type {Map<string, typeof tripAlerts.value.alerts>} */
+    const byStop = new Map();
+    for (const timing of tripAlerts.value.alerts) {
+        for (const stopId of timing.alert.stopIds) {
+            byStop.set(stopId, [...(byStop.get(stopId) ?? []), timing]);
+        }
+    }
+    return byStop;
+});
+
 // worked out once per render, as the estimates follow the run's positions along the route shape
 const stopRows = computed(() => {
     const stops = routeData.value ?? [];
@@ -502,6 +515,19 @@ onMounted(() => {
     }, 30000);
 });
 onBeforeUnmount(() => clearInterval(nowInterval));
+
+// the bus is out on this trip now, rather than having finished it or not reported for a while
+const liveBus = computed(() => {
+    const latest = latestTripPoint.value;
+    if (!latest || isFuture.value || switching.value) return null;
+    if (nowSeconds.value - latest.timestamp > ACTIVE_TRIP_STALE_SECONDS) return null;
+    return { ...latest, trip: String(props.tripId) };
+});
+
+// worked out like the map's bus card, from the next stop, so the two agree. None once
+// the bus is past its last stop
+const { nextStop: liveNextStop } = useBusTrip(liveBus);
+const liveStatus = computed(() => (liveBus.value && liveNextStop.value ? scheduleStatus(liveNextStop.value.offsetMinutes) : null));
 
 // an old position isn't where the bus is, and the positions view has its own pins
 const mapBuses = computed(() => {
@@ -656,6 +682,15 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
           </div>
           <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
         </router-link>
+        <!-- how the bus is doing right now, while it's out on this trip -->
+        <div v-if="liveStatus && liveNextStop" class="d-flex align-center flex-wrap ga-2 px-2 mb-1">
+          <v-chip :color="liveStatus.color" size="small" variant="tonal" prepend-icon="mdi-access-point">
+            {{ liveStatus.label }}
+          </v-chip>
+          <span class="text-body-small text-medium-emphasis">
+            Next stop {{ liveNextStop.name }}, scheduled at {{ formatScheduledTime(liveNextStop.scheduledTime) }}
+          </span>
+        </div>
         <v-skeleton-loader v-if="switching" type="text, text" class="px-2" />
         <div v-else class="text-body-medium text-medium-emphasis px-2">
           <div v-if="weekdayLabel || (startTime && endTime)">
@@ -678,6 +713,8 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
         :fit-key="shownMap.fitKey"
         :positions="shownMap.positions"
         :selected-position="selectedPosition"
+        show-age
+        bounded
         class="trip-map mt-3"
         @select-position="selectPosition"
       />
@@ -849,6 +886,14 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
           </div>
           <v-expand-transition>
             <div v-if="expandedSequence === row.stop.stop_sequence" class="text-body-medium px-3 pb-3">
+              <!-- what the warning chip is about -->
+              <ServiceAlertCard
+                v-for="timing in stopAlerts.get(row.stop.stop_id) ?? []"
+                :key="timing.alert.id"
+                :timing="timing"
+                :now="nowLocal"
+                class="mb-3"
+              />
               <StopDelayStats
                 v-if="tripData?.route_id"
                 v-model:scope="statsScope"

@@ -81,6 +81,19 @@ const calendarDates = Array.from({ length: 121 }, (_, i) => ({
   exception_type: "1",
 }));
 
+/** A detour on route 8 past its last stop, until further notice. */
+export const DETOUR = {
+  alert_id: "e2e-detour",
+  start_dttm: `${edmontonDate(-30)}T00:00:00.000`,
+  end_dttm: "3000-01-01T00:00:00.000",
+  route_id: ROUTE.route_id,
+  stop_id: STOPS[3].stop_id,
+  cause: "CONSTRUCTION",
+  effect: "DETOUR",
+  header_text: "Jasper Ave & 95 St closed",
+  description_text: "Buses detour along 102 Ave while Jasper Ave is closed for construction.",
+};
+
 /** The bus out on trip 5002, between its second and third stops. */
 export const BUS = {
   bus: 4699,
@@ -132,8 +145,10 @@ const openData = (url) => {
     }
     case "f2sy-bth7": // calendar dates
       return calendarDates;
+    case "5yvt-mcye": // service alerts
+      return [DETOUR];
     default:
-      // the stop schedule view, service alerts and agencies: nothing to show
+      // the stop schedule view and agencies: nothing to show
       return [];
   }
 };
