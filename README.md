@@ -26,8 +26,9 @@ Then fill in `.env`:
 ```sh
 npm run dev     # dev server with hot reload
 npm run build   # production build in dist/
-npm run lint    # eslint over src/ and tests/ (also runs on pre-commit)
+npm run lint    # eslint over src/, tests/ and e2e/ (also runs on pre-commit)
 npm test        # vitest unit tests
+npm run test:e2e  # playwright smoke tests against a build, with the APIs mocked
 ```
 
 ## How it works
