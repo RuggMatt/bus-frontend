@@ -30,6 +30,8 @@ jobs:
 
   e2e:
     name: Run browser smoke tests
+    # on PRs only: they gate what merges, and main is only reached through them
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

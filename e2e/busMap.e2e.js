@@ -1,15 +1,21 @@
 import { test, expect } from "./fixtures.js";
 import { BUS } from "./mockApi.js";
 
-/** The element's box once it has stopped moving, as after the sheet's opening slide. */
+/**
+ * The element's box once it's fully on screen and has stopped moving, as after the
+ * sheet's opening slide. Two reads 100 ms apart must match: reads taken back to back
+ * can match mid-slide, which aimed the swipe below the sheet's final top.
+ */
 const settledBox = async (locator) => {
-  let box = await locator.boundingBox();
+  await expect(locator).toBeInViewport({ ratio: 1 });
+  let previous = null;
   await expect(async () => {
-    const previous = box;
-    box = await locator.boundingBox();
-    expect(box).toEqual(previous);
+    const box = await locator.boundingBox();
+    const moved = previous === null || box.y !== previous.y || box.height !== previous.height;
+    previous = box;
+    expect(moved).toBe(false);
   }).toPass({ intervals: [100] });
-  return box;
+  return previous;
 };
 
 const busMarker = (page) => page.locator(`.leaflet-marker-icon[title="${BUS.bus}"]`);
