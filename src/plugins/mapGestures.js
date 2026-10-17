@@ -1,9 +1,12 @@
 // @ts-check
-// Touch gestures leaflet doesn't have:
+// Gestures leaflet doesn't have:
 // - oneFingerZoom (on by default): double tap and hold, then drag down to zoom in
 //   or up to zoom out, as in Google Maps. A double tap without dragging still zooms in.
 // - twoFingerPan (off by default): one finger scrolls the page and two fingers move
 //   the map, for maps inside a scrolling page. A hint shows when one finger tries.
+// - ctrlScrollZoom (off by default): the scroll wheel scrolls the page, and only
+//   zooms the map with ctrl held (or ⌘ on a Mac), for the same maps. A hint shows
+//   when scrolling without it.
 import L from 'leaflet';
 
 // how quickly and how close together the two taps must be
@@ -14,6 +17,37 @@ const TAP_SLOP_PX = 10;
 // dragging this far changes the zoom by one level
 const PX_PER_ZOOM = 100;
 const HINT_MS = 1500;
+
+const IS_MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
+
+/**
+ * Shows `text` over the map for a moment. The maps share one hint element, so a
+ * new hint replaces the one showing
+ *
+ * @param {import('leaflet').Map & { _gestureHint?: HTMLElement, _gestureHintTimeout?: ReturnType<typeof setTimeout> }} map
+ * @param {string} text
+ */
+const showHint = (map, text) => {
+    if (!map._gestureHint) {
+        map._gestureHint = L.DomUtil.create('div', 'leaflet-gesture-hint', map.getContainer());
+        map._gestureHint.setAttribute('aria-hidden', 'true');
+    }
+    const hint = map._gestureHint;
+    hint.textContent = text;
+    // reflow, so a hint added just now still fades in
+    void hint.offsetWidth;
+    L.DomUtil.addClass(hint, 'leaflet-gesture-hint--visible');
+    clearTimeout(map._gestureHintTimeout);
+    map._gestureHintTimeout = setTimeout(() => hideHint(map), HINT_MS);
+};
+
+/** @param {import('leaflet').Map & { _gestureHint?: HTMLElement, _gestureHintTimeout?: ReturnType<typeof setTimeout> }} map */
+const hideHint = (map) => {
+    clearTimeout(map._gestureHintTimeout);
+    if (map._gestureHint) {
+        L.DomUtil.removeClass(map._gestureHint, 'leaflet-gesture-hint--visible');
+    }
+};
 
 /** @param {Event} event */
 const isTouch = (event) => /** @type {PointerEvent} */ (event).pointerType === 'touch';
@@ -222,7 +256,7 @@ const TwoFingerPan = L.Handler.extend({
         L.DomUtil.removeClass(container, 'leaflet-two-finger-pan');
         container.removeEventListener('touchstart', this._onTouchStart, { capture: true });
         container.removeEventListener('touchmove', this._onTouchMove, { capture: true });
-        this._hideHint();
+        hideHint(this._map);
     },
 
     /** @param {TouchEvent} event */
@@ -239,7 +273,7 @@ const TwoFingerPan = L.Handler.extend({
         }
         // two fingers, which leaflet pans and zooms with
         this._start = null;
-        this._hideHint();
+        hideHint(this._map);
         if (event.cancelable) {
             event.preventDefault();
         }
@@ -262,31 +296,37 @@ const TwoFingerPan = L.Handler.extend({
         const touch = event.touches[0];
         if (start && touch && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > TAP_SLOP_PX) {
             this._start = null;
-            this._showHint();
-        }
-    },
-
-    _showHint() {
-        if (!this._hint) {
-            this._hint = L.DomUtil.create('div', 'leaflet-gesture-hint', this._map.getContainer());
-            this._hint.textContent = 'Use two fingers to move the map';
-            this._hint.setAttribute('aria-hidden', 'true');
-        }
-        // reflow, so a hint added just now still fades in
-        void this._hint.offsetWidth;
-        L.DomUtil.addClass(this._hint, 'leaflet-gesture-hint--visible');
-        clearTimeout(this._hintTimeout);
-        this._hintTimeout = setTimeout(() => this._hideHint(), HINT_MS);
-    },
-
-    _hideHint() {
-        clearTimeout(this._hintTimeout);
-        if (this._hint) {
-            L.DomUtil.removeClass(this._hint, 'leaflet-gesture-hint--visible');
+            showHint(this._map, 'Use two fingers to move the map');
         }
     },
 });
 
-L.Map.mergeOptions({ oneFingerZoom: true, twoFingerPan: false });
+const CtrlScrollZoom = L.Handler.extend({
+    addHooks() {
+        this._onWheel = this._onWheel.bind(this);
+        // capture, so it runs before leaflet's scrollWheelZoom
+        this._map.getContainer().addEventListener('wheel', this._onWheel, { capture: true, passive: true });
+    },
+
+    removeHooks() {
+        this._map.getContainer().removeEventListener('wheel', this._onWheel, { capture: true });
+        hideHint(this._map);
+    },
+
+    /** @param {WheelEvent} event */
+    _onWheel(event) {
+        // a trackpad pinch comes as a wheel with ctrl held, so it zooms too
+        if (event.ctrlKey || (IS_MAC && event.metaKey)) {
+            hideHint(this._map);
+            return;
+        }
+        // leaflet would zoom, and the page should scroll instead
+        event.stopPropagation();
+        showHint(this._map, IS_MAC ? 'Use ⌘ + scroll to zoom the map' : 'Use Ctrl + scroll to zoom the map');
+    },
+});
+
+L.Map.mergeOptions({ oneFingerZoom: true, twoFingerPan: false, ctrlScrollZoom: false });
 L.Map.addInitHook('addHandler', 'oneFingerZoom', OneFingerZoom);
 L.Map.addInitHook('addHandler', 'twoFingerPan', TwoFingerPan);
+L.Map.addInitHook('addHandler', 'ctrlScrollZoom', CtrlScrollZoom);
