@@ -54,3 +54,36 @@ test("a stop on the route page opens the route's page for that stop", async ({ p
   await expect(page).toHaveURL(/\/stops\/1002\/routes\/008$/);
   await expect(page.getByRole("link", { name: "All routes at this stop" })).toBeVisible();
 });
+
+test("a route's page for a stop switches to the stop across the street going the other way", async ({ page }) => {
+  const date = edmontonDate(-2);
+  await page.goto(`/stops/1002/routes/008?date=${date}`);
+
+  await expect(page.getByRole("button", { name: "To University" })).toHaveClass(/v-btn--active/);
+  await page.getByRole("button", { name: "To Abbottsfield" }).click();
+  await expect(page).toHaveURL(new RegExp(`/stops/2002/routes/008\\?date=${date}&direction=1`));
+  await expect(page.getByRole("heading", { name: "Abbottsfield" })).toBeVisible();
+  await expect(page.locator(".arrival-row")).toHaveCount(1);
+  await expect(page.locator(".arrival-row").first()).toContainText("11:10 AM");
+});
+
+test("a bus with no time here says whether its trip was tracked", async ({ page }) => {
+  const date = edmontonDate(-2);
+  // 5003 was tracked but not placed at its last stop
+  await page.goto(`/stops/1004/routes/008?date=${date}`);
+  await expect(page.locator(".arrival-row").nth(2)).toContainText("Not seen here");
+  await expect(page.locator(".arrival-row").nth(2)).toContainText("Trip was tracked");
+
+  // the trip back wasn't tracked at all
+  await page.goto(`/stops/2002/routes/008?date=${date}`);
+  await expect(page.locator(".arrival-row").first()).toContainText("Not tracked");
+});
+
+test("today's list estimates when a bus on the way gets to the stop", async ({ page }) => {
+  await page.goto("/stops/1003/routes/008");
+  const earlier = page.getByRole("button", { name: /^Show \d+ earlier$/ });
+  await expect(page.locator(".arrival-row").or(earlier).first()).toBeVisible();
+  if (await earlier.isVisible()) await earlier.click();
+  // the bus on 5002 is between 104 St and 100 St
+  await expect(page.locator(".arrival-row", { hasText: "9:10 AM" })).toContainText(/Est\. \d+:\d\d [AP]M/);
+});
