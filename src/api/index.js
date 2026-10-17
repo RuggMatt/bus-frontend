@@ -841,6 +841,36 @@ export const getRouteSchedule = async (routeId, serviceIds, timeRanges) => {
 };
 
 /**
+ * Fetches every time a route is scheduled at a stop, on all its services, from the
+ * currently-active GTFS feed. Which services run on a day is left to the caller.
+ * @param {string} stopId
+ * @param {string} routeId
+ * @param {string} agencyName Route ids are only unique within an agency
+ * @returns {Promise<StopScheduleEntry[]>}
+ */
+export const getStopRouteSchedule = async (stopId, routeId, agencyName) => {
+  const today = edmontonNow().dateString;
+  // Escape single quotes to prevent SoQL injection
+  const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+  const params = new URLSearchParams({
+    $where: `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND stop_id = ${quote(stopId)} AND route_id = ${quote(routeId)} AND agency_name = ${quote(agencyName)}`,
+    $select: "trip_id,route_id,route_long_name,agency_name,route_type,trip_headsign,service_id,arrival_time,stop_sequence",
+    $order: "arrival_time",
+    $limit: "10000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return result.json();
+};
+
+/**
  * @typedef {Object} StopHeadsign
  * @property {string} stop_id
  * @property {string} route_id

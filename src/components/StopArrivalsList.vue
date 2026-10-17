@@ -78,8 +78,8 @@ const transitionName = (group, name) =>
   group.key === transitionKey.value ? { viewTransitionName: name } : undefined;
 
 /**
- * Morphs the route number, name and buses into the route page. The route page's own
- * data is usually still loading, so what this page knows rides along in history state.
+ * Morphs the route number and name into the route's page for this stop. Its own data
+ * is usually still loading, so the route's name rides along in history state.
  *
  * @param {MouseEvent} event
  * @param {import('../composables/useStopArrivals').StopRouteGroup} group
@@ -89,15 +89,23 @@ const openRoute = (event, group) =>
     event,
     router,
     {
-      path: `/routes/${group.route_id}`,
-      state: {
-        routeLongName: group.route_long_name,
-        buses: group.buses.map((bus) => ({ bus: bus.bus, trip: bus.trip_id })),
-      },
+      path: stopRoutePath(group),
+      query: agencyQuery(group),
+      state: { routeLongName: group.route_long_name },
     },
     (named) => { transitionKey.value = named ? group.key : null; },
   );
 
+/**
+ * The route's page for this stop: its times here, by day, and how late it usually is.
+ * @param {import('../composables/useStopArrivals').StopRouteGroup} group
+ */
+const stopRoutePath = (group) => `/stops/${props.stop.stop_id}/routes/${group.route_id}`;
+
+// route ids are only unique within an agency, so a regional route says which
+/** @param {import('../composables/useStopArrivals').StopRouteGroup} group */
+const agencyQuery = (group) =>
+  (group.agency_name && group.agency_name !== LOCAL_AGENCY ? { agency: group.agency_name } : {});
 
 /** @param {import('../composables/useStopArrivals').StopBus} bus */
 const positionLabel = (bus) => {
@@ -216,13 +224,13 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
         >
           <router-link
             v-slot="{ href }"
-            :to="`/routes/${group.route_id}`"
+            :to="{ path: stopRoutePath(group), query: agencyQuery(group) }"
             custom
           >
             <a
               :href="href"
               class="route-header__link"
-              :aria-label="group.rail ? `Timetable for the ${group.route_long_name}` : `Timetable for route ${routeNumber(group.route_id)}`"
+              :aria-label="group.rail ? `${group.route_long_name} at this stop` : `Route ${routeNumber(group.route_id)} at this stop`"
               @click="openRoute($event, group)"
             />
           </router-link>

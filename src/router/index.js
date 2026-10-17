@@ -24,6 +24,13 @@ const routes = [
     props: true,
   },
   {
+    path: "/stops/:stopId/routes/:routeId",
+    name: "Stop Route",
+    meta: { title: (route) => `Route ${routeNumber(String(route.params.routeId))} · Stop ${route.params.stopId}` },
+    component: () => import("../views/StopRoutePage.vue"),
+    props: true,
+  },
+  {
     path: "/electric",
     name: "Electric Buses",
     meta: { title: "Electric Bus Finder" },
