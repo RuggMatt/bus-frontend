@@ -19,8 +19,8 @@ test("a stop lists its routes with a bus on the way first, and a week of delays 
   await expect(cards.nth(0).getByText("21 buses on 3 trips")).toHaveCount(0);
   await expect(page).toHaveURL(/\/stops\/1003$/);
 
-  // the rest of the header still opens the route
+  // the rest of the header opens the route's page for this stop
   // (by its badge, as the chip sits in the middle of it)
-  await cards.nth(0).getByRole("link", { name: "Timetable for route 8" }).click({ position: { x: 24, y: 24 } });
-  await expect(page).toHaveURL(/\/routes\/008/);
+  await cards.nth(0).getByRole("link", { name: "Route 8 at this stop" }).click({ position: { x: 24, y: 24 } });
+  await expect(page).toHaveURL(/\/stops\/1003\/routes\/008/);
 });
