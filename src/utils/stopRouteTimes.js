@@ -114,34 +114,38 @@ export const stopIndexOnTrip = (stopTimes, stopId, seq) => {
 };
 
 /**
- * Where a bus is among the stops before the one it's heading for, for a line of dots:
- * the stop it last passed, then the stops still to go. A long way off, the middle ones
- * are cut to a gap.
+ * Where a bus is among the stops before the one it's heading for, for a strip of
+ * dots: the stops in order, and the bus as a position between two of them.
  * @param {Array<{name: string, along: number}>} stops The trip's stops up to this one,
  *   with how far along its route line each is, in metres
  * @param {number} busAlong How far along the line the bus is
- * @param {number} [most] The most stops still to go that are drawn, gap included
- * @returns {{stopsAway: number, dots: Array<{name: string} | null>, bus: number} | null}
- *   null once the bus is past this stop. A null dot is the gap. `bus` is how far across
- *   the line the bus sits, 0 to 1
+ * @returns {{stopsAway: number, names: string[], bus: number} | null} null once the
+ *   bus is past this stop. `bus` counts in stops: 2.5 is halfway between the third and
+ *   fourth. Before the first stop it's 0
  */
-export const approachDiagram = (stops, busAlong, most = 5) => {
+export const approachTrack = (stops, busAlong) => {
   const ahead = stops.findIndex((stop) => stop.along > busAlong);
   if (ahead === -1) return null;
-  const upcoming = stops.slice(ahead);
-  const passed = ahead > 0 ? stops[ahead - 1] : null;
-  /** @type {Array<{name: string, along: number} | null>} */
-  const shown = upcoming.length > most ? [...upcoming.slice(0, most - 2), null, /** @type {{name: string, along: number}} */ (upcoming.at(-1))] : upcoming;
-  const dots = passed ? [passed, ...shown] : shown;
   let bus = 0;
-  if (passed && dots.length > 1) {
-    const next = upcoming[0];
-    const part = Math.min(1, Math.max(0, (busAlong - passed.along) / (next.along - passed.along || 1)));
-    bus = part / (dots.length - 1);
+  if (ahead > 0) {
+    const passed = stops[ahead - 1];
+    const next = stops[ahead];
+    bus = ahead - 1 + Math.min(1, Math.max(0, (busAlong - passed.along) / (next.along - passed.along || 1)));
   }
-  return {
-    stopsAway: upcoming.length,
-    dots: dots.map((dot) => (dot ? { name: dot.name } : null)),
-    bus,
-  };
+  return { stopsAway: stops.length - ahead, names: stops.map((stop) => stop.name), bus };
+};
+
+/**
+ * Which stops of an approach strip are in view, in stops from the first: the stop the
+ * bus last passed is at the left edge, until this stop reaches the right edge and
+ * stays there. So the strip only ever slides forward as the bus goes.
+ * @param {number} lastIndex This stop's index
+ * @param {number} bus The bus's position, in stops
+ * @param {number} width How many stops apart the edges are
+ * @returns {{offset: number, far: boolean}} `offset` is the stop at the left edge (below
+ *   0 when there are fewer stops than fit). `far` when this stop is past the right edge
+ */
+export const approachWindow = (lastIndex, bus, width) => {
+  const left = Math.max(0, Math.floor(bus));
+  return { offset: Math.min(left, lastIndex - width), far: lastIndex - left > width };
 };
