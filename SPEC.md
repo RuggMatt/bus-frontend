@@ -373,11 +373,12 @@ Two Leaflet handlers, added to every map by `src/plugins/leaflet.js`:
 - **Browser smoke tests** (`e2e/*.e2e.js`, Playwright, not picked up by Vitest) cover what the unit tests can't: opening a bus on the main map, swiping its sheet away on a phone, stepping between trips, and the not-found page. They run against a production build (`vite build && vite preview`) on a desktop and a phone (Pixel 7) project.
   - `e2e/mockApi.js` answers every request: the backend (`VITE_APP_API_URL` is `http://api.test`), `data.edmonton.ca` by dataset id, and Mapbox tiles (aborted). Its feed is one route (8) with three trips (5001–5003, 8, 9 and 10 AM) along four stops, running every day, and bus 4699 on trip 5002. Add to it when a test needs more, and keep it small.
   - Import `test` and `expect` from `e2e/fixtures.js`, which installs the mocks and fails a test on any uncaught page error.
+  - Wait for the bus sheet with `settledBox` before swiping it: it slides up from below the screen, and a box read before then aims the touch off screen.
   - The main map swaps each bus marker on every update, and the buses update twice on load (again once their routes are known), so tap a bus with `openBus`, which retries until its card opens.
   - Locally, a Chromium other than the one the installed Playwright expects can be used with `PLAYWRIGHT_CHROMIUM_PATH`. An already running `vite preview` on port 4173 is reused outside CI.
 - **CI:**
   - `.github/workflows/eslint.yml` runs ESLint as a SARIF scan.
-  - `.github/workflows/test.yml` ("Tests") runs `npm ci` and `npm test` on Node 22, on PRs and on pushes to `main`. Its second job installs Playwright's Chromium and runs `npm run test:e2e`, uploading the HTML report and traces when it fails.
+  - `.github/workflows/test.yml` ("Tests") runs `npm ci` and `npm test` on Node 22, on PRs and on pushes to `main`. Its second job, on PRs only, installs Playwright's Chromium and runs `npm run test:e2e`, uploading the HTML report and traces when it fails.
 - **Dependencies:** npm 10.9 can crash with `Cannot read properties of null (reading 'edgesOut')` when adding packages with optional peers. Use `npx npm@11 i …` for the install. `npm ci` on npm 10 works fine.
 - **UI checks:** use Playwright with Chromium (`/usr/bin/google-chrome` locally) at 1280px and 375px. Good stops to try:
   - `1987` (routes 8 and 902)
