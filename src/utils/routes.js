@@ -38,6 +38,38 @@ export const representativeTrips = (trips, directionId) => {
 };
 
 /**
+ * A direction's stops in the order buses reach them, by their average stop_sequence
+ * across the trips given, as the timetable orders its rows. A stop a trip passes twice
+ * is listed once, where the trip first reaches it.
+ * @param {{trip_id: string, stop_id: string, stop_sequence: string|number}[]} stopTimes
+ * @returns {string[]} Stop ids
+ */
+export const stopsInOrder = (stopTimes) => {
+  // each trip's first visit to each stop
+  /** @type {Map<string, number>} */
+  const firstVisits = new Map();
+  for (const { trip_id: tripId, stop_id: stopId, stop_sequence: seq } of stopTimes) {
+    const key = `${tripId}|${stopId}`;
+    firstVisits.set(key, Math.min(firstVisits.get(key) ?? Infinity, Number(seq)));
+  }
+  /** @type {Map<string, {sum: number, count: number}>} */
+  const seqs = new Map();
+  for (const [key, seq] of firstVisits) {
+    const stopId = key.slice(key.indexOf("|") + 1);
+    const info = seqs.get(stopId) ?? { sum: 0, count: 0 };
+    info.sum += seq;
+    info.count += 1;
+    seqs.set(stopId, info);
+  }
+  /** @param {string} stopId */
+  const average = (stopId) => {
+    const info = /** @type {{sum: number, count: number}} */ (seqs.get(stopId));
+    return info.sum / info.count;
+  };
+  return [...seqs.keys()].sort((a, b) => average(a) - average(b));
+};
+
+/**
  * Labels each direction by its most common headsign.
  * @param {{direction_id: string, trip_headsign?: string}[]} trips
  * @returns {Record<string, string>}

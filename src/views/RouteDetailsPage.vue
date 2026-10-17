@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQueries, useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule, getRouteStopTimes } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule, getRouteStopTimes, getRouteStopsStats } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -11,10 +11,11 @@ import RouteBadge from '../components/RouteBadge.vue';
 import RouteBusCard from '../components/RouteBusCard.vue';
 import ServiceAlertCard from '../components/ServiceAlertCard.vue';
 import TransitMap from '../components/TransitMap.vue';
+import DelayHistogram from '../components/DelayHistogram.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
-import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeColor, routeNumber } from '../utils/routes';
+import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeColor, routeNumber, stopsInOrder } from '../utils/routes';
 import { upcomingArrivals } from '../utils/nextArrival';
 import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
 import TrainTimes from '../components/TrainTimes.vue';
@@ -22,7 +23,8 @@ import { usePageTitle } from '../composables/usePageTitle';
 import { useAgencies, useRouteAgencies } from '../composables/useAgencies';
 import { telHref } from '../utils/phone';
 import { edmontonNow, scheduleWindow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
-import { addDays } from '../utils/weeks';
+import { addDays, formatShortDate } from '../utils/weeks';
+import { formatDelay, onTimeShare, typicalStatus } from '../utils/delayStats';
 import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
 import {
   regularServices,
@@ -628,6 +630,45 @@ const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agenc
 // before the routes load, only buses handed over for the view transition are shown
 const showActiveBuses = computed(() => (route.value ? !isRail.value : activeBuses.value.length > 0));
 
+// --- Stops in the direction, with how late buses were at each last week ---
+// trains aren't tracked, so LRT lines have no stats
+const showStopsList = computed(() => !!route.value && !isRail.value);
+
+// every stop at once, worked out nightly, so there's nothing new to fetch for a while
+const stopsStats = useQuery({
+  queryKey: ['route-stops-stats', props.routeId],
+  queryFn: () => getRouteStopsStats(props.routeId),
+  enabled: showStopsList,
+  staleTime: 60 * 60 * 1000,
+});
+
+const statsByStop = computed(() => new Map((stopsStats.data.value?.stops ?? []).map((stats) => [stats.stop, stats])));
+
+const stopsStatsRange = computed(() => {
+  const data = stopsStats.data.value;
+  return data ? `${formatShortDate(data.from)} – ${formatShortDate(data.to)}` : '';
+});
+
+const stopList = computed(() =>
+  stopsInOrder(directionStopTimes.value ?? []).map((stopId) => {
+    const stats = statsByStop.value.get(stopId);
+    const effect = routeDisruptedStops.value.get(stopId);
+    return {
+      stopId,
+      name: keyedStops.value?.[stopId]?.stop_name ?? `Stop ${stopId}`,
+      disruption: effect ? effectLabel(effect) : null,
+      stats: stats?.count && stats.mean !== null ? stats : null,
+      onTime: stats ? onTimeShare(stats.histogram) : null,
+    };
+  }));
+
+/** @param {number} count */
+const busTimes = (count) => `${count} ${count === 1 ? 'bus' : 'buses'}`;
+
+/** @param {{count: number, trips: number}} stats */
+const stopStatsCaption = (stats) =>
+  `${busTimes(stats.count)} on ${stats.trips} ${stats.trips === 1 ? 'trip' : 'trips'}`;
+
 // the countdowns tick on their own, as nothing else refreshes for a train
 const clock = ref(edmontonNow());
 /** @type {ReturnType<typeof setInterval> | undefined} */
@@ -870,6 +911,79 @@ const stationTrains = computed(() => {
       </v-row>
     </template>
 
+    <!-- Stops, with a week of delays at each -->
+    <template v-if="showStopsList">
+      <h2 class="text-headline-small mt-8 mb-1">
+        Stops
+      </h2>
+      <div class="text-body-small text-medium-emphasis mb-3">
+        How late buses were last week<template v-if="stopsStatsRange">
+          &middot; {{ stopsStatsRange }}
+        </template>
+      </div>
+      <v-skeleton-loader v-if="!directionStopTimes && !directionStopsError" type="list-item-two-line@4" />
+      <div v-else-if="!stopList.length" class="text-medium-emphasis mb-4">
+        The stops could not be loaded.
+      </div>
+      <template v-else>
+        <div v-if="stopsStats.isError.value" class="text-error mb-2">
+          Stats for these stops could not be loaded.
+        </div>
+        <v-card variant="outlined" class="mb-4">
+          <template v-for="(stop, index) in stopList" :key="stop.stopId">
+            <v-divider v-if="index > 0" />
+            <div class="stop-row pa-3">
+              <div class="stop-row__info">
+                <div class="d-flex align-center ga-1">
+                  <router-link :to="`/stops/${stop.stopId}`" class="stop-row__name text-title-small">
+                    {{ stop.name }}
+                  </router-link>
+                  <v-icon
+                    v-if="stop.disruption"
+                    icon="mdi-alert"
+                    color="warning"
+                    size="small"
+                    :aria-label="stop.disruption"
+                  />
+                </div>
+                <div v-if="stop.disruption" class="text-body-small text-warning">
+                  {{ stop.disruption }}
+                </div>
+                <v-progress-circular
+                  v-if="stopsStats.isLoading.value"
+                  indeterminate
+                  size="16"
+                  width="2"
+                  class="mt-1"
+                />
+                <div v-else-if="stop.stats" class="d-flex align-center flex-wrap ga-2 mt-1">
+                  <v-chip :color="typicalStatus(stop.stats.mean).color" size="small" variant="tonal">
+                    Usually {{ typicalStatus(stop.stats.mean).label.toLowerCase() }}
+                  </v-chip>
+                  <span class="text-body-small text-medium-emphasis">
+                    Average {{ formatDelay(stop.stats.mean).toLowerCase() }}<template v-if="stop.onTime !== null">
+                      &middot; {{ Math.round(stop.onTime * 100) }}% on time
+                    </template>
+                  </span>
+                </div>
+                <div v-else-if="!stopsStats.isError.value" class="text-body-small text-medium-emphasis mt-1">
+                  No times here in the last week yet
+                </div>
+              </div>
+              <DelayHistogram
+                v-if="stop.stats"
+                :histogram="stop.stats.histogram"
+                :times="busTimes"
+                :caption="stopStatsCaption(stop.stats)"
+                :height="40"
+                class="stop-row__histogram"
+              />
+            </div>
+          </template>
+        </v-card>
+      </template>
+    </template>
+
     <!-- Timetable -->
     <h2 class="text-headline-small mt-8 mb-4">
       Timetable
@@ -1102,6 +1216,29 @@ const stationTrains = computed(() => {
 </template>
 
 <style scoped>
+/* the histogram sits beside the stop on wider screens, and under it on phones */
+.stop-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  gap: 8px 16px;
+  align-items: center;
+}
+
+@media (max-width: 599px) {
+  .stop-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stop-row__name {
+  color: inherit;
+  text-decoration: none;
+}
+
+.stop-row__name:hover {
+  text-decoration: underline;
+}
+
 .direction-toggle {
   max-width: 100%;
 }

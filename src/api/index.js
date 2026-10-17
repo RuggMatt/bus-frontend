@@ -331,6 +331,16 @@ export const getRouteStopTimes = (routeId, date) =>
   getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/routes/${encodeURIComponent(routeId)}/${date}`);
 
 /**
+ * Every trip of a route at each stop it was seen at, over the last 7 days up to
+ * yesterday, in one request. A stop the route passes twice counts both visits.
+ * @param {string} routeId GTFS route id ("008")
+ * @returns {Promise<{route: string, from: string, to: string,
+ *   stops: Array<Omit<DelayStats, 'from'|'to'> & {stop: string, trips: number}>}>}
+ */
+export const getRouteStopsStats = (routeId) =>
+  getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/stats/routes/${encodeURIComponent(routeId)}/stops`);
+
+/**
  * @typedef {Object} RouteTrip
  * @property {number} trip
  * @property {boolean} happened Always true, only trips that reported positions are listed

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busesByHeadsign, compareAgencies, directionLabels, groupRoutesByAgency, filterRoutes, routeTypeLabel, headsignWithoutRoute, representativeTrips, routeNumber } from "../src/utils/routes";
+import { busesByHeadsign, compareAgencies, directionLabels, groupRoutesByAgency, filterRoutes, routeTypeLabel, headsignWithoutRoute, representativeTrips, routeNumber, stopsInOrder } from "../src/utils/routes";
 
 const trip = (trip_id, direction_id, shape_id, trip_headsign = "") => ({ trip_id, direction_id, shape_id, trip_headsign });
 
@@ -139,5 +139,27 @@ describe("groupRoutesByAgency", () => {
   it("orders agencies with the local one first", () => {
     expect(["Leduc Transit", "Edmonton Transit Service", "Beaumont Transit"].sort(compareAgencies))
       .toEqual(["Edmonton Transit Service", "Beaumont Transit", "Leduc Transit"]);
+  });
+});
+
+describe("stopsInOrder", () => {
+  const stopTime = (trip_id, stop_id, stop_sequence) => ({ trip_id, stop_id, stop_sequence });
+
+  it("orders stops by their average stop_sequence across shapes", () => {
+    // a short-turn shape skips stop B, so C is its second stop
+    const stopTimes = [
+      stopTime("1", "A", "1"), stopTime("1", "B", "2"), stopTime("1", "C", "3"), stopTime("1", "D", "4"),
+      stopTime("2", "A", "1"), stopTime("2", "C", "2"),
+    ];
+    expect(stopsInOrder(stopTimes)).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("lists a stop passed twice once, where the trip first reaches it", () => {
+    const loop = [stopTime("1", "A", 1), stopTime("1", "B", 2), stopTime("1", "C", 3), stopTime("1", "A", 4)];
+    expect(stopsInOrder(loop)).toEqual(["A", "B", "C"]);
+  });
+
+  it("gives nothing without stop times", () => {
+    expect(stopsInOrder([])).toEqual([]);
   });
 });

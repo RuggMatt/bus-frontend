@@ -197,6 +197,17 @@ const backend = (url) => {
       })),
     };
   }
+  // every stop of the route at once: on time, except the last stop has no times yet
+  const routeStopsStats = path.match(/^\/stop-times\/stats\/routes\/([^/]+)\/stops$/);
+  if (routeStopsStats) {
+    return {
+      route: routeStopsStats[1], from: "2026-10-10", to: "2026-10-16",
+      stops: STOPS.slice(0, -1).map((stop) => {
+        const stats = weekStats(21, 20, [{ minutes: -2, count: 2 }, { minutes: 0, count: 15 }, { minutes: 2, count: 4 }]);
+        return { stop: stop.stop_id, trips: TRIPS.length, count: stats.count, mean: stats.mean, min: stats.min, max: stats.max, histogram: stats.histogram };
+      }),
+    };
+  }
   if (path === `/bus/${BUS.bus}`) {
     const now = Math.floor(Date.now() / 1000);
     return { bus: BUS.bus, latest: liveBus(), firstSeen: now - 86400 * 30, lastSeen: now, active: true };
