@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from "../src/utils/stopRouteTimes";
+import { approachTrack, approachWindow, arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from "../src/utils/stopRouteTimes";
 
 const entry = (trip_id, arrival_time, service_id, extra = {}) => ({
   trip_id,
@@ -84,5 +84,37 @@ describe("stopIndexOnTrip", () => {
     expect(stopIndexOnTrip(loop, "10", null)).toBe(0);
     expect(stopIndexOnTrip(loop, "12", "9")).toBe(2);
     expect(stopIndexOnTrip(loop, "99", null)).toBe(-1);
+  });
+});
+
+describe("approachTrack", () => {
+  const stops = [0, 400, 800, 1200, 1600, 2000, 2400, 2800].map((along, index) => ({ name: `S${index}`, along }));
+
+  it("puts the bus between the stop it passed and the next", () => {
+    expect(approachTrack(stops.slice(0, 4), 600)).toEqual({ stopsAway: 2, names: ["S0", "S1", "S2", "S3"], bus: 1.5 });
+  });
+
+  it("starts at the first stop before the bus has passed any", () => {
+    expect(approachTrack(stops.slice(0, 2), -50)).toEqual({ stopsAway: 2, names: ["S0", "S1"], bus: 0 });
+  });
+
+  it("is null once the bus has gone by", () => {
+    expect(approachTrack(stops.slice(0, 3), 900)).toBeNull();
+  });
+});
+
+describe("approachWindow", () => {
+  it("keeps the stop the bus passed at the left edge while this stop is out of view", () => {
+    expect(approachWindow(10, 2.4, 5)).toEqual({ offset: 2, far: true });
+    expect(approachWindow(10, 3.1, 5)).toEqual({ offset: 3, far: true });
+  });
+
+  it("holds this stop at the right edge once it's in view", () => {
+    expect(approachWindow(10, 5.2, 5)).toEqual({ offset: 5, far: false });
+    expect(approachWindow(10, 8.7, 5)).toEqual({ offset: 5, far: false });
+  });
+
+  it("goes below 0 when there are fewer stops than fit", () => {
+    expect(approachWindow(2, 0.5, 5)).toEqual({ offset: -3, far: false });
   });
 });

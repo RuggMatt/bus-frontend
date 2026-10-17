@@ -6,14 +6,15 @@ import { edmontonNow } from "../utils/serviceTime";
 import { addDays } from "../utils/weeks";
 
 /**
- * The ids of a route's trips we recorded on an Edmonton day. Future days, or no
- * date, make no request and give an empty set.
+ * The ids of a route's trips we recorded on an Edmonton day, the buses on each, and
+ * whether they've loaded, so a trip missing while they load isn't taken as never recorded. Future
+ * days, or no date, make no request and give an empty set.
  * @param {import('vue').MaybeRefOrGetter<string>} routeId
  * @param {import('vue').MaybeRefOrGetter<string | null | undefined>} date YYYY-MM-DD
  */
-export const useRecordedTrips = (routeId, date) => {
+export const useRecordedTripsQuery = (routeId, date) => {
   const today = edmontonNow().dateString;
-  const { data } = useQuery({
+  const { data, isSuccess } = useQuery({
     queryKey: computed(() => ["route-day-runs", toValue(routeId), toValue(date)]),
     queryFn: () => getRouteTrips(toValue(routeId), /** @type {string} */ (toValue(date))),
     enabled: () => {
@@ -24,5 +25,18 @@ export const useRecordedTrips = (routeId, date) => {
     staleTime: () => ((toValue(date) ?? today) < addDays(today, -1) ? Infinity : 60000),
     refetchInterval: () => (toValue(date) === today ? 60000 : false),
   });
-  return computed(() => new Set((data.value?.trips ?? []).map((run) => String(run.trip))));
+  return {
+    ids: computed(() => new Set((data.value?.trips ?? []).map((run) => String(run.trip)))),
+    // the buses that reported on each trip, usually one
+    busesByTrip: computed(() => new Map((data.value?.trips ?? []).map((run) => [String(run.trip), run.buses]))),
+    isSuccess,
+  };
 };
+
+/**
+ * The ids of a route's trips we recorded on an Edmonton day. Future days, or no
+ * date, make no request and give an empty set.
+ * @param {import('vue').MaybeRefOrGetter<string>} routeId
+ * @param {import('vue').MaybeRefOrGetter<string | null | undefined>} date YYYY-MM-DD
+ */
+export const useRecordedTrips = (routeId, date) => useRecordedTripsQuery(routeId, date).ids;

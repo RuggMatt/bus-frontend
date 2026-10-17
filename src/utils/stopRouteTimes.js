@@ -112,3 +112,40 @@ export const stopIndexOnTrip = (stopTimes, stopId, seq) => {
   const exact = stopTimes.findIndex((stopTime) => stopTime.stop_id === stopId && stopTime.stop_sequence === seq);
   return exact === -1 ? stopTimes.findIndex((stopTime) => stopTime.stop_id === stopId) : exact;
 };
+
+/**
+ * Where a bus is among the stops before the one it's heading for, for a strip of
+ * dots: the stops in order, and the bus as a position between two of them.
+ * @param {Array<{name: string, along: number}>} stops The trip's stops up to this one,
+ *   with how far along its route line each is, in metres
+ * @param {number} busAlong How far along the line the bus is
+ * @returns {{stopsAway: number, names: string[], bus: number} | null} null once the
+ *   bus is past this stop. `bus` counts in stops: 2.5 is halfway between the third and
+ *   fourth. Before the first stop it's 0
+ */
+export const approachTrack = (stops, busAlong) => {
+  const ahead = stops.findIndex((stop) => stop.along > busAlong);
+  if (ahead === -1) return null;
+  let bus = 0;
+  if (ahead > 0) {
+    const passed = stops[ahead - 1];
+    const next = stops[ahead];
+    bus = ahead - 1 + Math.min(1, Math.max(0, (busAlong - passed.along) / (next.along - passed.along || 1)));
+  }
+  return { stopsAway: stops.length - ahead, names: stops.map((stop) => stop.name), bus };
+};
+
+/**
+ * Which stops of an approach strip are in view, in stops from the first: the stop the
+ * bus last passed is at the left edge, until this stop reaches the right edge and
+ * stays there. So the strip only ever slides forward as the bus goes.
+ * @param {number} lastIndex This stop's index
+ * @param {number} bus The bus's position, in stops
+ * @param {number} width How many stops apart the edges are
+ * @returns {{offset: number, far: boolean}} `offset` is the stop at the left edge (below
+ *   0 when there are fewer stops than fit). `far` when this stop is past the right edge
+ */
+export const approachWindow = (lastIndex, bus, width) => {
+  const left = Math.max(0, Math.floor(bus));
+  return { offset: Math.min(left, lastIndex - width), far: lastIndex - left > width };
+};
