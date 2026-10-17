@@ -12,6 +12,7 @@ import { tripPath } from '../composables/useStopArrivals';
 import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
 import { formatScheduledTime } from '../utils/busStatus';
 import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
+import { typicalStatus } from '../utils/delayStats';
 import { estimateStopArrivals } from '../utils/stopEstimates';
 import { serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
 import { edmontonNow, timeToSeconds } from '../utils/serviceTime';
@@ -205,6 +206,12 @@ const routeStats = useQuery({
     // worked out nightly, so there's nothing new to fetch for a while
     staleTime: 60 * 60 * 1000,
 });
+
+// the chip only shows once there's a week to sum up, like on the stop page
+const hasStats = computed(() => showStats.value
+    && !!routeStats.data.value?.count && routeStats.data.value.mean !== null);
+const typical = computed(() => typicalStatus(routeStats.data.value?.mean ?? 0));
+const statsOpen = ref(false);
 
 const isToday = computed(() => selectedDate.value === today);
 const isFuture = computed(() => selectedDate.value > today);
@@ -446,16 +453,27 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
       </v-btn>
     </div>
 
-    <v-card v-if="showStats" variant="outlined" class="pa-3 mt-3">
-      <v-progress-circular v-if="routeStats.isLoading.value" indeterminate size="20" width="2" />
-      <div v-else-if="routeStats.isError.value" class="text-error">
-        Stats for this stop could not be loaded.
-      </div>
-      <div v-else-if="!routeStats.data.value?.count || routeStats.data.value.mean === null" class="text-medium-emphasis">
-        No times for this route here in the last week yet
-      </div>
-      <RouteStopStats v-else :stats="routeStats.data.value" />
-    </v-card>
+    <!-- a week's delays fold into one chip, opened for the histogram -->
+    <div v-if="hasStats" class="mt-3">
+      <v-chip
+        tag="button"
+        type="button"
+        :color="typical.color"
+        size="small"
+        variant="tonal"
+        :append-icon="statsOpen ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+        :aria-expanded="statsOpen"
+        :aria-label="`Usually ${typical.label.toLowerCase()} here. ${statsOpen ? 'Hide' : 'Show'} last week's delays`"
+        @click="statsOpen = !statsOpen"
+      >
+        Usually {{ typical.label.toLowerCase() }}
+      </v-chip>
+      <v-expand-transition>
+        <v-card v-if="statsOpen" variant="outlined" class="pa-3 mt-2">
+          <RouteStopStats :stats="routeStats.data.value" />
+        </v-card>
+      </v-expand-transition>
+    </div>
 
     <div class="day-picker d-flex align-center flex-wrap ga-2 mt-4">
       <DayPicker
