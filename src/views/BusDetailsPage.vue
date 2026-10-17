@@ -99,9 +99,9 @@ const { data: tripCounts, isLoading: countsLoading, isError: countsError, refetc
     queryFn: () => getBusTripCounts(props.busId, { by: countsBy.value, ...countsRange.value }),
     // the range waits for firstSeen, so a new bus doesn't ask twice
     enabled: () => !!busInfo.value,
+    // no placeholder: switching period shows the loader under the toggle until that period's counts arrive,
+    // rather than the last period's chart under the new label
     staleTime: 5 * 60_000,
-    // switching period shouldn't blank the chart while the next one loads
-    placeholderData: keepPreviousData,
 });
 
 const countsSummary = computed(() => summarizeCounts(tripCounts.value ?? [], firstSeenDate.value));
