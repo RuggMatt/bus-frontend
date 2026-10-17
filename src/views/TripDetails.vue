@@ -430,16 +430,16 @@ const tripAlerts = computed(() => {
     );
 });
 
-// worked out once per render, as each estimate scans the trip's latest run of recorded positions
+// worked out once per render, as the estimates follow the run's positions along the route shape
 const stopRows = computed(() => {
     const stops = routeData.value ?? [];
-    const positions = runPositions.value;
     const estimates = estimateStopArrivals(
         stops.map((stop) => {
             const stopInfo = keyedStops.value?.[stop.stop_id];
             return stopInfo ? { lat: stopInfo.stop_lat, lon: stopInfo.stop_lon } : null;
         }),
-        positions,
+        runPositions.value,
+        tripPath(tripData.value),
     );
     return stops.map((stop, index) => {
         const stopInfo = keyedStops.value?.[stop.stop_id];
