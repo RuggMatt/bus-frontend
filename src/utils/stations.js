@@ -71,3 +71,63 @@ export const describePlatforms = (stops, rows) =>
       routeIds: [...new Set(here.map((row) => row.route_id))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     };
   });
+
+/**
+ * @typedef {"lrt" | "transit-centre"} PlaceType
+ */
+
+/**
+ * @template S
+ * @typedef {Object} StopPlace
+ * @property {string} key The station's id, or the stop's when it has none
+ * @property {string} name
+ * @property {PlaceType} type
+ * @property {number} lat
+ * @property {number} lon
+ * @property {S[]} stops Its platforms or bays, by stop number
+ */
+
+/**
+ * The LRT stations and transit centres among the stops, for the stops page's quick filter.
+ * A place is a GTFS station (parent_station) with its platforms or bays, or a lone LRT stop.
+ * It's an LRT station if a train stops at any of them, and a transit centre if it's a
+ * station of two or more bus stops. Names don't say which reliably, so it goes by the
+ * schedule (`railStopIds`, the stops served by an LRT route).
+ * @template {{stop_id: string, stop_code?: string, stop_name?: string, stop_lat: string, stop_lon: string, location_type?: string, parent_station?: string}} S
+ * @param {S[]} stops
+ * @param {Set<string>} railStopIds
+ * @returns {StopPlace<S>[]}
+ */
+export const stopPlaces = (stops, railStopIds) => {
+  /** @type {Map<string, S>} */
+  const stations = new Map();
+  /** @type {Map<string, S[]>} */
+  const byKey = new Map();
+  for (const stop of stops) {
+    if (stop.location_type === "1") stations.set(stop.stop_id, stop);
+    if (!isBoardable(stop)) continue;
+    const key = stop.parent_station || stop.stop_id;
+    // a stop without a station is only a place when it's an LRT stop
+    if (!stop.parent_station && !railStopIds.has(stop.stop_id)) continue;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)?.push(stop);
+  }
+  /** @type {StopPlace<S>[]} */
+  const places = [];
+  for (const [key, members] of byKey) {
+    const rail = members.some((stop) => railStopIds.has(stop.stop_id));
+    if (!rail && members.length < 2) continue;
+    members.sort((a, b) => String(a.stop_code || a.stop_id).localeCompare(String(b.stop_code || b.stop_id), undefined, { numeric: true }));
+    const station = stations.get(key);
+    const points = station ? [station] : members;
+    places.push({
+      key,
+      name: station?.stop_name || members[0].stop_name || key,
+      type: rail ? "lrt" : "transit-centre",
+      lat: points.reduce((sum, point) => sum + Number(point.stop_lat), 0) / points.length,
+      lon: points.reduce((sum, point) => sum + Number(point.stop_lon), 0) / points.length,
+      stops: members,
+    });
+  }
+  return places;
+};

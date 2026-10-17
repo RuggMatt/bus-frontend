@@ -111,6 +111,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['trip-stop-times', tripId]` | `getBusStopTimes`, `staleTime: Infinity` |
 | `['stop-headsigns', stopIds]` | Each route's headsigns and trip counts at a stop, or at every stop of its station (`getStopHeadsigns`), `staleTime: Infinity` |
 | `['stop-routes', stopId]` | Every route serving a stop, `staleTime: Infinity` |
+| `['rail-stops']` | Every stop an LRT route serves (`getRailStopIds`), for the stops page's filter, `staleTime: Infinity` |
 | `['route-direction-stops', routeId, tripIds]` | Stop times for one trip per shape in a direction, `staleTime: Infinity` |
 | `['stop-schedule', stopId, date, windowStart]` | Trips within about 2 h either side of now |
 | `['stop-next-arrivals', stopId, date, …]` | Each route and service pattern's earliest arrival from a time |
@@ -163,7 +164,10 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - A trip that isn't found shows the "Route could not be found" snackbar.
 
 ### Stops (`/stops/:stopId?`, `StopsPage.vue`, `StopDetails.vue`, `useStopArrivals`)
-- Map, search, and nearby stops. Picking a stop opens its details.
+- Map, search, and a stop list. Picking a stop opens its details.
+- **Stop list:** a left panel on desktop and under the map on mobile, shown until a stop is picked. Rows are in one outlined card like the routes list's (no `v-list`): an icon, the name, "Stop N" (or "4 bays", "2 platforms"), a warning icon when an alert in effect names one of its stops, and the distance from the map's centre (`formatDistance`). By default it's the 20 stops nearest the map's centre.
+  - **Quick filter:** "Transit centres" and "LRT stations" chips swap the list for every place of that type, nearest the map's centre first. It's in the URL as `?type=transit-centre` or `?type=lrt`, written with `router.replace`, so back from a stop returns to it. Tapping a place opens its first platform or bay, which links to the rest.
+  - Places come from `stopPlaces` (`src/utils/stations.js`): a GTFS station with its boardable stops, or a lone LRT stop (Valley Line stops have no station). It's an LRT station if a train serves any of its stops, else a transit centre if it has two or more. Names aren't relied on. The LRT stops come from `getRailStopIds` (`['rail-stops']`, the stop schedule view grouped by stop for `route_type` 0), only fetched once a filter is on.
 - Service alerts naming the stop, in effect or still to come (`alertsForStop`), show above the routes as `ServiceAlertCard`s with the routes they affect.
 - **Other platforms and bays:** stops sharing a GTFS `parent_station` (`stationStops`, `src/utils/stations.js`, leaving out entrances and other `location_type`s) are linked under the stop's name. An LRT station's two platforms are its two directions, and their names and stop numbers don't say which is which, so they get a full-width toggle labelled by each platform's busiest headsign ("To Clareview" / "To Century Park"). A transit centre's bays are chips labelled by their routes ("9, 709"), with the busiest headsign added when two bays share routes ("55 to Meadows"), under "Stops at <station name>". Switching uses `router.replace`, like a toggle. The labels come from `getStopHeadsigns` (`describePlatforms`).
   - **The map centres on the station**, the middle of its platforms, and doesn't move again when switching between them (`mapFocus` is keyed by `parent_station`), as a shift of a few metres is distracting. A stop with no station centres on itself.
@@ -309,7 +313,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **`ServiceAlertCard.vue`**: one service alert (`AlertTiming`) as a tonal warning `v-alert`: the header, an effect chip, when it applies ("Until Thu, Oct 29 at 6:00 PM", "Starts tomorrow at 10:00 AM, until …", "Until further notice", "+ 11 more days" for a recurring one, `formatAlertPeriod`), and the description clamped to two lines with More/Less. `now` is the local time, and `show-routes` adds badges linking to each affected route.
 - **`BusLink.vue`**: the only way to show a bus id. A `router-link` to `/buses/:id` reading "Bus N" (the slot overrides the text), with a faint underline. It stops click propagation, so it works inside tappable rows. Used on the map's bus card, Active Buses cards, stop page bus rows, the trip page, and the electric and hydrogen finders. The routes list's bus chips link to the bus page too.
 - **`createBusIcon`** (`src/plugins/busIcon.js`) options: `showAge` (a ticking age badge), `label` (a fixed badge, such as a time, with its own `.bus-time-badge` class so `refreshReportAges` leaves it alone), `history` (a smaller pin) and `selected`.
-- **`formatDistance`** (`src/utils/geo.js`): "350 m", or "1.2 km" from a kilometre. Used for the stop page's buses and the bus finders.
+- **`formatDistance`** (`src/utils/geo.js`): "350 m", or "1.2 km" from a kilometre. Used for the stop page's buses and stop list, and the bus finders.
 - **Report ages** (`src/utils/reportAge.js`): `formatReportAge` gives "52s ago", "4m 12s ago", "3h 5m ago", "2d ago", and the date past a week. `reportAgeLevel` gives fresh, stale (over 5 min) or old (over 1 h).
 - **Route colours** (`routeColor`, `src/utils/routes.js`): GTFS `route_color`, which only ETS's static GTFS zip has (not the open data routes dataset or the backend). Only the LRT lines' are kept, as a constant: Capital `#0081BC`, Metro `#FF0000`, Valley `#008000`.
 - **`RouteBadge.vue`**: the only way to show a route number. A filled primary pill showing `routeNumber(routeId)`, in sizes `small`, `default` and `large`. Attributes pass through to the root, so callers can add `style` and `class`.

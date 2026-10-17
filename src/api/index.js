@@ -1,5 +1,6 @@
 import { edmontonNow } from "../utils/serviceTime";
 import { addDays } from "../utils/weeks";
+import { RAIL_ROUTE_TYPE } from "../utils/routes";
 
 /**
  * @typedef {Object} ElectricBusHourlyStat
@@ -837,6 +838,31 @@ export const getStopRoutes = async (stopId) => {
   } else {
     throw Error(result.status);
   }
+};
+
+/**
+ * Fetches the stops an LRT route serves in the currently-active GTFS feed, to tell LRT
+ * stations apart from bus stops.
+ * @returns {Promise<string[]>}
+ */
+export const getRailStopIds = async () => {
+  const today = edmontonNow().dateString;
+  const params = new URLSearchParams({
+    $where: `feed_start_date <= '${today}' AND feed_end_date >= '${today}' AND route_type = '${RAIL_ROUTE_TYPE}'`,
+    $select: "stop_id",
+    $group: "stop_id",
+    $limit: "5000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/4fvt-p2se.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (!result.ok) {
+    throw Error(result.status);
+  }
+  return (await result.json()).map((row) => row.stop_id);
 };
 
 /**
