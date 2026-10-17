@@ -3,7 +3,7 @@ import L from '../plugins/leaflet';
 import { createBusIcon, refreshReportAges } from '../plugins/busIcon';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { attachSharedMap, detachSharedMap, ROUTE_PANE } from '../plugins/sharedMap';
+import { attachSharedMap, detachSharedMap, EDMONTON_BOUNDS, ROUTE_PANE } from '../plugins/sharedMap';
 import { prefersReducedMotion } from '../utils/viewTransition';
 import { thinPositions } from '../utils/positions';
 import { DISRUPTION_RING_STYLE } from '../utils/serviceAlerts';
@@ -69,6 +69,12 @@ const props = defineProps({
     userLocation: {
         type: Array,
         default: null,
+    },
+    // keep the map to the Edmonton region and its stops, so it can't be panned or zoomed
+    // out to places that only cost tiles
+    bounded: {
+        type: Boolean,
+        default: false,
     },
 });
 
@@ -140,6 +146,27 @@ const fit = () => {
     fitted = true;
 }
 
+// the region plus the stops and lines, so a regional route still fits
+const limitView = () => {
+    if (!map || !props.bounded) {
+        return;
+    }
+    const region = L.latLngBounds(EDMONTON_BOUNDS);
+    for (const stop of props.stops) {
+        region.extend([stop.lat, stop.lon]);
+    }
+    for (const path of props.paths) {
+        for (const point of path) {
+            region.extend(point);
+        }
+    }
+    map.setMaxBounds(region);
+    // getBoundsZoom won't go below the current limit, so it's cleared first
+    map.options.minZoom = undefined;
+    // zoomed out no further than the whole region
+    map.setMinZoom(map.getBoundsZoom(region));
+}
+
 const drawStops = () => {
     if (!map) {
         return;
@@ -156,6 +183,7 @@ const drawStops = () => {
             .on("click", () => router.push(`/stops/${encodeURIComponent(stop.stop_id)}`))
             .addTo(stopLayer);
     }
+    limitView();
     fit();
 }
 
@@ -169,6 +197,7 @@ const drawPaths = () => {
             L.polyline(path, { ...PATH_STYLE, pane: ROUTE_PANE, interactive: false }).addTo(pathLayer);
         }
     }
+    limitView();
 }
 
 const drawBuses = () => {
@@ -295,6 +324,12 @@ const flyToSelectedPosition = () => {
 
 const removeLayers = () => {
     map?.off("zoomend moveend", drawPositions);
+    map?.off("resize", limitView);
+    // the next page starts with the map free
+    if (map && props.bounded) {
+        map.setMaxBounds(null);
+        map.setMinZoom(undefined);
+    }
     for (const layer of [pathLayer, stopLayer, userLayer, busLayer, positionLayer, selectedLayer, stopRenderer]) {
         layer?.remove();
     }
@@ -318,6 +353,8 @@ const createMap = () => {
     busLayer = L.layerGroup().addTo(map);
     selectedLayer = L.layerGroup().addTo(map);
     map.on("zoomend moveend", drawPositions);
+    // a smaller box can show more of the region at the same zoom
+    map.on("resize", limitView);
 }
 
 // registered first, so a new key's stops are fitted when they're drawn below, not the old ones

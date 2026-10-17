@@ -6,6 +6,10 @@ import L from './leaflet';
 
 const DEFAULT_CENTER = /** @type {[number, number]} */ ([53.5444, -113.4909]);
 const DEFAULT_ZOOM = 12;
+// the Edmonton region, where the main map's tiles stopped before the map was shared.
+// Pages can keep the map inside it (with their own stops added), so it doesn't load
+// tiles nobody needs
+export const EDMONTON_BOUNDS = /** @type {[[number, number], [number, number]]} */ ([[53.23, -113.7], [53.65, -113.3]]);
 // under the stops and buses
 const ROUTE_PANE_Z_INDEX = 350;
 export const ROUTE_PANE = 'routePane';
@@ -46,7 +50,8 @@ export const rememberHomeView = (view) => {
 const createMap = () => {
     element = document.createElement('div');
     element.className = 'shared-map';
-    map = L.map(element, { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM });
+    // a limited map stops dead at its edge rather than springing back
+    map = L.map(element, { center: DEFAULT_CENTER, zoom: DEFAULT_ZOOM, maxBoundsViscosity: 1 });
     map.createPane(ROUTE_PANE);
     /** @type {HTMLElement} */ (map.getPane(ROUTE_PANE)).style.zIndex = String(ROUTE_PANE_Z_INDEX);
     L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}/?{accessToken}', {
