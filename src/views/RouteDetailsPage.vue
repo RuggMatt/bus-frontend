@@ -840,6 +840,7 @@ const stationTrains = computed(() => {
       :buses="activeBuses"
       :paths="mapPaths"
       :fit-key="selectedDirection"
+      :stop-link="(stop) => stopRouteLink(stop.stop_id)"
       class="mt-4"
     />
 

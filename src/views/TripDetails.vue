@@ -10,7 +10,7 @@ import { useBusTrip } from '../composables/useBusTrip';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
-import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor } from '../utils/routes';
+import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
@@ -643,6 +643,18 @@ const headsign = computed(() =>
     : '');
 // LRT lines go by name and colour in Edmonton, not number
 const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?.route_type === RAIL_ROUTE_TYPE);
+
+/**
+ * The trip's route at one of its stops, on the trip's day, for the stop names and the map.
+ * The stop's own page is a link from there
+ * @param {string} stopId
+ */
+const stopRouteLink = (stopId) => (tripData.value?.route_id
+    ? {
+        path: `/stops/${encodeURIComponent(stopId)}/routes/${encodeURIComponent(tripData.value.route_id)}`,
+        query: pickerDate.value && pickerDate.value !== today ? { date: pickerDate.value } : {},
+    }
+    : `/stops/${encodeURIComponent(stopId)}`);
 </script>
 <template>
   <v-container>
@@ -715,6 +727,7 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
         :selected-position="selectedPosition"
         show-age
         bounded
+        :stop-link="(stop) => stopRouteLink(stop.stop_id)"
         class="trip-map mt-3"
         @select-position="selectPosition"
       />
@@ -935,8 +948,9 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
                   </span>
                 </v-chip>
               </div>
+              <!-- this route's times at the stop, which links on to the stop's own page -->
               <v-btn
-                :to="`/stops/${encodeURIComponent(row.stop.stop_id)}`"
+                :to="stopRouteLink(row.stop.stop_id)"
                 block
                 size="large"
                 height="50"
@@ -944,7 +958,18 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
                 color="primary"
                 class="mt-2"
               >
-                Stop details
+                {{ isRail ? keyedroutes[tripData?.route_id ?? '']?.route_long_name ?? 'This line' : `Route ${routeNumber(tripData?.route_id ?? '')}` }} at this stop
+              </v-btn>
+              <v-btn
+                :to="`/stops/${encodeURIComponent(row.stop.stop_id)}`"
+                block
+                variant="text"
+                size="small"
+                color="primary"
+                prepend-icon="mdi-bus-stop"
+                class="text-none mt-1"
+              >
+                All routes at this stop
               </v-btn>
             </div>
           </v-expand-transition>
