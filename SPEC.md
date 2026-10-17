@@ -7,7 +7,7 @@ This is a reference for how the app works and why. It covers the pages, data sou
 - Vue 3 (`<script setup>`, JS with JSDoc types and `// @ts-check` in places), Vite 8, Vuetify 4, Vue Router 5
 - Vuetify components and directives are imported as the templates use them (`vite-plugin-vuetify` with `autoImport`), so `src/plugins/vuetify.js` doesn't register them all. That keeps the main chunk around 130 kB instead of nearly 700 kB
 - TanStack Vue Query for all fetching and caching
-- Leaflet maps with Mapbox tiles. The main map and the route, trip and bus pages share one map instance (see View transitions). Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`. `src/plugins/leaflet.js` also imports Leaflet's CSS, so the stylesheet always matches the installed version
+- Leaflet maps with Mapbox tiles. The main map and the route, trip and bus pages share one map instance (see View transitions). Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`. `src/plugins/leaflet.js` also imports Leaflet's CSS, so the stylesheet always matches the installed version, and adds the touch gestures in `src/plugins/mapGestures.js` (see Map gestures) to every map
 - Vitest for unit tests, in `tests/`
 - Playwright for browser smoke tests, in `e2e/`, against a fake feed (see Conventions)
 - ESLint with `eslint-plugin-vue`. The pre-commit hook runs `npm run lint`
@@ -327,6 +327,12 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 ## View transitions
 
 These use the same-document View Transitions API (`src/utils/viewTransition.js`). The timing is set globally in `App.vue`: `::view-transition-group(*)`, 300 ms ease. None play when reduced motion is preferred (`prefersReducedMotion`) or the API is missing.
+
+### Map gestures (`src/plugins/mapGestures.js`)
+Two Leaflet handlers, added to every map by `src/plugins/leaflet.js`:
+- **`oneFingerZoom`** (on by default): double tap and hold, then drag down to zoom in or up to zoom out, as in Google Maps. One zoom level per 100 px, around the tapped point, snapped to the nearest level on release. A double tap without dragging still zooms in a level. It works on pointer events with pointer capture, as the tile under the finger can be removed while zooming, and cancels the second tap's `touchstart` so Leaflet doesn't drag, the page doesn't scroll and no click or dblclick follows. Taps on zoom buttons and popups are left alone.
+- **`twoFingerPan`** (off by default): for maps inside a scrolling page. The container gets `touch-action: pan-x pan-y` (`leaflet-two-finger-pan` in `mapGestures.css`), a one-finger touch is kept from Leaflet's drag so it scrolls the page, and two fingers pan and pinch through Leaflet's `touchZoom`, with `touchmove` cancelled so the browser doesn't pan the page too. Dragging with one finger shows "Use two fingers to move the map" over the map for 1.5 s. Mouse and pen are unaffected.
+- `TransitMap` (route, trip, bus and bus finder pages) turns `twoFingerPan` on when it takes the shared map, and `NewBusMap` turns it off, as the main map fills the screen. The stops map fills the screen too (its list scrolls on its own), so it keeps one-finger panning.
 
 ### Shared map (main map, trip, bus and route pages)
 
