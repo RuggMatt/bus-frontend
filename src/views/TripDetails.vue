@@ -18,6 +18,7 @@ import PositionRow from '../components/PositionRow.vue';
 import ServiceAlertCard from '../components/ServiceAlertCard.vue';
 import DayPicker from '../components/DayPicker.vue';
 import TripPicker from '../components/TripPicker.vue';
+import StopDelayStats from '../components/StopDelayStats.vue';
 import { tripPath } from '../composables/useStopArrivals';
 import { estimateStopArrivals } from '../utils/stopEstimates';
 import { schedulePeriod, serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
@@ -399,6 +400,20 @@ const { data: stopRoutes, isLoading: stopRoutesLoading, isError: stopRoutesError
     queryFn: () => getStopRoutes(/** @type {string} */ (expandedStopId.value)),
     enabled: () => !!expandedStopId.value,
     staleTime: Infinity,
+});
+
+// this trip's or the whole route's week at the expanded stop, kept while opening other stops
+const statsScope = ref('trip');
+
+// a loop passes some stops twice, so the route's stats for them only count this visit
+const repeatedStopIds = computed(() => {
+    const seen = new Set();
+    const repeated = new Set();
+    for (const stop of routeData.value ?? []) {
+        if (seen.has(stop.stop_id)) repeated.add(stop.stop_id);
+        seen.add(stop.stop_id);
+    }
+    return repeated;
 });
 
 const otherRoutes = computed(() =>
@@ -834,6 +849,16 @@ const isRail = computed(() => keyedroutes.value[tripData.value?.route_id ?? '']?
           </div>
           <v-expand-transition>
             <div v-if="expandedSequence === row.stop.stop_sequence" class="text-body-medium px-3 pb-3">
+              <StopDelayStats
+                v-if="tripData?.route_id"
+                v-model:scope="statsScope"
+                :trip-id="tripId"
+                :seq="row.stop.stop_sequence"
+                :route-id="tripData.route_id"
+                :stop-id="row.stop.stop_id"
+                :repeated="repeatedStopIds.has(row.stop.stop_id)"
+                class="mb-3"
+              />
               <div>
                 Also served by
               </div>

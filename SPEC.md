@@ -43,7 +43,9 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/bus/:busId` | One bus (bus page): `latest` position, `firstSeen`/`lastSeen` (epoch s), and `active` (reported in the last 2 minutes). 404 if never seen. Bus ids are usually numbers, but not always |
 | `/bus/:busId/recent-trips?from=&to=` | A bus's trips, newest first (bus page): `trip`, `start`/`end` (first and last position, epoch s), `points`, `avgSpeed`/`maxSpeed`. Either `from`/`to`, Edmonton days (`YYYY-MM-DD`, inclusive, at most 7 days, `limit` default 1000), or `hours` back (up to 168, default 24, `limit` default 50). `limit` is at most 1000. A trip in a range only includes its positions inside it. A trip splits after a 30 min gap, so a trip id run on several days appears once per day. Out-of-service stretches have an empty or null `trip` |
 | `/bus/:busId/trip-counts?by=&from=&to=` | Trips a bus started per `day`, `week` (Monday–Sunday) or `month`, oldest first, every period listed (0 when none): `period` (its first day), `start`, `trips`. `from` is moved back to the start of its week or month. At most 366 days |
-| `/bus/:date/:time[/:spread]`, `/bus/stats/speed[/:bus]`, `/bus.db` | Not used yet: positions around an Edmonton time, daily speeds, and the whole SQLite database |
+| `/stop-times/stats/trips/:tripId/:seq` | How late one trip was at one of its stops (by `stop_sequence`) over the last 7 days up to yesterday (trip page's stop details): `from`/`to`, `count` (one per day it ran), `mean`/`min`/`max` delay in seconds (null without times), and `histogram` of `{minutes, count}` by whole minutes rounded down, only the minutes with times, -10 and 30 holding anything past them. A delay is when the bus was 25 m past the stop (the trip page's estimate) minus the scheduled arrival, worked out nightly, so today isn't in it |
+| `/stop-times/stats/routes/:route/stops/:stopId?seq=` | The same for every trip of a route at a stop, plus `trips`, the distinct trips counted. `seq` only counts one visit, for a stop a trip passes twice |
+| `/bus/:date/:time[/:spread]`, `/bus/stats/speed[/:bus]`, `/bus.db`, `/stop-times/trips/:tripId/:date` | Not used yet: positions around an Edmonton time, daily speeds, the whole SQLite database, and a run's stored stop times |
 
 `/bus/now` is a snapshot the backend takes about every 30 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
 
@@ -128,6 +130,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['trip-start-times', tripIds]` | Each trip's first departure (`getTripStartTimes`), `staleTime: Infinity` |
 | `['trip-summaries', tripIds]` | Route, headsign and direction of several trips (`getTripSummaries`), `staleTime: Infinity` |
 | `['finder-buses', kind]` | `/bus/electric` or `/bus/hydrogen`, timed with `nextBusRefreshDelay` like `/bus/now` |
+| `['trip-stop-stats', tripId, seq]`, `['route-stop-stats', routeId, stopId, seq]` | A week of delays at a stop (`getTripStopStats`, `getRouteStopStats`), `staleTime` 1 h as they're worked out nightly. `seq` is null for the route unless the trip passes the stop twice |
 | `['service-alerts']` | Every recent service alert, grouped (`useServiceAlerts`), `staleTime` and refetch 5 min. A failure shows no alerts |
 
 ## Pages
@@ -267,7 +270,12 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Stops** are rows in one outlined card, like the stop page's cards (no `v-list`, so nothing gets clamped on mobile). They're top-aligned, so a stop's name always sits level with its time, however many lines either side takes:
   - left: the stop name (wraps) and "Stop N"
   - right: the scheduled time, large, and once the bus has passed the stop, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
-  - Tapping a row expands it to show the other routes serving the stop (as badge chips) and a full-width "Stop details" button.
+  - Tapping a row expands it to show the last week at the stop (`StopDelayStats.vue`), the other routes serving the stop (as badge chips) and a full-width "Stop details" button.
+- **Last week at a stop** (`StopDelayStats.vue`, `src/utils/delayStats.js`): a "This trip" / "Whole route" toggle switches between this trip at the stop and every trip of the route at it. The choice is kept while opening other stops (not in the URL). Both load when the stop opens, so the toggle switches at once. It always covers the last 7 days up to yesterday, whatever day is picked.
+  - A chip with the average rounded to the minute like the per-stop chips ("Usually 2 min late", `typicalStatus`), the average to the second (`formatDelay`) and the share on time (`onTimeShare`: bins from a minute early to under 2 late, near `scheduleStatus`'s rounding).
+  - A histogram of whole minutes as CSS bars (no Chart.js), at most 28 px wide each. Every minute from the earliest to the latest is drawn, and -1 to 1 always, so the on-time band shows (`histogramBars`). Bars are coloured like the chips (`binColor`). The ends and 0 are labelled, the last end bin as "30+ min".
+  - Under it, how many times it's from ("On 6 of the last 7 days", or "214 buses on 38 trips"). Tapping a bar swaps that for what's in it ("2–3 min late: 4 buses", `binLabel`), as there's no hover on a phone.
+  - With no times it says so, as the data is only worked out nightly and older trips aren't in the open data.
 - **Actual times** come from `estimateStopArrivals` (`src/utils/stopEstimates.js`, unit tested), using the latest run of recorded positions (split on 30-minute gaps) and the trip's route shape. A stop only gets a time once the bus has passed it, as the nearest position alone used to give one while the bus was still on its way:
   - Each position, oldest first, is placed along the shape. Progress only goes forward, and each position is looked for no further ahead than a bus could have driven since the last one (30 m/s plus 300 m), so a loop or a route that comes back past the same spot doesn't jump ahead. Positions over 150 m from the shape (a detour, a bad fix) are skipped.
   - Each stop is placed along the shape in trip order, no earlier than the stop before it, so a loop's last stop isn't placed at its start. Where the shape passes near a point more than once, the earliest close pass is taken.
@@ -374,7 +382,7 @@ Two Leaflet handlers, added to every map by `src/plugins/leaflet.js`:
 - **Comments** are short, lowercase, and explain *why*. Match the surrounding density.
 - **Code:** reuse the utilities above rather than re-deriving (time, service days, route numbers, geo, status labels in `src/utils/busStatus.js`). Keep pure logic in `src/utils/` so it can be unit tested.
 - **Tests:** put Vitest tests in `tests/*.test.js` and import from `vitest` (no globals). Test against fixed dates. 2026-10-14 is a Wednesday.
-- **Browser smoke tests** (`e2e/*.e2e.js`, Playwright, not picked up by Vitest) cover what the unit tests can't: opening a bus on the main map, swiping its sheet away on a phone, stepping between trips, and the not-found page. They run against a production build (`vite build && vite preview`) on a desktop and a phone (Pixel 7) project.
+- **Browser smoke tests** (`e2e/*.e2e.js`, Playwright, not picked up by Vitest) cover what the unit tests can't: opening a bus on the main map, swiping its sheet away on a phone, stepping between trips, a stop's week on the trip page, and the not-found page. They run against a production build (`vite build && vite preview`) on a desktop and a phone (Pixel 7) project.
   - `e2e/mockApi.js` answers every request: the backend (`VITE_APP_API_URL` is `http://api.test`), `data.edmonton.ca` by dataset id, and Mapbox tiles (aborted). Its feed is one route (8) with three trips (5001–5003, 8, 9 and 10 AM) along four stops, running every day, and bus 4699 on trip 5002. Add to it when a test needs more, and keep it small.
   - Import `test` and `expect` from `e2e/fixtures.js`, which installs the mocks and fails a test on any uncaught page error.
   - Wait for the bus sheet with `settledBox` before swiping it: it slides up from below the screen, and a box read before then aims the touch off screen.
