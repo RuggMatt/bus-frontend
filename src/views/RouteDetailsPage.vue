@@ -15,7 +15,7 @@ import DelayHistogram from '../components/DelayHistogram.vue';
 import TimetableHeaderRow from '../components/TimetableHeaderRow.vue';
 import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
-import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeColor, routeNumber, stopsInOrder } from '../utils/routes';
+import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeColor, routeNumber, stopsInOrder } from '../utils/routes';
 import { upcomingArrivals } from '../utils/nextArrival';
 import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
 import TrainTimes from '../components/TrainTimes.vue';
@@ -626,6 +626,21 @@ const { agenciesByName } = useAgencies();
 const agencyName = computed(() => agencyByRoute.value.get(props.routeId) ?? null);
 const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agencyName.value) ?? null : null));
 
+/**
+ * The route's page for one of its stops, with its times there by day. A regional route
+ * says its agency, as route ids are only unique within one, and the timetable's links
+ * open on its exact date.
+ * @param {string} stopId
+ * @param {string | null} [date]
+ */
+const stopRouteLink = (stopId, date = null) => ({
+  path: `/stops/${encodeURIComponent(stopId)}/routes/${encodeURIComponent(props.routeId)}`,
+  query: {
+    ...(agencyName.value && agencyName.value !== LOCAL_AGENCY ? { agency: agencyName.value } : {}),
+    ...(date && date !== today ? { date } : {}),
+  },
+});
+
 // --- LRT: each station's next scheduled trains, in place of Active Buses ---
 // before the routes load, only buses handed over for the view transition are shown
 const showActiveBuses = computed(() => (route.value ? !isRail.value : activeBuses.value.length > 0));
@@ -881,7 +896,7 @@ const stationTrains = computed(() => {
         <template v-for="(station, index) in stationTrains" :key="station.stopId">
           <v-divider v-if="index > 0" />
           <div class="station-row pa-3">
-            <router-link :to="`/stops/${station.stopId}`" class="station-name text-title-small">
+            <router-link :to="stopRouteLink(station.stopId)" class="station-name text-title-small">
               {{ station.name }}
             </router-link>
             <TrainTimes :arrivals="station.arrivals" :columns="3" :color="routeColor(routeId)" />
@@ -935,7 +950,7 @@ const stationTrains = computed(() => {
             <div class="stop-row pa-3">
               <div class="stop-row__info">
                 <div class="d-flex align-center ga-1">
-                  <router-link :to="`/stops/${stop.stopId}`" class="stop-row__name text-title-small">
+                  <router-link :to="stopRouteLink(stop.stopId)" class="stop-row__name text-title-small">
                     {{ stop.name }}
                   </router-link>
                   <v-icon
@@ -1160,7 +1175,7 @@ const stationTrains = computed(() => {
               <tbody @click="openTripCell">
                 <tr v-for="stop in timetableStops" :key="stop.stop_id">
                   <td class="stop-col">
-                    <router-link :to="`/stops/${encodeURIComponent(stop.stop_id)}`" class="timetable-link">
+                    <router-link :to="stopRouteLink(stop.stop_id, selectedDate)" class="timetable-link">
                       {{ stop.stop_name }}
                     </router-link>
                   </td>

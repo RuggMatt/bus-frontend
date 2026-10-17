@@ -44,3 +44,10 @@ test("a route's page for a stop steps along the route's stops", async ({ page })
   await page.getByRole("link", { name: "All routes at this stop" }).click();
   await expect(page).toHaveURL(/\/stops\/1001$/);
 });
+
+test("a stop on the route page opens the route's page for that stop", async ({ page }) => {
+  await page.goto("/routes/008");
+  await page.locator(".stop-row").getByRole("link", { name: "Jasper Ave & 104 St" }).click();
+  await expect(page).toHaveURL(/\/stops\/1002\/routes\/008$/);
+  await expect(page.getByRole("link", { name: "All routes at this stop" })).toBeVisible();
+});
