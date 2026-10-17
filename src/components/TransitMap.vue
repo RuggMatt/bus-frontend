@@ -76,6 +76,11 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    /** @type {import('vue').PropType<((stop: MapStop) => import('vue-router').RouteLocationRaw) | null>} where tapping a stop goes, the stop's page unless given */
+    stopLink: {
+        type: Function,
+        default: null,
+    },
 });
 
 const emit = defineEmits(['select-position']);
@@ -180,7 +185,7 @@ const drawStops = () => {
         const color = stop.color ? { color: stop.color, fillColor: stop.color, fillOpacity: 0.95 } : {};
         L.circleMarker([stop.lat, stop.lon], { ...STOP_STYLE, ...color, renderer: stopRenderer })
             .bindTooltip(stop.tooltip ?? stop.stop_name)
-            .on("click", () => router.push(`/stops/${encodeURIComponent(stop.stop_id)}`))
+            .on("click", () => router.push(props.stopLink ? props.stopLink(stop) : `/stops/${encodeURIComponent(stop.stop_id)}`))
             .addTo(stopLayer);
     }
     limitView();

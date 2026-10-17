@@ -108,3 +108,12 @@ test("today's list estimates when a bus on the way gets to the stop", async ({ p
   await page.getByRole("link", { name: "Bus 4699" }).click();
   await expect(page).toHaveURL(/\/buses\/4699$/);
 });
+
+test("a stop on the trip page opens the route's page for that stop on the trip's day", async ({ page }) => {
+  const date = edmontonDate(-2);
+  await page.goto(`/trips/5002?date=${date}`);
+  await page.locator(".stop-row", { hasText: "Jasper Ave & 104 St" }).click();
+  await page.getByRole("link", { name: "Route 8 at this stop" }).click();
+  await expect(page).toHaveURL(new RegExp(`/stops/1002/routes/008\\?date=${date}$`));
+  await expect(page.locator(".arrival-row")).toHaveCount(3);
+});
