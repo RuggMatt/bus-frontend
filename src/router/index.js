@@ -82,6 +82,13 @@ const routes = [
     meta: { title: "Status" },
     component: () => import("../views/StatusPage.vue"),
   },
+  // anything else, so a mistyped or old link doesn't show an empty page
+  {
+    path: "/:pathMatch(.*)*",
+    name: "Not Found",
+    meta: { title: "Page not found" },
+    component: () => import("../views/NotFoundPage.vue"),
+  },
 ];
 
 const router = createRouter({
