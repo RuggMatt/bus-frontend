@@ -3,16 +3,16 @@ import StopsMap from '../components/StopsMap.vue';
 import StopDetails from '../components/StopDetails.vue';
 import { computed, ref, watch } from 'vue';
 import { usePageTitle } from '../composables/usePageTitle';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import { useStops } from '../composables/useStops';
 import { useQuery } from '@tanstack/vue-query';
-import { getBusStopTimes, getTrip } from '../api';
+import { getBusStopTimes, getRailStopIds, getTrip } from '../api';
 import { tripPath, useStopArrivals } from '../composables/useStopArrivals';
-import { alongRouteMetres, distanceMetres } from '../utils/geo';
+import { alongRouteMetres, distanceMetres, formatDistance } from '../utils/geo';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { disruptedStops as stopsWithAlerts } from '../utils/serviceAlerts';
-import { stationStops } from '../utils/stations';
+import { stationStops, stopPlaces } from '../utils/stations';
 
 const props = defineProps({
   stopId: {
@@ -29,6 +29,7 @@ const nowLocal = useNowLocal();
 const disruptedStops = computed(() => stopsWithAlerts(serviceAlerts.value, nowLocal.value));
 
 const router = useRouter();
+const pageRoute = useRoute();
 const { mdAndUp } = useDisplay();
 const { stops, keyedStops, isLoading: stopsLoading, error: stopsError } = useStops();
 
@@ -268,6 +269,83 @@ const nearbyStops = computed(() => {
     .sort((a, b) => a.distance - b.distance)
     .slice(0, NEARBY_STOP_COUNT);
 });
+
+/** @type {Record<import('../utils/stations').PlaceType, {title: string, icon: string}>} */
+const PLACE_TYPES = {
+  'transit-centre': { title: 'Transit centres', icon: 'mdi-bus-multiple' },
+  lrt: { title: 'LRT stations', icon: 'mdi-train' },
+};
+
+// the quick filter, kept in the URL so back from a stop returns to it
+const typeFilter = computed({
+  get: () => {
+    const value = pageRoute.query.type;
+    return typeof value === 'string' && value in PLACE_TYPES ? /** @type {keyof typeof PLACE_TYPES} */ (value) : null;
+  },
+  /** @param {string | null | undefined} value */
+  set: (value) => {
+    router.replace({ query: { ...pageRoute.query, type: value || undefined } });
+  },
+});
+
+// which stops trains serve, to tell LRT stations from transit centres. Only needed once filtering
+const { data: railStopIds, isLoading: railLoading, isError: railError } = useQuery({
+  queryKey: ['rail-stops'],
+  queryFn: getRailStopIds,
+  enabled: () => !!typeFilter.value,
+  staleTime: Infinity,
+});
+
+const places = computed(() =>
+  stops.value && railStopIds.value ? stopPlaces(stops.value, new Set(railStopIds.value)) : []);
+
+/**
+ * @typedef {Object} StopListRow
+ * @property {string} key
+ * @property {string} name
+ * @property {string} detail
+ * @property {string} icon
+ * @property {number | null} distance
+ * @property {boolean} disrupted
+ * @property {import('../api').BusStop} stop What tapping the row opens
+ */
+
+/** @type {import('vue').ComputedRef<StopListRow[]>} */
+const listRows = computed(() => {
+  const type = typeFilter.value;
+  if (!type) {
+    return nearbyStops.value.map(({ stop, distance }) => ({
+      key: stop.stop_id,
+      name: stop.stop_name,
+      detail: `Stop ${stop.stop_code || stop.stop_id}`,
+      icon: 'mdi-bus-stop',
+      distance,
+      disrupted: disruptedStops.value.has(stop.stop_id),
+      stop,
+    }));
+  }
+  const origin = mapCenter.value;
+  return places.value
+    .filter((place) => place.type === type)
+    .map((place) => {
+      const count = place.stops.length;
+      const noun = type === 'lrt' ? 'platform' : 'bay';
+      return {
+        key: place.key,
+        name: place.name,
+        detail: count > 1 ? `${count} ${noun}s` : `Stop ${place.stops[0].stop_code || place.stops[0].stop_id}`,
+        icon: PLACE_TYPES[type].icon,
+        distance: origin ? distanceMetres([origin.lat, origin.lng], [place.lat, place.lon]) : null,
+        disrupted: place.stops.some((stop) => disruptedStops.value.has(stop.stop_id)),
+        // the first platform or bay, which links to the others
+        stop: place.stops[0],
+      };
+    })
+    .sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0) || a.name.localeCompare(b.name));
+});
+
+const listLoading = computed(() => stopsLoading.value || (!!typeFilter.value && railLoading.value));
+const listError = computed(() => !!stopsError.value || (!!typeFilter.value && railError.value));
 </script>
 
 <template>
@@ -316,8 +394,8 @@ const nearbyStops = computed(() => {
       />
     </div>
 
-    <!-- Desktop: left panel once a stop is picked. Mobile: always-visible list under the map -->
-    <div v-if="!mdAndUp || selectedStop" class="stop-panel">
+    <!-- Desktop: a left panel. Mobile: under the map -->
+    <div class="stop-panel">
       <StopDetails
         v-if="selectedStop"
         :stop="selectedStop"
@@ -332,28 +410,72 @@ const nearbyStops = computed(() => {
         @close="clearStop"
         @bus-click="selectBus"
       />
-      <template v-else>
-        <v-list-subheader>Nearby stops</v-list-subheader>
-        <div v-if="stopsLoading" class="d-flex justify-center py-8">
-          <v-progress-circular indeterminate color="primary" />
-        </div>
-        <v-alert v-else-if="stopsError" type="error" variant="tonal" class="mx-4">
+      <div v-else class="stop-list pa-3">
+        <v-chip-group
+          v-model="typeFilter"
+          selected-class="text-primary"
+          filter
+          class="py-0"
+          aria-label="Stop type"
+        >
+          <v-chip
+            v-for="(option, value) in PLACE_TYPES"
+            :key="value"
+            :value="value"
+            variant="outlined"
+            :prepend-icon="option.icon"
+          >
+            {{ option.title }}
+          </v-chip>
+        </v-chip-group>
+        <h2 class="text-title-small text-medium-emphasis mt-3 mb-1 px-2">
+          {{ typeFilter ? PLACE_TYPES[typeFilter].title : 'Nearby stops' }}
+        </h2>
+        <v-skeleton-loader v-if="listLoading" type="list-item-two-line@6" class="list-loader" aria-label="Loading stops" />
+        <v-alert v-else-if="listError" type="error" variant="tonal">
           Stops could not be loaded.
         </v-alert>
-        <v-list v-else lines="two" class="py-0">
-          <v-list-item
-            v-for="{ stop, distance } in nearbyStops"
-            :key="stop.stop_id"
-            prepend-icon="mdi-bus-stop"
-            @click="selectStop(stop)"
-          >
-            <v-list-item-title>{{ stop.stop_name }}</v-list-item-title>
-            <v-list-item-subtitle>
-              Stop {{ stop.stop_code || stop.stop_id }} · {{ Math.round(distance / 10) * 10 }} m
-            </v-list-item-subtitle>
-          </v-list-item>
-        </v-list>
-      </template>
+        <div v-else-if="!listRows.length" class="text-medium-emphasis pa-4 text-center">
+          No stops found
+        </div>
+        <v-card v-else variant="outlined">
+          <template v-for="(row, index) in listRows" :key="row.key">
+            <v-divider v-if="index > 0" />
+            <div
+              v-ripple
+              class="stop-row d-flex align-center ga-3 pa-3"
+              role="button"
+              tabindex="0"
+              @click="selectStop(row.stop)"
+              @keydown.enter.prevent="selectStop(row.stop)"
+              @keydown.space.prevent="selectStop(row.stop)"
+            >
+              <v-icon :icon="row.icon" class="text-medium-emphasis flex-shrink-0" />
+              <div class="flex-grow-1 min-width-0">
+                <div class="text-body-large">
+                  {{ row.name }}
+                </div>
+                <div class="text-body-medium text-medium-emphasis">
+                  {{ row.detail }}
+                </div>
+              </div>
+              <v-icon
+                v-if="row.disrupted"
+                v-tooltip="'Service disruption'"
+                icon="mdi-alert"
+                color="warning"
+                size="small"
+                class="flex-shrink-0"
+                aria-label="Service disruption"
+                role="img"
+              />
+              <span v-if="row.distance !== null" class="text-body-medium text-medium-emphasis flex-shrink-0 text-no-wrap">
+                {{ formatDistance(row.distance) }}
+              </span>
+            </div>
+          </template>
+        </v-card>
+      </div>
     </div>
 
     <VSnackbar v-model="showLocationError" location="bottom" :timeout="3000" color="error">
@@ -396,6 +518,22 @@ const nearbyStops = computed(() => {
   order: -1;
   overflow-y: auto;
   width: 360px;
+}
+
+.min-width-0 {
+  min-width: 0;
+}
+
+.stop-row {
+  cursor: pointer;
+}
+
+.stop-row:hover {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.list-loader {
+  background: transparent;
 }
 
 .stops-layout--mobile {
