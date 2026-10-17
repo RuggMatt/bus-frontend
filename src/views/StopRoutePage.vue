@@ -18,12 +18,13 @@ import { estimateStopArrivals } from '../utils/stopEstimates';
 import { alongRouteMetres, distanceMetres, formatDistance } from '../utils/geo';
 import { serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
 import { edmontonNow, timeToSeconds } from '../utils/serviceTime';
-import { approachDiagram, arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
+import { approachTrack, arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
 import RouteBadge from '../components/RouteBadge.vue';
 import DayPicker from '../components/DayPicker.vue';
 import RouteStopStats from '../components/RouteStopStats.vue';
 import StopPicker from '../components/StopPicker.vue';
+import StopApproach from '../components/StopApproach.vue';
 
 const props = defineProps({
     stopId: { type: String, required: true },
@@ -657,13 +658,8 @@ const openDiagram = computed(() => {
         const along = info ? alongRouteMetres(approach.path, [Number(info.stop_lat), Number(info.stop_lon)]) : null;
         return info && along ? [{ name: info.stop_name, along: along.along }] : [];
     });
-    return approachDiagram(stops, approach.busAlong);
+    return approachTrack(stops, approach.busAlong);
 });
-/** @param {number} index */
-const dotLeft = (index) => {
-    const count = openDiagram.value?.dots.length ?? 1;
-    return count > 1 ? `${(index / (count - 1)) * 100}%` : '100%';
-};
 
 const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
 </script>
@@ -886,33 +882,12 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
                 <div class="text-body-medium">
                   {{ openDiagram.stopsAway === 1 ? 'Next stop' : `${openDiagram.stopsAway} stops away` }} &middot; {{ formatDistance(openApproach.remaining) }}
                 </div>
-                <div
-                  class="approach mt-2"
-                  role="img"
-                  :aria-label="`The bus is ${openDiagram.stopsAway === 1 ? '1 stop' : `${openDiagram.stopsAway} stops`} from this stop${openDiagram.dots.length > 1 ? `, past ${openDiagram.dots[0]?.name}` : ''}`"
-                >
-                  <div class="approach__line" />
-                  <template v-for="(dot, dotIndex) in openDiagram.dots" :key="dotIndex">
-                    <span
-                      v-if="dot"
-                      class="approach__dot"
-                      :class="{ 'approach__dot--here': dotIndex === openDiagram.dots.length - 1 }"
-                      :style="{ left: dotLeft(dotIndex) }"
-                    />
-                    <span v-else class="approach__gap text-medium-emphasis" :style="{ left: dotLeft(dotIndex) }">&hellip;</span>
-                  </template>
-                  <v-icon
-                    icon="mdi-bus"
-                    color="primary"
-                    size="small"
-                    class="approach__bus"
-                    :style="{ left: `${openDiagram.bus * 100}%` }"
-                  />
-                </div>
-                <div class="d-flex justify-space-between ga-2 text-body-small text-medium-emphasis mt-1">
-                  <span v-if="openDiagram.dots.length > 1" class="approach__label">{{ openDiagram.dots[0]?.name }}</span>
-                  <span class="approach__label text-right ml-auto">This stop</span>
-                </div>
+                <StopApproach
+                  :names="openDiagram.names"
+                  :bus="openDiagram.bus"
+                  :label="`The bus is ${openDiagram.stopsAway === 1 ? '1 stop' : `${openDiagram.stopsAway} stops`} from this stop${openDiagram.bus > 0 ? `, past ${openDiagram.names[Math.floor(openDiagram.bus)]}` : ''}`"
+                  class="mt-2"
+                />
               </template>
               <div class="d-flex align-center flex-wrap ga-2 mt-2">
                 <template v-if="!isRail">
@@ -982,57 +957,6 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
   opacity: 0.7;
 }
 
-/* the stops before this one as dots on a line, with the bus between two of them */
-.approach {
-  position: relative;
-  height: 28px;
-  margin: 0 8px;
-}
-
-.approach__line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 20px;
-  border-top: 2px solid rgba(var(--v-theme-on-surface), 0.25);
-}
-
-.approach__dot {
-  position: absolute;
-  top: 15px;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
-  border-radius: 50%;
-  border: 2px solid rgba(var(--v-theme-on-surface), 0.5);
-  background: rgb(var(--v-theme-surface));
-}
-
-.approach__dot--here {
-  border-color: rgb(var(--v-theme-primary));
-  background: rgb(var(--v-theme-primary));
-}
-
-.approach__gap {
-  position: absolute;
-  top: 6px;
-  transform: translateX(-50%);
-  padding: 0 4px;
-  background: rgb(var(--v-theme-surface));
-}
-
-.approach__bus {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-}
-
-.approach__label {
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .arrival-row--next {
   background: rgba(var(--v-theme-primary), 0.06);
