@@ -9,13 +9,15 @@ This is a reference for how the app works and why. It covers the pages, data sou
 - TanStack Vue Query for all fetching and caching
 - Leaflet maps with Mapbox tiles. The main map and the route, trip and bus pages share one map instance (see View transitions). Always import Leaflet from `src/plugins/leaflet.js`. A second copy (e.g. `leaflet/dist/leaflet`) replaces the global `L` and breaks plugins such as `AnimatedMarker`. `src/plugins/leaflet.js` also imports Leaflet's CSS, so the stylesheet always matches the installed version
 - Vitest for unit tests, in `tests/`
+- Playwright for browser smoke tests, in `e2e/`, against a fake feed (see Conventions)
 - ESLint with `eslint-plugin-vue`. The pre-commit hook runs `npm run lint`
 
 Scripts:
 - `npm run dev`
 - `npm run build`
-- `npm run lint`, which lints `src/` and `tests/`
+- `npm run lint`, which lints `src/`, `tests/` and `e2e/`
 - `npm test`, which runs `vitest run`
+- `npm run test:e2e`, which builds the app and runs the Playwright smoke tests (`playwright.config.js`)
 
 The dev server proxies `/bus/…` and `/bus.db` to production (`vite.config.js`). Its pattern must not catch the app's own `/buses/…` pages.
 
@@ -289,6 +291,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Others
 - Electric and hydrogen bus stats, the status page (disk stats), and About.
+- **Not found** (`NotFoundPage.vue`): the router's last route, `/:pathMatch(.*)*`, catches any other address, so a mistyped or old link says "Page not found" with the address and buttons to Buses, Routes and Stops instead of an empty page. Its tab title is "Page not found". Netlify's `_redirects` still serves it with a 200, as the app decides what exists.
 
 ## Shared UI
 
@@ -361,9 +364,14 @@ These use the same-document View Transitions API (`src/utils/viewTransition.js`)
 - **Comments** are short, lowercase, and explain *why*. Match the surrounding density.
 - **Code:** reuse the utilities above rather than re-deriving (time, service days, route numbers, geo, status labels in `src/utils/busStatus.js`). Keep pure logic in `src/utils/` so it can be unit tested.
 - **Tests:** put Vitest tests in `tests/*.test.js` and import from `vitest` (no globals). Test against fixed dates. 2026-10-14 is a Wednesday.
+- **Browser smoke tests** (`e2e/*.e2e.js`, Playwright, not picked up by Vitest) cover what the unit tests can't: opening a bus on the main map, swiping its sheet away on a phone, stepping between trips, and the not-found page. They run against a production build (`vite build && vite preview`) on a desktop and a phone (Pixel 7) project.
+  - `e2e/mockApi.js` answers every request: the backend (`VITE_APP_API_URL` is `http://api.test`), `data.edmonton.ca` by dataset id, and Mapbox tiles (aborted). Its feed is one route (8) with three trips (5001–5003, 8, 9 and 10 AM) along four stops, running every day, and bus 4699 on trip 5002. Add to it when a test needs more, and keep it small.
+  - Import `test` and `expect` from `e2e/fixtures.js`, which installs the mocks and fails a test on any uncaught page error.
+  - The main map swaps each bus marker on every update, and the buses update twice on load (again once their routes are known), so tap a bus with `openBus`, which retries until its card opens.
+  - Locally, a Chromium other than the one the installed Playwright expects can be used with `PLAYWRIGHT_CHROMIUM_PATH`. An already running `vite preview` on port 4173 is reused outside CI.
 - **CI:**
   - `.github/workflows/eslint.yml` runs ESLint as a SARIF scan.
-  - `.github/workflows/test.yml` ("Tests") runs `npm ci` and `npm test` on Node 22, on PRs and on pushes to `main`.
+  - `.github/workflows/test.yml` ("Tests") runs `npm ci` and `npm test` on Node 22, on PRs and on pushes to `main`. Its second job installs Playwright's Chromium and runs `npm run test:e2e`, uploading the HTML report and traces when it fails.
 - **Dependencies:** npm 10.9 can crash with `Cannot read properties of null (reading 'edgesOut')` when adding packages with optional peers. Use `npx npm@11 i …` for the install. `npm ci` on npm 10 works fine.
 - **UI checks:** use Playwright with Chromium (`/usr/bin/google-chrome` locally) at 1280px and 375px. Good stops to try:
   - `1987` (routes 8 and 902)
