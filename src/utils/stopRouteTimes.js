@@ -79,3 +79,36 @@ export const earlierCount = (arrivals, nowSeconds, before) => {
   const index = arrivals.findIndex((entry) => timeToSeconds(entry.arrival_time) >= nowSeconds - before);
   return index === -1 ? arrivals.length : index;
 };
+
+/**
+ * A trip on the route shape most of a stop's visits use, to list the stops along it.
+ * Short turns and other variants are less common, so they don't cut the list short.
+ * @param {StopRouteEntry[]} entries
+ * @param {Map<string, string>} shapeByTrip trip id → shape id
+ * @returns {string | null}
+ */
+export const commonShapeTrip = (entries, shapeByTrip) => {
+  /** @type {Map<string, {count: number, trip: string}>} */
+  const shapes = new Map();
+  for (const entry of entries) {
+    const shape = shapeByTrip.get(entry.trip_id);
+    if (shape === undefined) continue;
+    const seen = shapes.get(shape);
+    shapes.set(shape, { count: (seen?.count ?? 0) + 1, trip: seen?.trip ?? entry.trip_id });
+  }
+  const [best] = [...shapes.values()].sort((a, b) => b.count - a.count);
+  return best?.trip ?? null;
+};
+
+/**
+ * Where a stop is along a trip's stops. A loop can pass it twice, so the visit at
+ * the stop_sequence most of its buses use is taken when there's one.
+ * @param {Array<{stop_id: string, stop_sequence: string}>} stopTimes In trip order
+ * @param {string} stopId
+ * @param {string | null} seq
+ * @returns {number} -1 when the trip doesn't stop there
+ */
+export const stopIndexOnTrip = (stopTimes, stopId, seq) => {
+  const exact = stopTimes.findIndex((stopTime) => stopTime.stop_id === stopId && stopTime.stop_sequence === seq);
+  return exact === -1 ? stopTimes.findIndex((stopTime) => stopTime.stop_id === stopId) : exact;
+};

@@ -3,7 +3,7 @@
 import { useQueries, useQuery } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getBusStopTimes, getRouteStopTimes, getServiceDates, getStopRouteSchedule, getTrip, getTripRun, getTripsByRouteId } from '../api';
+import { getBusStopTimes, getRouteStopStats, getRouteStopTimes, getServiceDates, getStopRouteSchedule, getTrip, getTripRun, getTripsByRouteId } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
@@ -15,11 +15,12 @@ import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
 import { estimateStopArrivals } from '../utils/stopEstimates';
 import { serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
 import { edmontonNow, timeToSeconds } from '../utils/serviceTime';
-import { arrivalsOnDate, earlierCount, runDate, serviceDaySeconds } from '../utils/stopRouteTimes';
+import { arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
 import RouteBadge from '../components/RouteBadge.vue';
 import DayPicker from '../components/DayPicker.vue';
-import StopDelayStats from '../components/StopDelayStats.vue';
+import RouteStopStats from '../components/RouteStopStats.vue';
+import StopPicker from '../components/StopPicker.vue';
 
 const props = defineProps({
     stopId: { type: String, required: true },
@@ -150,6 +151,42 @@ const mainHeadsign = computed(() => {
     return headsign ? headsignWithoutRoute(headsign, props.routeId) : '';
 });
 
+// the route's trips (shared with the route and trip pages) say which shape each runs, for
+// the stop list and for working out today's times one shape at a time
+const { data: routeTrips } = useQuery({
+    queryKey: computed(() => ['route-trips', props.routeId]),
+    queryFn: () => getTripsByRouteId(props.routeId),
+});
+const shapeByTrip = computed(() => new Map((routeTrips.value ?? []).map((trip) => [trip.trip_id, trip.shape_id])));
+
+// the route's stops in order, along the shape most of its buses here take, to step
+// between stops without going back to the stop page
+const listTrip = computed(() => commonShapeTrip(entries.value, shapeByTrip.value));
+const { data: listStopTimes } = useQuery({
+    queryKey: computed(() => ['trip-stop-times', listTrip.value]),
+    queryFn: () => getBusStopTimes(/** @type {string} */ (listTrip.value)),
+    enabled: () => !!listTrip.value,
+    staleTime: Infinity,
+});
+const routeStops = computed(() => (listStopTimes.value ?? []).map((stopTime) => {
+    const info = keyedStops.value?.[stopTime.stop_id];
+    return { stop_id: stopTime.stop_id, name: info?.stop_name ?? `Stop ${stopTime.stop_id}`, code: info?.stop_code ?? stopTime.stop_id };
+}));
+// the visit most of the day's buses make, for a loop passing the stop twice
+const usualSeq = computed(() => {
+    /** @type {Map<string, number>} */
+    const counts = new Map();
+    for (const entry of entries.value) counts.set(entry.stop_sequence, (counts.get(entry.stop_sequence) ?? 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+});
+const routeStopIndex = computed(() => stopIndexOnTrip(listStopTimes.value ?? [], props.stopId, usualSeq.value));
+
+/** @param {string} stopId */
+const openStop = (stopId) => {
+    // a new page in history, so back returns to the last stop, like stepping between trips
+    router.push({ path: `/stops/${encodeURIComponent(stopId)}/routes/${encodeURIComponent(props.routeId)}`, query: currentRoute.query });
+};
+
 const stopName = computed(() => stop.value?.stop_name ?? '');
 const stopCode = computed(() => stop.value?.stop_code ?? props.stopId);
 
@@ -157,6 +194,17 @@ usePageTitle(() => [
     isRail.value ? routeLongName.value : `Route ${routeNumber(props.routeId)}`,
     stopName.value ? `${stopName.value} · Stop ${stopCode.value}` : `Stop ${stopCode.value}`,
 ]);
+
+// the whole route's last week here. Regional routes share ids with ETS ones, and the
+// backend doesn't tell agencies apart, so they get none
+const showStats = computed(() => !isRail.value && agency.value === LOCAL_AGENCY);
+const routeStats = useQuery({
+    queryKey: computed(() => ['route-stop-stats', props.routeId, props.stopId, null]),
+    queryFn: () => getRouteStopStats(props.routeId, props.stopId),
+    enabled: showStats,
+    // worked out nightly, so there's nothing new to fetch for a while
+    staleTime: 60 * 60 * 1000,
+});
 
 const isToday = computed(() => selectedDate.value === today);
 const isFuture = computed(() => selectedDate.value > today);
@@ -191,15 +239,6 @@ const estimating = computed(() => {
 });
 
 const recordedTripIds = useRecordedTrips(() => props.routeId, () => (estimating.value ? selectedDate.value : null));
-
-// one shape and stop list per route shape, from the first bus on it, so a busy route
-// doesn't fetch every trip's
-const { data: routeTrips } = useQuery({
-    queryKey: computed(() => ['route-trips', props.routeId]),
-    queryFn: () => getTripsByRouteId(props.routeId),
-    enabled: estimating,
-});
-const shapeByTrip = computed(() => new Map((routeTrips.value ?? []).map((trip) => [trip.trip_id, trip.shape_id])));
 
 // the buses shown that have been recorded and may have reached the stop
 const candidates = computed(() => {
@@ -384,21 +423,38 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
       <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
     </router-link>
 
-    <router-link :to="`/stops/${stopId}`" class="stop-link d-flex align-center pa-2">
-      <v-icon icon="mdi-bus-stop" class="mr-3" />
-      <div class="min-width-0">
-        <div class="text-title-medium">
-          {{ stopName || `Stop ${stopCode}` }}
-        </div>
-        <div v-if="stopName" class="text-body-small text-medium-emphasis">
-          Stop {{ stopCode }}
-        </div>
-      </div>
-      <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
-    </router-link>
+    <!-- step along the route's stops, or pick one from the list -->
+    <StopPicker
+      :stops="routeStops"
+      :index="routeStopIndex"
+      :name="stopName || `Stop ${stopCode}`"
+      :code="stopCode"
+      class="mt-2"
+      @select="openStop"
+    />
+    <!-- the picker switches stops on this route, so the stop's own page is a link of its own -->
+    <div class="d-flex justify-center">
+      <v-btn
+        :to="`/stops/${stopId}`"
+        variant="text"
+        size="small"
+        color="primary"
+        prepend-icon="mdi-bus-stop"
+        class="text-none"
+      >
+        All routes at this stop
+      </v-btn>
+    </div>
 
-    <v-card v-if="!isRail" variant="outlined" class="pa-3 mt-3">
-      <StopDelayStats :route-id="routeId" :stop-id="stopId" />
+    <v-card v-if="showStats" variant="outlined" class="pa-3 mt-3">
+      <v-progress-circular v-if="routeStats.isLoading.value" indeterminate size="20" width="2" />
+      <div v-else-if="routeStats.isError.value" class="text-error">
+        Stats for this stop could not be loaded.
+      </div>
+      <div v-else-if="!routeStats.data.value?.count || routeStats.data.value.mean === null" class="text-medium-emphasis">
+        No times for this route here in the last week yet
+      </div>
+      <RouteStopStats v-else :stats="routeStats.data.value" />
     </v-card>
 
     <div class="day-picker d-flex align-center flex-wrap ga-2 mt-4">
@@ -503,19 +559,16 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
 
 <style scoped>
 .route-header,
-.stop-link,
 .arrival-row {
   color: inherit;
   text-decoration: none;
 }
 
-.route-header,
-.stop-link {
+.route-header {
   border-radius: 4px;
 }
 
 .route-header:hover,
-.stop-link:hover,
 .arrival-row:hover {
   background: rgba(var(--v-theme-on-surface), 0.04);
 }
