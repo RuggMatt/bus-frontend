@@ -1,9 +1,10 @@
 <script setup>
 import { routeNumber } from '../utils/routes';
-import { describePlatforms } from '../utils/stations';
+import { bayName, describePlatforms, sortBays } from '../utils/stations';
 import { useStops } from '../composables/useStops';
 import { useStationHeadsigns } from '../composables/useStationHeadsigns';
 import StopArrivalsList from './StopArrivalsList.vue';
+import StationBay from './StationBay.vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -50,7 +51,7 @@ const props = defineProps({
   },
 });
 
-defineEmits(["close", "bus-click"]);
+defineEmits(["close", "bus-click", "bay-route-groups"]);
 
 const router = useRouter();
 
@@ -68,24 +69,42 @@ const directionPlatforms = computed(() =>
 const platformLabel = (platform) =>
   platform.headsigns.length ? `To ${platform.headsigns[0]}` : `Stop ${platform.stop_code}`;
 
-// a transit centre's bays by their routes, and where they go when two bays share routes
-const bayLabels = computed(() => {
-  const routeLabel = (/** @type {import('../utils/stations').Platform} */ platform) =>
-    platform.routeIds.length ? platform.routeIds.map(routeNumber).join(', ') : `Stop ${platform.stop_code}`;
-  const counts = new Map();
-  platforms.value.forEach((platform) => counts.set(routeLabel(platform), (counts.get(routeLabel(platform)) ?? 0) + 1));
-  return new Map(platforms.value.map((platform) => {
-    const label = routeLabel(platform);
-    const shared = counts.get(label) > 1 && platform.headsigns.length;
-    return [platform.stop_id, shared ? `${label} to ${platform.headsigns[0]}` : label];
-  }));
+const stationName = computed(() =>
+  (props.stop.parent_station && keyedStops.value[props.stop.parent_station]?.stop_name) || '');
+
+// a transit centre's bays are all listed at once, each under its own name ("Bay A") when it
+// has one, else its stop number
+const bays = computed(() => {
+  if (!platforms.value.length || directionPlatforms.value) return [];
+  const routesOf = new Map(platforms.value.map((platform) => [platform.stop_id, platform.routeIds]));
+  const nameOf = (/** @type {import('../api').BusStop} */ stop) => bayName(stop, stationName.value);
+  return sortBays(platformStops.value, nameOf).map((stop) => {
+    const name = nameOf(stop);
+    const code = `Stop ${stop.stop_code || stop.stop_id}`;
+    const routeIds = routesOf.get(stop.stop_id) ?? [];
+    const routes = routeIds.length ? `${routeIds.length > 1 ? 'Routes' : 'Route'} ${routeIds.map(routeNumber).join(', ')}` : '';
+    return {
+      stop,
+      title: name ?? code,
+      subtitle: [name ? code : null, routes].filter(Boolean).join(' · '),
+    };
+  });
 });
 
-const stationName = computed(() =>
-  (props.stop.parent_station && keyedStops.value[props.stop.parent_station]?.stop_name) || 'this station');
+const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** @type {import('vue').Ref<HTMLElement | null>} */
+const baysList = ref(null);
+// a bay picked on the map, or from its heading, is brought into view
+watch(() => bays.value.length && props.stop.stop_id, async (stopId) => {
+  if (!stopId) return;
+  await nextTick();
+  if (bays.value[0]?.stop.stop_id === stopId) return;
+  baysList.value?.querySelector(`[data-stop-id="${CSS.escape(stopId)}"]`)
+    ?.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+});
 
 // --- switching an LRT station's direction slides the lists, following a swipe ---
-const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const SETTLE_MS = 220;
 // how far, as a share of the width, a swipe must go to switch on release
 const COMMIT_SHARE = 0.25;
@@ -217,11 +236,12 @@ const onTouchEnd = (event) => {
   <div class="stop-details">
     <div class="d-flex align-start pa-4">
       <div class="flex-grow-1">
+        <!-- a transit centre lists every bay, so it's headed by the station -->
         <div class="text-title-large">
-          {{ stop.stop_name }}
+          {{ bays.length && stationName ? stationName : stop.stop_name }}
         </div>
         <div class="text-body-medium text-medium-emphasis">
-          Stop {{ stop.stop_code || stop.stop_id }}
+          {{ bays.length ? `${bays.length} bays` : `Stop ${stop.stop_code || stop.stop_id}` }}
         </div>
       </div>
       <v-btn
@@ -233,10 +253,28 @@ const onTouchEnd = (event) => {
       />
     </div>
 
-    <!-- an LRT station has a platform per direction, and a transit centre a stop per bay -->
-    <div v-if="platforms.length" class="px-4 pb-3">
+    <!-- a transit centre's bays, each with its own buses -->
+    <div v-if="bays.length" ref="baysList">
+      <StationBay
+        v-for="bay in bays"
+        :key="bay.stop.stop_id"
+        :data-stop-id="bay.stop.stop_id"
+        :stop="bay.stop"
+        :title="bay.title"
+        :subtitle="bay.subtitle"
+        :current="bay.stop.stop_id === stop.stop_id"
+        :selected-bus-id="selectedBusId"
+        :selected-bus-progress="selectedBusProgress"
+        class="station-bay"
+        @select="switchPlatform($event.stop_id)"
+        @bus-click="$emit('bus-click', $event)"
+        @route-groups="(stopId, groups) => $emit('bay-route-groups', stopId, groups)"
+      />
+    </div>
+
+    <!-- an LRT station has a platform per direction -->
+    <div v-else-if="directionPlatforms" class="px-4 pb-3">
       <v-btn-toggle
-        v-if="directionPlatforms"
         :model-value="stop.stop_id"
         mandatory
         color="primary"
@@ -256,29 +294,11 @@ const onTouchEnd = (event) => {
           <span class="text-truncate">{{ platformLabel(platform) }}</span>
         </v-btn>
       </v-btn-toggle>
-      <template v-else>
-        <div class="text-body-small text-medium-emphasis mb-1">
-          Stops at {{ stationName }}
-        </div>
-        <div class="d-flex flex-wrap ga-1">
-          <v-chip
-            v-for="platform in platforms"
-            :key="platform.stop_id"
-            :color="platform.stop_id === stop.stop_id ? 'primary' : undefined"
-            :variant="platform.stop_id === stop.stop_id ? 'flat' : 'outlined'"
-            :aria-current="platform.stop_id === stop.stop_id ? 'location' : undefined"
-            :title="`Stop ${platform.stop_code}`"
-            size="small"
-            @click="switchPlatform(platform.stop_id)"
-          >
-            {{ bayLabels.get(platform.stop_id) }}
-          </v-chip>
-        </div>
-      </template>
     </div>
 
     <!-- the stop's list, with the other direction's beside it while swiping between them -->
     <div
+      v-if="!bays.length"
       ref="viewport"
       class="swipe-viewport"
       :class="{ 'swipe-viewport--slidable': canSlide }"
@@ -318,6 +338,15 @@ const onTouchEnd = (event) => {
 </template>
 
 <style scoped>
+/* room for the heading to scroll in under */
+.station-bay {
+  scroll-margin-top: 8px;
+}
+
+.station-bay + .station-bay {
+  margin-top: 8px;
+}
+
 /* long headsigns share the width instead of pushing past the panel */
 .platform-toggle {
   width: 100%;

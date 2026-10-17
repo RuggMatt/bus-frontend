@@ -350,6 +350,7 @@ export const getHydrogenBusStatsDaily = async () => {
  * @property {string} zone_id
  * @property {string} location_type 0 or empty for a stop or platform, 1 for a station, 2+ for entrances and the like
  * @property {string} [parent_station] The station a platform or bay belongs to, e.g. "Q7000"
+ * @property {string} [platform_code] A platform or bay's own name, when the feed gives one
  * @property {GeometryPoint} geometry_point
  *
  */

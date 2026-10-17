@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describePlatforms, mainHeadsigns, stationStops, stopPlaces } from "../src/utils/stations";
+import { bayName, describePlatforms, mainHeadsigns, sortBays, stationStops, stopPlaces } from "../src/utils/stations";
 
 const stops = [
   { stop_id: "19852", stop_code: "19852", location_type: "0", parent_station: "Q7000" },
@@ -88,5 +88,42 @@ describe("stopPlaces", () => {
     expect(places[1].stops.map((stop) => stop.stop_id)).toEqual(["2211", "2213"]);
     expect(places[0].stops.map((stop) => stop.stop_id)).toEqual(["19851", "19852"]);
     expect([places[0].lat, places[0].lon]).toEqual([53.52, -113.52]);
+  });
+});
+
+describe("bayName", () => {
+  it("finds the bay in the stop's name", () => {
+    expect(bayName({ stop_name: "Southgate Transit Centre Bay A" }, "Southgate Transit Centre")).toBe("Bay A");
+    expect(bayName({ stop_name: "West Edmonton Mall Transit Centre - bay 12" })).toBe("Bay 12");
+    expect(bayName({ stop_name: "Clareview Station Platform 2b" })).toBe("Platform 2B");
+  });
+
+  it("uses the feed's platform code", () => {
+    expect(bayName({ stop_name: "Meadows Transit Centre", platform_code: "c" })).toBe("Bay C");
+    expect(bayName({ stop_name: "Meadows Transit Centre", platform_code: "North Loop" })).toBe("North Loop");
+  });
+
+  it("takes what the name adds to the station's", () => {
+    expect(bayName({ stop_name: "Millgate Transit Centre (Eastbound)" }, "Millgate Transit Centre")).toBe("Eastbound");
+  });
+
+  it("is null when only the stop number tells it apart", () => {
+    expect(bayName({ stop_name: "Millgate Transit Centre" }, "Millgate Transit Centre")).toBeNull();
+    expect(bayName({ stop_name: "Blatchford Gate Station" })).toBeNull();
+    expect(bayName({ stop_name: "Jasper Gates Transit Centre" }, "Lewis Farms")).toBeNull();
+  });
+});
+
+describe("sortBays", () => {
+  it("puts named bays in order, then the rest by stop number", () => {
+    const names = { 1: "Bay 10", 2: "Bay B", 3: null, 4: "Bay 2", 5: null };
+    const bays = [
+      { stop_id: "1", stop_code: "2001" },
+      { stop_id: "2", stop_code: "2002" },
+      { stop_id: "3", stop_code: "2210" },
+      { stop_id: "4", stop_code: "2004" },
+      { stop_id: "5", stop_code: "2009" },
+    ];
+    expect(sortBays(bays, (stop) => names[stop.stop_id]).map((stop) => stop.stop_id)).toEqual(["4", "1", "2", "5", "3"]);
   });
 });

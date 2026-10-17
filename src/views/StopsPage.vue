@@ -1,7 +1,7 @@
 <script setup>
 import StopsMap from '../components/StopsMap.vue';
 import StopDetails from '../components/StopDetails.vue';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { usePageTitle } from '../composables/usePageTitle';
 import { useRoute, useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
@@ -52,7 +52,35 @@ const {
   routeGroups: otherRouteGroups,
   isLoading: otherIsLoading,
 } = useStopArrivals(otherPlatform);
-const liveBuses = computed(() => routeGroups.value.flatMap((group) => group.buses));
+
+// a transit centre lists every bay's buses, and they're all drawn on the map
+/** @type {import('vue').ShallowRef<Map<string, import('../composables/useStopArrivals').StopRouteGroup[]>>} */
+const bayRouteGroups = shallowRef(new Map());
+/**
+ * @param {string} stopId
+ * @param {import('../composables/useStopArrivals').StopRouteGroup[]} groups
+ */
+const setBayRouteGroups = (stopId, groups) => {
+  const next = new Map(bayRouteGroups.value);
+  if (groups.length) next.set(stopId, groups);
+  else next.delete(stopId);
+  bayRouteGroups.value = next;
+};
+
+const liveBuses = computed(() => {
+  const seen = new Set();
+  return [routeGroups.value, ...bayRouteGroups.value.values()]
+    .flatMap((groups) => groups.flatMap((group) => group.buses))
+    .filter((bus) => !seen.has(bus.bus) && seen.add(bus.bus));
+});
+
+// the stop a bus is on its way to: the bay it's listed under, at a transit centre
+const busStop = (busId) => {
+  for (const [stopId, groups] of bayRouteGroups.value) {
+    if (groups.some((group) => group.buses.some((bus) => bus.bus === busId))) return keyedStops.value[stopId] ?? null;
+  }
+  return selectedStop.value;
+};
 
 const map = ref(null);
 const mapCenter = ref(null);
@@ -190,11 +218,12 @@ const tripRoute = computed(() => {
 const selectedBusProgress = computed(() => {
   const bus = selectedBus.value;
   const route = tripRoute.value;
-  if (!bus || !route || !selectedStop.value) return null;
+  const stop = bus ? busStop(bus.bus) : null;
+  if (!bus || !route || !stop) return null;
   const busAlong = alongRouteMetres(route.path, [bus.lat, bus.long])?.along;
   if (busAlong === undefined) return null;
   const upcoming = route.stops.filter((tripStop) => tripStop.along > busAlong);
-  const target = route.stops.find((tripStop) => tripStop.stop.stop_id === selectedStop.value.stop_id);
+  const target = route.stops.find((tripStop) => tripStop.stop.stop_id === stop.stop_id);
   return {
     stopsAway: target && !bus.passed
       ? upcoming.filter((tripStop) => tripStop.sequence <= target.sequence).length
@@ -409,6 +438,7 @@ const listError = computed(() => !!stopsError.value || (!!typeFilter.value && ra
         :other-is-loading="otherIsLoading"
         @close="clearStop"
         @bus-click="selectBus"
+        @bay-route-groups="setBayRouteGroups"
       />
       <div v-else class="stop-list pa-3">
         <v-chip-group
