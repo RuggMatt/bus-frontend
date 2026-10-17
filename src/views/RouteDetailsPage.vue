@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { useQueries, useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule, getRouteStopTimes } from '../api';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -16,6 +16,7 @@ import { useStickyTableHeader } from '../composables/useStickyTableHeader';
 import { tripPath } from '../composables/useStopArrivals';
 import { RAIL_ROUTE_TYPE, directionLabels as labelDirections, representativeTrips, routeColor, routeNumber } from '../utils/routes';
 import { upcomingArrivals } from '../utils/nextArrival';
+import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
 import TrainTimes from '../components/TrainTimes.vue';
 import { usePageTitle } from '../composables/usePageTitle';
 import { useAgencies, useRouteAgencies } from '../composables/useAgencies';
@@ -47,6 +48,8 @@ const { buses } = useBuses();
 const { keyedStops } = useStops();
 
 const route = computed(() => keyedroutes.value?.[props.routeId] ?? null);
+// trains aren't in the bus feed, so there's nothing live or recorded to show for them
+const isRail = computed(() => route.value?.route_type === RAIL_ROUTE_TYPE);
 
 // handed over by the stop page so the header and buses can show (and morph in) before their data loads
 /** @type {{ routeLongName?: string, buses?: Array<{ bus: number | string, trip: string }> }} */
@@ -401,6 +404,71 @@ const stopTimeMap = computed(() => {
   return lookup;
 });
 
+// --- Actual times: when the bus went by each stop, instead of when it was scheduled ---
+// worked out nightly, so only an exact date up to today has them, and today never does yet.
+// Trains aren't in the bus feed
+const canShowActual = computed(() => !!selectedDate.value && selectedDate.value <= today && !isRail.value);
+/** @type {import('vue').Ref<'scheduled' | 'actual'>} */
+const timesMode = ref(currentRoute.query.times === 'actual' ? 'actual' : 'scheduled');
+const showActual = computed(() => canShowActual.value && timesMode.value === 'actual');
+
+watch(timesMode, (mode) => {
+  const times = mode === 'actual' ? 'actual' : undefined;
+  if (currentRoute.query.times !== times) {
+    router.replace({ query: { ...currentRoute.query, times } });
+  }
+});
+
+const { data: actualData, isLoading: actualLoading, isError: actualError } = useQuery({
+  queryKey: computed(() => ['route-stop-times', props.routeId, selectedDate.value]),
+  queryFn: () => getRouteStopTimes(props.routeId, /** @type {string} */ (selectedDate.value)),
+  enabled: () => showActual.value && selectedDate.value !== today,
+  // yesterday's are worked out early in the morning
+  staleTime: 60 * 60 * 1000,
+});
+
+const actualDelays = computed(() => delaysByTrip(actualData.value));
+const hasActualTimes = computed(() => timetableTrips.value.some((trip) => actualDelays.value.has(trip.trip_id)));
+
+// a loop can pass a stop twice, but the timetable has a row per stop, so keep the sequence its time came from
+const stopSeqMap = computed(() => {
+  /** @type {Map<string, Map<string, number>>} */
+  const lookup = new Map();
+  (stopTimesData.value ?? []).forEach((st) => {
+    const tripEntry = lookup.get(st.trip_id) ?? new Map();
+    tripEntry.set(st.stop_id, parseInt(st.stop_sequence, 10));
+    lookup.set(st.trip_id, tripEntry);
+  });
+  return lookup;
+});
+
+// trip -> stop -> when the bus went by and how late it was, worked out once rather than per cell
+const actualGrid = computed(() => {
+  /** @type {Map<string, Map<string, { time: string, pm: boolean, status: { label: string, color: string } }>>} */
+  const grid = new Map();
+  if (!showActual.value) return grid;
+  for (const [tripId, stops] of stopTimeMap.value) {
+    const delays = actualDelays.value.get(tripId);
+    if (!delays) continue;
+    const cells = new Map();
+    for (const [stopId, scheduled] of stops) {
+      const delay = delays.get(stopSeqMap.value.get(tripId)?.get(stopId) ?? -1);
+      if (!scheduled || delay === undefined) continue;
+      const { time, status } = actualStopTime(scheduled, delay);
+      cells.set(stopId, { time: formatTime(time), pm: isPMRaw(time), status });
+    }
+    grid.set(tripId, cells);
+  }
+  return grid;
+});
+
+/**
+ * When the bus went by a stop and how late it was, or undefined if it wasn't seen passing.
+ * @param {string} tripId
+ * @param {string} stopId
+ */
+const actualCell = (tripId, stopId) => actualGrid.value.get(tripId)?.get(stopId);
+
 // --- Canonical stop list ordered by average stop_sequence across all day trips ---
 const timetableStops = computed(() => {
   if (!stopTimesData.value || !stopTimesData.value.length) return [];
@@ -462,10 +530,11 @@ const { headHeight: timetableHeadHeight, sizeColumns } = useStickyTableHeader({
 });
 
 // columns can change width without the table's overall size changing
-watch([timetableTrips, timetableStops], sizeColumns, { flush: 'post' });
+watch([timetableTrips, timetableStops, showActual], sizeColumns, { flush: 'post' });
 
 const timetableLoading = computed(
   () => tripsLoading.value || activeFeedLoading.value || serviceDatesLoading.value || stopTimesLoading.value
+    || (showActual.value && selectedDate.value !== today && actualLoading.value)
 );
 
 // --- Time helpers ---
@@ -556,8 +625,6 @@ const agencyName = computed(() => agencyByRoute.value.get(props.routeId) ?? null
 const agency = computed(() => (agencyName.value ? agenciesByName.value.get(agencyName.value) ?? null : null));
 
 // --- LRT: each station's next scheduled trains, in place of Active Buses ---
-// trains aren't in the bus feed, so there's nothing live to show
-const isRail = computed(() => route.value?.route_type === RAIL_ROUTE_TYPE);
 // before the routes load, only buses handed over for the view transition are shown
 const showActiveBuses = computed(() => (route.value ? !isRail.value : activeBuses.value.length > 0));
 
@@ -893,6 +960,22 @@ const stationTrains = computed(() => {
         >
           Special schedule on this date
         </v-chip>
+
+        <!-- when the buses actually went by, on a day that's been and gone -->
+        <v-btn-toggle
+          v-if="canShowActual"
+          v-model="timesMode"
+          color="primary"
+          density="compact"
+          mandatory
+        >
+          <v-btn value="scheduled" size="small" class="text-none">
+            Scheduled
+          </v-btn>
+          <v-btn value="actual" size="small" class="text-none">
+            Actual
+          </v-btn>
+        </v-btn-toggle>
       </div>
 
       <!-- Timetable loading -->
@@ -905,16 +988,45 @@ const stationTrains = computed(() => {
         {{ selectedDate ? 'No trips scheduled on this date in this direction.' : 'No trips scheduled for this day and direction.' }}
       </div>
 
+      <!-- Actual times aren't there for today until they're worked out overnight -->
+      <div v-else-if="showActual && (selectedDate === today || actualError || !hasActualTimes)" class="text-medium-emphasis py-4">
+        <template v-if="selectedDate === today">
+          Actual times are worked out overnight, so today's show tomorrow.
+        </template>
+        <template v-else-if="actualError">
+          Actual times couldn't be loaded.
+        </template>
+        <template v-else>
+          No actual times for this date in this direction.
+        </template>
+        <v-btn
+          v-if="previousDate && !actualError"
+          variant="text"
+          color="primary"
+          size="small"
+          class="text-none"
+          @click="selectDate(previousDate)"
+        >
+          See {{ formatDate(previousDate, { weekday: 'short', month: 'short', day: 'numeric' }) }}
+        </v-btn>
+      </div>
+
       <!-- Timetable table -->
       <template v-else>
         <p class="text-body-small mb-2">
-          <strong>Bold</strong> times are P.M.
+          <strong>Bold</strong> times are P.M.<template v-if="showActual">
+            Times are when the bus went by each stop, coloured
+            <span class="text-success font-weight-medium">on time</span>,
+            <span class="text-warning font-weight-medium">late</span> or
+            <span class="text-info font-weight-medium">early</span>
+            (2 min or more); a dash wasn't seen.
+          </template>
         </p>
         <div class="timetable">
           <!-- a copy of the header row that sticks to the page, see useStickyTableHeader -->
           <div ref="timetableHead" class="timetable-head">
             <table ref="timetableHeadTable" class="timetable-table">
-              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" :href="tripHref" />
+              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" :href="tripHref" :span="showActual ? 2 : 1" />
             </table>
           </div>
           <div
@@ -924,7 +1036,13 @@ const stationTrains = computed(() => {
           >
             <table ref="timetableTable" class="timetable-table">
               <!-- the real header keeps the table's layout, hidden under the copy -->
-              <TimetableHeaderRow :trips="timetableTrips" :recorded="recordedTripIds" :href="tripHref" class="timetable-layout-head" />
+              <TimetableHeaderRow
+                :trips="timetableTrips"
+                :recorded="recordedTripIds"
+                :href="tripHref"
+                :span="showActual ? 2 : 1"
+                class="timetable-layout-head"
+              />
               <tbody @click="openTripCell">
                 <tr v-for="stop in timetableStops" :key="stop.stop_id">
                   <td class="stop-col">
@@ -932,19 +1050,43 @@ const stationTrains = computed(() => {
                       {{ stop.stop_name }}
                     </router-link>
                   </td>
-                  <td
-                    v-for="trip in timetableTrips"
-                    :key="trip.trip_id"
-                    class="time-col"
-                  >
-                    <!-- plain links, as a router-link per cell is thousands of components; openTripCell routes them -->
-                    <a :href="tripHref(trip.trip_id)" class="timetable-link" data-trip-link>
-                      <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
-                        {{ cellTime(trip.trip_id, stop.stop_id) }}
-                      </strong>
-                      <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
-                    </a>
-                  </td>
+                  <template v-if="showActual">
+                    <!-- each trip's actual time, then how late it was -->
+                    <template v-for="trip in timetableTrips" :key="trip.trip_id">
+                      <!-- the colour is on the cell, as the link inherits its colour -->
+                      <td :class="['time-col', 'timetable-actual-time', actualCell(trip.trip_id, stop.stop_id) && `text-${actualCell(trip.trip_id, stop.stop_id)?.status.color}`]">
+                        <a :href="tripHref(trip.trip_id)" class="timetable-link" data-trip-link>
+                          <strong v-if="actualCell(trip.trip_id, stop.stop_id)?.pm">{{ actualCell(trip.trip_id, stop.stop_id)?.time }}</strong>
+                          <span v-else>{{ actualCell(trip.trip_id, stop.stop_id)?.time ?? '—' }}</span>
+                        </a>
+                      </td>
+                      <td :class="['time-col', 'timetable-delta', actualCell(trip.trip_id, stop.stop_id) && `text-${actualCell(trip.trip_id, stop.stop_id)?.status.color}`]">
+                        <a
+                          v-if="actualCell(trip.trip_id, stop.stop_id)"
+                          :href="tripHref(trip.trip_id)"
+                          class="timetable-link"
+                          data-trip-link
+                        >
+                          {{ actualCell(trip.trip_id, stop.stop_id)?.status.label }}
+                        </a>
+                      </td>
+                    </template>
+                  </template>
+                  <template v-else>
+                    <td
+                      v-for="trip in timetableTrips"
+                      :key="trip.trip_id"
+                      class="time-col"
+                    >
+                      <!-- plain links, as a router-link per cell is thousands of components; openTripCell routes them -->
+                      <a :href="tripHref(trip.trip_id)" class="timetable-link" data-trip-link>
+                        <strong v-if="cellIsPM(trip.trip_id, stop.stop_id) && cellTime(trip.trip_id, stop.stop_id) !== '—'">
+                          {{ cellTime(trip.trip_id, stop.stop_id) }}
+                        </strong>
+                        <span v-else>{{ cellTime(trip.trip_id, stop.stop_id) }}</span>
+                      </a>
+                    </td>
+                  </template>
                 </tr>
               </tbody>
             </table>
@@ -1119,6 +1261,18 @@ const stationTrains = computed(() => {
   height: 6px;
   border-radius: 50%;
   background: rgb(var(--v-theme-success));
+}
+
+/* in actual times, a trip's time and how late it was read as one pair */
+.timetable-table .timetable-actual-time {
+  border-right: none;
+  padding-right: 4px;
+}
+
+.timetable-table .timetable-delta {
+  font-size: 0.7rem;
+  padding-left: 4px;
+  text-align: left;
 }
 
 /* trip times and stop names link to their pages */

@@ -321,6 +321,16 @@ export const getRouteStopStats = (routeId, stopId, seq = null) => {
 };
 
 /**
+ * When buses went by the stops of every trip of a route on a service day, worked out
+ * nightly, so today has none yet.
+ * @param {string} routeId GTFS route id ("008")
+ * @param {string} date YYYY-MM-DD, the GTFS service day
+ * @returns {Promise<import('../utils/actualTimes').RouteStopTimes>}
+ */
+export const getRouteStopTimes = (routeId, date) =>
+  getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/routes/${encodeURIComponent(routeId)}/${date}`);
+
+/**
  * @typedef {Object} RouteTrip
  * @property {number} trip
  * @property {boolean} happened Always true, only trips that reported positions are listed

@@ -171,6 +171,17 @@ const backend = (url) => {
       ...weekStats(21, 20, [{ minutes: -2, count: 2 }, { minutes: 0, count: 15 }, { minutes: 2, count: 4 }]),
     };
   }
+  // a day's actual stop times: 5001 ran late, 5002 on time, and 5003 early and wasn't seen at its last stop
+  const routeStopTimes = path.match(/^\/stop-times\/routes\/([^/]+)\/([^/]+)$/);
+  if (routeStopTimes) {
+    const delays = { 5001: [60, 130, 150, 200], 5002: [0, 20, -30, 45], 5003: [-60, -150, -200] };
+    return {
+      route: routeStopTimes[1], date: routeStopTimes[2], count: TRIPS.length,
+      trips: Object.entries(delays).map(([trip, stops]) => ({
+        trip: Number(trip), stops: stops.map((delay, index) => [index + 1, delay]),
+      })),
+    };
+  }
   if (path === `/bus/${BUS.bus}`) {
     const now = Math.floor(Date.now() / 1000);
     return { bus: BUS.bus, latest: liveBus(), firstSeen: now - 86400 * 30, lastSeen: now, active: true };
