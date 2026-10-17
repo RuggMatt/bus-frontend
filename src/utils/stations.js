@@ -131,3 +131,46 @@ export const stopPlaces = (stops, railStopIds) => {
   }
   return places;
 };
+
+// a bay, platform or door named in a stop's name, e.g. "Southgate Transit Centre Bay A"
+const BAY_PATTERN = /\b(bay|platform|gate|door|stall)\s+#?\s*([a-z]?\d+[a-z]?|[a-z])\b/i;
+
+/**
+ * A transit centre bay's own name, such as "Bay A", from its GTFS platform_code or its
+ * stop name, or what its name adds to the station's. Null when it has none, as then
+ * only its stop number tells it apart.
+ * @param {{stop_name?: string, platform_code?: string}} stop
+ * @param {string} [stationName]
+ * @returns {string | null}
+ */
+export const bayName = (stop, stationName) => {
+  const name = (stop.stop_name || "").trim();
+  const match = name.match(BAY_PATTERN);
+  if (match) return `${match[1][0].toUpperCase()}${match[1].slice(1).toLowerCase()} ${match[2].toUpperCase()}`;
+  const code = (stop.platform_code || "").trim();
+  if (code) return /^[a-z]?\d*[a-z]?$/i.test(code) ? `Bay ${code.toUpperCase()}` : code;
+  if (stationName && name.toLowerCase().startsWith(stationName.toLowerCase())) {
+    const rest = name.slice(stationName.length).replace(/^[\s\-–—:,/()]+|[\s)]+$/g, "");
+    if (rest) return rest;
+  }
+  return null;
+};
+
+/**
+ * Sorts a transit centre's bays by name (Bay A, Bay B … Bay 10), any without a name
+ * after them by stop number.
+ * @template {{stop_id: string, stop_code?: string}} S
+ * @param {S[]} stops
+ * @param {(stop: S) => string | null} nameOf
+ * @returns {S[]}
+ */
+export const sortBays = (stops, nameOf) => {
+  const compare = (/** @type {string} */ a, /** @type {string} */ b) => a.localeCompare(b, undefined, { numeric: true });
+  return [...stops].sort((a, b) => {
+    const nameA = nameOf(a);
+    const nameB = nameOf(b);
+    if (nameA && nameB) return compare(nameA, nameB);
+    if (nameA || nameB) return nameA ? -1 : 1;
+    return compare(String(a.stop_code || a.stop_id), String(b.stop_code || b.stop_id));
+  });
+};
