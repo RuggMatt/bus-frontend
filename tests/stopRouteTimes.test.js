@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from "../src/utils/stopRouteTimes";
+import { approachDiagram, arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from "../src/utils/stopRouteTimes";
 
 const entry = (trip_id, arrival_time, service_id, extra = {}) => ({
   trip_id,
@@ -84,5 +84,33 @@ describe("stopIndexOnTrip", () => {
     expect(stopIndexOnTrip(loop, "10", null)).toBe(0);
     expect(stopIndexOnTrip(loop, "12", "9")).toBe(2);
     expect(stopIndexOnTrip(loop, "99", null)).toBe(-1);
+  });
+});
+
+describe("approachDiagram", () => {
+  const stops = [0, 400, 800, 1200, 1600, 2000, 2400, 2800].map((along, index) => ({ name: `S${index}`, along }));
+
+  it("puts the bus between the stop it passed and the next", () => {
+    const diagram = approachDiagram(stops.slice(0, 4), 600);
+    expect(diagram).toEqual({
+      stopsAway: 2,
+      dots: [{ name: "S1" }, { name: "S2" }, { name: "S3" }],
+      bus: 0.25,
+    });
+  });
+
+  it("cuts a long way to go down to a gap", () => {
+    const diagram = approachDiagram(stops, 100);
+    expect(diagram?.stopsAway).toBe(7);
+    expect(diagram?.dots).toEqual([{ name: "S0" }, { name: "S1" }, { name: "S2" }, { name: "S3" }, null, { name: "S7" }]);
+    expect(diagram?.bus).toBeCloseTo(0.25 / 5);
+  });
+
+  it("starts at the first stop before the bus has passed any", () => {
+    expect(approachDiagram(stops.slice(0, 2), -50)).toEqual({ stopsAway: 2, dots: [{ name: "S0" }, { name: "S1" }], bus: 0 });
+  });
+
+  it("is null once the bus has gone by", () => {
+    expect(approachDiagram(stops.slice(0, 3), 900)).toBeNull();
   });
 });
