@@ -1,5 +1,6 @@
 // A small fake feed for the browser tests: one route with three trips along four
-// stops, and one bus out on the middle trip. Every request to the backend, the
+// stops, one trip back the other way along the stops across the street, and one bus
+// out on the middle trip. Every request to the backend, the
 // City's open data and the map tiles is answered here, so the tests never touch
 // the network.
 
@@ -20,6 +21,14 @@ export const STOPS = [
   { stop_id: "1004", stop_name: "Jasper Ave & 95 St", stop_lat: "53.5418", stop_lon: "-113.4830" },
 ].map((stop) => ({ ...stop, stop_code: stop.stop_id, location_type: "0", zone_id: "" }));
 
+// across the street from each stop, for the way back
+const BACK_STOPS = STOPS.map((stop) => ({
+  ...stop,
+  stop_id: `2${stop.stop_id.slice(1)}`,
+  stop_code: `2${stop.stop_id.slice(1)}`,
+  stop_lat: (Number(stop.stop_lat) - 0.0003).toFixed(4),
+})).reverse();
+
 const SERVICE_ID = "e2e-daily";
 const HEADSIGN = "8 University";
 // start times of the three trips, Edmonton local time
@@ -34,7 +43,15 @@ const shape = {
   coordinates: [STOPS.map((stop) => [Number(stop.stop_lon), Number(stop.stop_lat)])],
 };
 
-const trips = TRIPS.map(({ trip_id }) => ({
+const backShape = {
+  type: "MultiLineString",
+  coordinates: [BACK_STOPS.map((stop) => [Number(stop.stop_lon), Number(stop.stop_lat)])],
+};
+
+// the one trip back towards Abbottsfield
+const BACK_TRIP = { trip_id: "6001", start: "11:00:00" };
+
+const trips = [...TRIPS.map(({ trip_id }) => ({
   trip_id,
   route_id: ROUTE.route_id,
   service_id: SERVICE_ID,
@@ -45,7 +62,18 @@ const trips = TRIPS.map(({ trip_id }) => ({
   wheelchair_accessible: true,
   bikes_allowed: true,
   geometry_line: shape,
-}));
+})), {
+  trip_id: BACK_TRIP.trip_id,
+  route_id: ROUTE.route_id,
+  service_id: SERVICE_ID,
+  trip_headsign: "8 Abbottsfield",
+  direction_id: "1",
+  block_id: "1",
+  shape_id: "e2e-back",
+  wheelchair_accessible: true,
+  bikes_allowed: true,
+  geometry_line: backShape,
+}];
 
 const addMinutes = (time, minutes) => {
   const [h, m, s] = time.split(":").map(Number);
@@ -54,8 +82,8 @@ const addMinutes = (time, minutes) => {
   return `${pad(Math.floor(total / 60))}:${pad(total % 60)}:${pad(s)}`;
 };
 
-const stopTimes = TRIPS.flatMap(({ trip_id, start }) =>
-  STOPS.map((stop, index) => {
+const stopTimes = [...TRIPS.map((trip) => ({ ...trip, stops: STOPS })), { ...BACK_TRIP, stops: BACK_STOPS }].flatMap(({ trip_id, start, stops }) =>
+  stops.map((stop, index) => {
     const time = addMinutes(start, index * 5);
     return {
       trip_id,
@@ -143,7 +171,7 @@ const stopSchedule = (url) => {
       route_long_name: ROUTE.route_long_name,
       agency_name: AGENCY,
       route_type: "3",
-      trip_headsign: HEADSIGN,
+      trip_headsign: trips.find((trip) => trip.trip_id === row.trip_id).trip_headsign,
       service_id: SERVICE_ID,
       arrival_time: row.arrival_time,
       stop_sequence: row.stop_sequence,
@@ -161,7 +189,7 @@ const openData = (url) => {
     case "d577-xky7": // routes
       return [ROUTE];
     case "4vt2-8zrq": // stops
-      return url.searchParams.get("$offset") ? [] : STOPS;
+      return url.searchParams.get("$offset") ? [] : [...STOPS, ...BACK_STOPS];
     case "ctwr-tvrd": {
       // trips
       const route = url.searchParams.get("route_id");
@@ -171,7 +199,7 @@ const openData = (url) => {
       // stop times, or each trip's first departure
       const rows = filterTrips(stopTimes, url);
       if ((url.searchParams.get("$select") ?? "").includes("min(departure_time)")) {
-        return TRIPS.filter(({ trip_id }) => rows.some((row) => row.trip_id === trip_id)).map(
+        return [...TRIPS, BACK_TRIP].filter(({ trip_id }) => rows.some((row) => row.trip_id === trip_id)).map(
           ({ trip_id, start }) => ({ trip_id, start }),
         );
       }

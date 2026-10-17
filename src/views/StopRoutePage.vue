@@ -1,19 +1,21 @@
 <script setup>
 // @ts-check
-import { useQueries, useQuery } from '@tanstack/vue-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getBusStopTimes, getRouteStopStats, getRouteStopTimes, getServiceDates, getStopRouteSchedule, getTrip, getTripRun, getTripsByRouteId } from '../api';
+import { getActiveTripsByRouteId, getBusStopTimes, getRouteStopStats, getRouteStopTimes, getServiceDates, getStopRouteSchedule, getTrip, getTripRun, getTripsByRouteId } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
-import { useRecordedTrips } from '../composables/useRecordedTrips';
+import { useRecordedTripsQuery } from '../composables/useRecordedTrips';
+import { liveBusesQuery } from '../composables/useBuses';
 import { usePageTitle } from '../composables/usePageTitle';
-import { tripPath } from '../composables/useStopArrivals';
-import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
+import { AVERAGE_SPEED_METRES_PER_SECOND, tripPath } from '../composables/useStopArrivals';
+import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, directionLabels, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
 import { formatScheduledTime } from '../utils/busStatus';
 import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
 import { typicalStatus } from '../utils/delayStats';
 import { estimateStopArrivals } from '../utils/stopEstimates';
+import { alongRouteMetres, distanceMetres } from '../utils/geo';
 import { serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
 import { edmontonNow, timeToSeconds } from '../utils/serviceTime';
 import { arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
@@ -131,7 +133,7 @@ const isPickable = (date) => {
 
 const arrivals = computed(() => {
     const services = serviceDates.value ? servicesOnDate(serviceDates.value, selectedDate.value) : null;
-    return arrivalsOnDate(entries.value, services, selectedDate.value);
+    return arrivalsOnDate(directionEntries.value, services, selectedDate.value);
 });
 
 const listLoading = computed(() => schedule.isLoading.value || (serviceIds.value.length > 0 && calendarLoading.value));
@@ -145,7 +147,7 @@ const isRail = computed(() => (entries.value[0]?.route_type ?? routeInfo.value?.
 const mainHeadsign = computed(() => {
     /** @type {Map<string, number>} */
     const counts = new Map();
-    for (const entry of arrivals.value.length ? arrivals.value : entries.value) {
+    for (const entry of arrivals.value.length ? arrivals.value : directionEntries.value) {
         if (entry.trip_headsign) counts.set(entry.trip_headsign, (counts.get(entry.trip_headsign) ?? 0) + 1);
     }
     const headsign = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
@@ -160,9 +162,111 @@ const { data: routeTrips } = useQuery({
 });
 const shapeByTrip = computed(() => new Map((routeTrips.value ?? []).map((trip) => [trip.trip_id, trip.shape_id])));
 
+// --- direction ---
+
+// the trips in the current feed (shared with the route page), so old schedules' headsigns
+// don't name the directions
+const { data: activeFeedTrips } = useQuery({
+    queryKey: computed(() => ['active-feed-trips', props.routeId]),
+    queryFn: () => getActiveTripsByRouteId(props.routeId),
+    retry: false,
+});
+const activeTrips = computed(() => {
+    const active = activeFeedTrips.value?.length ? new Set(activeFeedTrips.value.map((trip) => trip.trip_id)) : null;
+    const seen = new Set();
+    return (routeTrips.value ?? []).filter((trip) => {
+        if (seen.has(trip.trip_id) || (active && !active.has(trip.trip_id))) return false;
+        seen.add(trip.trip_id);
+        return true;
+    });
+});
+const directionByTrip = computed(() => new Map((routeTrips.value ?? []).map((trip) => [trip.trip_id, trip.direction_id])));
+const directions = computed(() => [...new Set(activeTrips.value.map((trip) => trip.direction_id))].sort());
+const directionNames = computed(() => Object.fromEntries(Object.entries(directionLabels(activeTrips.value))
+    .map(([direction, headsign]) => [direction, headsignWithoutRoute(headsign, props.routeId)])));
+
+// how many of the stop's visits go each way. Most stops only see one
+const stopDirections = computed(() => {
+    /** @type {Map<string, number>} */
+    const counts = new Map();
+    for (const entry of entries.value) {
+        const direction = directionByTrip.value.get(entry.trip_id);
+        if (direction !== undefined) counts.set(direction, (counts.get(direction) ?? 0) + 1);
+    }
+    return counts;
+});
+// ?direction= picks one at a stop both directions use, like a terminal; otherwise the way
+// most of its buses go. Null until the trips say
+const direction = computed(() => {
+    const asked = currentRoute.query.direction;
+    if (typeof asked === 'string' && stopDirections.value.has(asked)) return asked;
+    return [...stopDirections.value].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+});
+const directionEntries = computed(() => (direction.value === null
+    ? entries.value
+    : entries.value.filter((entry) => directionByTrip.value.get(entry.trip_id) === direction.value)));
+
+const queryClient = useQueryClient();
+/** @type {import('vue').Ref<string | null>} the direction whose stops are loading */
+const switchingTo = ref(null);
+const switchFailed = ref(false);
+watch(() => props.stopId, () => {
+    switchFailed.value = false;
+});
+
+// the other way goes from the stop nearest this one along its usual route, usually across the street
+/** @param {string} target */
+const pickDirection = async (target) => {
+    if (target === direction.value || switchingTo.value) return;
+    switchFailed.value = false;
+    const query = { ...currentRoute.query, direction: target };
+    if (stopDirections.value.has(target)) {
+        router.replace({ query });
+        return;
+    }
+    const tripId = commonShapeTrip(
+        /** @type {any[]} */ (activeTrips.value.filter((trip) => trip.direction_id === target)),
+        shapeByTrip.value,
+    );
+    const here = stop.value;
+    if (!tripId || !here) {
+        switchFailed.value = true;
+        return;
+    }
+    switchingTo.value = target;
+    try {
+        const stopTimes = await queryClient.fetchQuery({
+            queryKey: ['trip-stop-times', tripId],
+            queryFn: () => getBusStopTimes(tripId),
+            staleTime: Infinity,
+        });
+        const herePoint = [Number(here.stop_lat), Number(here.stop_lon)];
+        let nearest = null;
+        let nearestMetres = Infinity;
+        for (const stopTime of stopTimes) {
+            const info = keyedStops.value?.[stopTime.stop_id];
+            if (!info) continue;
+            const metres = distanceMetres(herePoint, [Number(info.stop_lat), Number(info.stop_lon)]);
+            if (metres < nearestMetres) {
+                nearest = stopTime.stop_id;
+                nearestMetres = metres;
+            }
+        }
+        if (nearest) {
+            router.push({ path: `/stops/${encodeURIComponent(nearest)}/routes/${encodeURIComponent(props.routeId)}`, query });
+        } else {
+            switchFailed.value = true;
+        }
+    } catch {
+        switchFailed.value = true;
+    } finally {
+        switchingTo.value = null;
+    }
+};
+
 // the route's stops in order, along the shape most of its buses here take, to step
 // between stops without going back to the stop page
-const listTrip = computed(() => commonShapeTrip(entries.value, shapeByTrip.value));
+const listTrip = computed(() => commonShapeTrip(directionEntries.value, shapeByTrip.value));
 const { data: listStopTimes } = useQuery({
     queryKey: computed(() => ['trip-stop-times', listTrip.value]),
     queryFn: () => getBusStopTimes(/** @type {string} */ (listTrip.value)),
@@ -177,7 +281,7 @@ const routeStops = computed(() => (listStopTimes.value ?? []).map((stopTime) => 
 const usualSeq = computed(() => {
     /** @type {Map<string, number>} */
     const counts = new Map();
-    for (const entry of entries.value) counts.set(entry.stop_sequence, (counts.get(entry.stop_sequence) ?? 0) + 1);
+    for (const entry of directionEntries.value) counts.set(entry.stop_sequence, (counts.get(entry.stop_sequence) ?? 0) + 1);
     return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 });
 const routeStopIndex = computed(() => stopIndexOnTrip(listStopTimes.value ?? [], props.stopId, usualSeq.value));
@@ -245,7 +349,14 @@ const estimating = computed(() => {
     return selectedDate.value === yesterday && storedTimes.isSuccess.value && !storedTimes.data.value?.trips.length;
 });
 
-const recordedTripIds = useRecordedTrips(() => props.routeId, () => (estimating.value ? selectedDate.value : null));
+// the trips we recorded on the day, both to work out today's times and to tell a bus we
+// tracked but didn't place at the stop from one we never tracked
+const recorded = useRecordedTripsQuery(() => props.routeId, () => (isRail.value || isFuture.value ? null : selectedDate.value));
+const recordedTripIds = recorded.ids;
+// a trip starting after midnight is filed under the next day
+const lateArrivals = computed(() => arrivals.value.some((entry) => timeToSeconds(entry.arrival_time) >= 24 * 60 * 60));
+const recordedNextDay = useRecordedTripsQuery(() => props.routeId, () => (
+    !isRail.value && lateArrivals.value && addDays(selectedDate.value, 1) <= today ? addDays(selectedDate.value, 1) : null));
 
 // the buses shown that have been recorded and may have reached the stop
 const candidates = computed(() => {
@@ -361,6 +472,66 @@ watch(estimatedDelays, (delays) => {
     }
 });
 
+// --- estimated times for buses on the way, today ---
+
+// worked out like the stop page's, from how far the bus has left to go along its route
+const liveBuses = useQuery({ ...liveBusesQuery, enabled: () => isToday.value && !isRail.value });
+const liveByTrip = computed(() => {
+    const trips = new Set(shownArrivals.value.map((entry) => entry.trip_id));
+    /** @type {Map<string, import('../api').Bus>} */
+    const map = new Map();
+    for (const bus of isToday.value ? liveBuses.data.value ?? [] : []) {
+        if (trips.has(String(bus.trip))) map.set(String(bus.trip), bus);
+    }
+    return map;
+});
+const liveTripIds = computed(() => [...liveByTrip.value.keys()]);
+// the trip page's key, so the lines are shared
+const liveShapeQueries = useQueries({
+    queries: computed(() => liveTripIds.value.map((tripId) => ({
+        queryKey: ['trip-shape', tripId],
+        queryFn: () => getTrip(tripId),
+        staleTime: Infinity,
+    }))),
+});
+
+// how late each bus on the way should be here, in seconds, by trip and stop_sequence
+const liveDelays = computed(() => {
+    /** @type {Map<string, number>} */
+    const delays = new Map();
+    if (!stop.value) return delays;
+    const stopPoint = [Number(stop.value.stop_lat), Number(stop.value.stop_lon)];
+    liveTripIds.value.forEach((tripId, index) => {
+        const bus = /** @type {import('../api').Bus} */ (liveByTrip.value.get(tripId));
+        const path = tripPath(liveShapeQueries.value[index]?.data);
+        const stopAlong = alongRouteMetres(path, stopPoint);
+        const busAlong = alongRouteMetres(path, [bus.lat, bus.long]);
+        if (!stopAlong || !busAlong) return;
+        const remaining = stopAlong.along - busAlong.along;
+        if (remaining < 0) return;
+        // a loop passes twice, so it's the first visit without a time yet
+        const entry = shownArrivals.value.find((visit) =>
+            visit.trip_id === tripId && !estimatedDelays.value.has(`${visit.trip_id}|${visit.stop_sequence}`));
+        if (!entry) return;
+        // the bus has kept moving since it reported, and can't get here before now
+        const arrival = Math.max(bus.timestamp + remaining / AVERAGE_SPEED_METRES_PER_SECOND, nowSeconds.value);
+        delays.set(`${entry.trip_id}|${entry.stop_sequence}`, serviceDaySeconds(arrival, selectedDate.value) - timeToSeconds(entry.arrival_time));
+    });
+    return delays;
+});
+
+/**
+ * Whether we recorded the run of a bus with no time here, or null when it's not known yet
+ * @param {import('../api').StopScheduleEntry} entry
+ */
+const wasTracked = (entry) => {
+    if (storedDelays.value.has(entry.trip_id) || recordedTripIds.value.has(entry.trip_id)) return true;
+    if (timeToSeconds(entry.arrival_time) >= 24 * 60 * 60 && recordedNextDay.ids.value.has(entry.trip_id)) return true;
+    if (!recorded.isSuccess.value) return null;
+    if (lateArrivals.value && addDays(selectedDate.value, 1) <= today && !recordedNextDay.isSuccess.value) return null;
+    return false;
+};
+
 // whether a bus's time here could still turn up
 /** @param {import('../api').StopScheduleEntry} entry */
 const timePending = (entry) => {
@@ -380,6 +551,9 @@ const rows = computed(() => {
         const delay = estimating.value ? estimatedDelays.value.get(key) : storedDelays.value.get(entry.trip_id)?.get(seq);
         const actual = delay === undefined ? null : actualStopTime(entry.arrival_time, delay);
         const due = timeToSeconds(entry.arrival_time) - dayNow.value;
+        const liveDelay = actual ? undefined : liveDelays.value.get(key);
+        const estimate = liveDelay === undefined ? null : actualStopTime(entry.arrival_time, liveDelay);
+        const notSeen = !actual && !estimate && !isRail.value && due < -NOT_SEEN_SECONDS && !timePending(entry);
         const headsign = headsignWithoutRoute(entry.trip_headsign || '', props.routeId);
         return {
             key,
@@ -387,10 +561,16 @@ const rows = computed(() => {
             scheduled: formatScheduledTime(entry.arrival_time),
             headsign: headsign && headsign !== mainHeadsign.value ? headsign : null,
             actual: actual ? { time: formatScheduledTime(actual.time), status: actual.status } : null,
+            estimate: estimate && liveDelay !== undefined
+                ? { time: formatScheduledTime(estimate.time), status: estimate.status, minutes: Math.max(0, Math.round((due + liveDelay) / 60)) }
+                : null,
             // only today, as other days' buses are either all to come or all gone
             soon: isToday.value && due >= 0 && due <= SOON_SECONDS ? Math.round(due / 60) : null,
-            notSeen: !actual && !isRail.value && due < -NOT_SEEN_SECONDS && !timePending(entry),
-            past: isToday.value && due < 0,
+            notSeen,
+            // null while the day's recorded trips load
+            tracked: notSeen ? wasTracked(entry) : null,
+            // a late bus still on its way isn't gone yet
+            past: isToday.value && due < 0 && !estimate,
         };
     });
 });
@@ -429,6 +609,32 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
       </div>
       <v-icon icon="mdi-chevron-right" class="ml-auto pl-2" />
     </router-link>
+
+    <!-- which way along the route, as the stops on either side of the street differ -->
+    <v-btn-toggle
+      v-if="directions.length > 1 && direction !== null"
+      :model-value="direction"
+      mandatory
+      color="primary"
+      variant="outlined"
+      divided
+      density="comfortable"
+      class="direction-toggle mt-3"
+      @update:model-value="pickDirection"
+    >
+      <v-btn
+        v-for="dir in directions"
+        :key="dir"
+        :value="dir"
+        :loading="switchingTo === dir"
+        class="text-none"
+      >
+        <span class="direction-label">To {{ directionNames[dir] }}</span>
+      </v-btn>
+    </v-btn-toggle>
+    <div v-if="switchFailed" class="text-body-small text-error mt-1">
+      The stops the other way could not be loaded.
+    </div>
 
     <!-- step along the route's stops, or pick one from the list -->
     <StopPicker
@@ -495,6 +701,9 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
     </div>
     <div v-else-if="estimating && arrivals.length" class="text-body-small text-medium-emphasis mt-2">
       Actual times are estimated from where the buses reported, as {{ isToday ? "today's" : "yesterday's" }} are worked out overnight.
+      <template v-if="isToday">
+        Buses on the way show when they should get here.
+      </template>
     </div>
     <div v-else-if="noStoredTimes && arrivals.length" class="text-body-small text-medium-emphasis mt-2">
       No actual times here on this day.
@@ -558,12 +767,29 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
                   {{ row.actual.status.label }}
                 </v-chip>
               </template>
+              <template v-else-if="row.estimate">
+                <div class="text-body-medium" :class="`text-${row.estimate.status.color}`">
+                  Est. {{ row.estimate.time }}
+                </div>
+                <div class="d-flex align-center justify-end ga-1">
+                  <span class="text-body-small text-medium-emphasis">{{ row.estimate.minutes < 1 ? 'Due' : `in ${row.estimate.minutes} min` }}</span>
+                  <v-chip :color="row.estimate.status.color" size="x-small" variant="tonal">
+                    {{ row.estimate.status.label }}
+                  </v-chip>
+                </div>
+              </template>
               <div v-else-if="row.soon !== null" class="text-body-medium text-medium-emphasis">
                 {{ row.soon < 1 ? 'Due' : `in ${row.soon} min` }}
               </div>
-              <div v-else-if="row.notSeen" class="text-body-small text-medium-emphasis">
-                Not seen
-              </div>
+              <!-- a bus we tracked that wasn't placed here, apart from one we never tracked -->
+              <template v-else-if="row.notSeen">
+                <div class="text-body-small text-medium-emphasis">
+                  {{ row.tracked === false ? 'Not tracked' : 'Not seen here' }}
+                </div>
+                <div v-if="row.tracked" class="text-body-small text-medium-emphasis">
+                  Trip was tracked
+                </div>
+              </template>
             </div>
           </router-link>
         </template>
@@ -606,6 +832,45 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
 
 .min-width-0 {
   min-width: 0;
+}
+
+/* long headsigns share the width instead of pushing past the screen edge, as on the route page */
+.direction-toggle {
+  max-width: 100%;
+  width: 100%;
+}
+
+.direction-toggle .v-btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.direction-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* on phones the directions stack, so a long headsign gets the full width */
+@media (max-width: 599px) {
+  .direction-toggle {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .direction-toggle .v-btn {
+    flex: 0 0 auto;
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .direction-toggle .v-btn :deep(.v-btn__content) {
+    white-space: normal;
+  }
+
+  .direction-toggle.v-btn-group--divided .v-btn:not(:last-child) {
+    border-inline-end-width: 0;
+    border-bottom-width: thin;
+  }
 }
 
 /* on phones the day picker takes the full width */
