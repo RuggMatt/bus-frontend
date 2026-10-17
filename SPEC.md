@@ -34,7 +34,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 
 | Endpoint | Used for |
 | --- | --- |
-| `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `timestamp` (epoch s), `bearing`, `speed` (m/s) |
+| `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `route` (GTFS route id, from the realtime feed), `timestamp` (epoch s), `bearing`, `speed` (m/s) |
 | `/bus/trips/:tripId` | Recorded positions for a trip in the past 3 days, newest first (trip page without a date) |
 | `/bus/trips/:tripId/:date` | The run of a trip that started on an Edmonton day (trip page with `?date=`): `start`/`end`, `points`, `buses`, `avgSpeed`/`maxSpeed`, and `positions`, oldest first. A run past midnight belongs to the day it started. 404 if no run started that day |
 | `/routes/:routeId/trips/:date` | The trips of a route we recorded on an Edmonton day (trip picker, route timetable): `trips` of `trip`, `start`/`end` (epoch s), `points`, `buses`, oldest first. Route ids are GTFS ones (`008`). Only trips with positions are listed, and a run belongs to the day it started |
@@ -53,9 +53,9 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 
 Only read `/bus/now` through `src/composables/useBuses.js`:
 - `useLiveBuses()` / `liveBusesQuery` gives the raw snapshot.
-- `useBuses()` gives the snapshot with `route_id` on each bus.
+- `useBuses()` gives the snapshot with `route_id` on each bus, copied from its `route`.
 
-Both use `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So every page shares one cached snapshot, and there's at most one request per backend snapshot. `['buses']` is built from `['buses-live']`, and returns copies so the shared snapshot isn't changed. Trip→route ids are cached for the session, so each refresh only looks up trips it hasn't seen before.
+Both read `['buses-live']`, with `nextBusRefreshDelay` for their `staleTime` and `refetchInterval`. So every page shares one cached snapshot, and there's at most one request per backend snapshot. `useBuses` adds `route_id` with a `select` that returns copies, so the shared snapshot isn't changed. Live buses need no trip lookups in the open data, as `/bus/now` already has each bus's route.
 
 ### City of Edmonton open data (SODA, `data.edmonton.ca/resource/<id>.json`)
 
@@ -111,8 +111,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['routes']` | All routes |
 | `['agencies']` | The GTFS agencies with website, fares page and phone (`getAgencies`), `staleTime: Infinity` |
 | `['route-agencies']` | Each route's agency in the active feed (`getRouteAgencies`), `staleTime: Infinity` |
-| `['buses']` | `/bus/now` with `route_id` assigned (`useBuses`). The first load is slow, as it looks up every trip |
-| `['buses-live']` | Raw `/bus/now` (`useLiveBuses`, `liveBusesQuery`) |
+| `['buses-live']` | `/bus/now` (`useLiveBuses`, `liveBusesQuery`, and `useBuses` with `route_id` added) |
 | `['trip-shape', tripId]` | `getTrip`, `staleTime: Infinity` |
 | `['trip-stop-times', tripId]` | `getBusStopTimes`, `staleTime: Infinity` |
 | `['stop-headsigns', stopIds]` | Each route's headsigns and trip counts at a stop, or at every stop of its station (`getStopHeadsigns`), `staleTime: Infinity` |
