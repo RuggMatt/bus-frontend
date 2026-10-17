@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrivalsOnDate, earlierCount, runDate, serviceDaySeconds } from "../src/utils/stopRouteTimes";
+import { arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from "../src/utils/stopRouteTimes";
 
 const entry = (trip_id, arrival_time, service_id, extra = {}) => ({
   trip_id,
@@ -64,5 +64,25 @@ describe("earlierCount", () => {
 
   it("hides them all once the day's buses have gone", () => {
     expect(earlierCount(arrivals, 12 * 3600, 3600)).toBe(4);
+  });
+});
+
+describe("commonShapeTrip", () => {
+  it("picks a trip on the shape most visits use", () => {
+    const entries = ["1", "2", "3", "4"].map((id) => entry(id, "08:00:00", "S"));
+    const shapes = new Map([["1", "short"], ["2", "full"], ["3", "full"], ["4", "full"]]);
+    expect(commonShapeTrip(entries, shapes)).toBe("2");
+    expect(commonShapeTrip(entries, new Map())).toBeNull();
+  });
+});
+
+describe("stopIndexOnTrip", () => {
+  const loop = ["10", "11", "12", "10"].map((stop_id, i) => ({ stop_id, stop_sequence: String(i + 1) }));
+
+  it("finds the visit at the given stop_sequence, else the first", () => {
+    expect(stopIndexOnTrip(loop, "10", "4")).toBe(3);
+    expect(stopIndexOnTrip(loop, "10", null)).toBe(0);
+    expect(stopIndexOnTrip(loop, "12", "9")).toBe(2);
+    expect(stopIndexOnTrip(loop, "99", null)).toBe(-1);
   });
 });
