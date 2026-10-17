@@ -266,9 +266,13 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   - Tapping a row (or a pin) selects the position: it gets a larger highlighted pin with its time, the map flies to it (zoom 16 or closer) and scrolls into view, and the row is tinted. Tapping it again clears it. Tapping a pin inside a closed group opens that group. Changing trip, day or view clears the selection and closes the group.
 - **Stops** are rows in one outlined card, like the stop page's cards (no `v-list`, so nothing gets clamped on mobile). They're top-aligned, so a stop's name always sits level with its time, however many lines either side takes:
   - left: the stop name (wraps) and "Stop N"
-  - right: the scheduled time, large, and when there's a recorded position within 1 km, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
+  - right: the scheduled time, large, and once the bus has passed the stop, "Actual ≈ time" and an On time / late / early chip (`scheduleStatus`)
   - Tapping a row expands it to show the other routes serving the stop (as badge chips) and a full-width "Stop details" button.
-- **Actual times** come from `estimateStopArrivals` (`src/utils/stopEstimates.js`, unit tested), using the latest run of recorded positions (split on 30-minute gaps). A stop's time is that of the nearest position within 1 km, among positions no earlier than the previous stop's time. Without that floor, a loop's last stops matched positions from the start of the trip and showed earlier times than the stops before them.
+- **Actual times** come from `estimateStopArrivals` (`src/utils/stopEstimates.js`, unit tested), using the latest run of recorded positions (split on 30-minute gaps) and the trip's route shape. A stop only gets a time once the bus has passed it, as the nearest position alone used to give one while the bus was still on its way:
+  - Each position, oldest first, is placed along the shape. Progress only goes forward, and each position is looked for no further ahead than a bus could have driven since the last one (30 m/s plus 300 m), so a loop or a route that comes back past the same spot doesn't jump ahead. Positions over 150 m from the shape (a detour, a bad fix) are skipped.
+  - Each stop is placed along the shape in trip order, no earlier than the stop before it, so a loop's last stop isn't placed at its start. Where the shape passes near a point more than once, the earliest close pass is taken.
+  - A stop is passed once the bus is 25 m (`PASSED_METRES`) beyond it, or within 25 m of the end of the shape for the last stop. The 25 m also keeps a bus waiting at the first stop from counting until it leaves. The time is worked out between the positions either side of that point. A stop passed before the run's first position (by more than 100 m) gets no time.
+  - Without the shape, no stop gets a time.
 - Each stop's estimate is worked out once per render in `stopRows`, which the list and the map share.
 
 ### Bus details (`/buses/:busId`, `BusDetailsPage.vue`)
