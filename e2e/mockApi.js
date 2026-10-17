@@ -98,6 +98,7 @@ export const DETOUR = {
 export const BUS = {
   bus: 4699,
   trip: 5002,
+  route: "008",
   lat: 53.5413,
   long: -113.495,
   bearing: 90,

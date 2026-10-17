@@ -53,7 +53,8 @@ export const getElectricBusStatsHourly = async () => {
  * @property {number} timestamp UNix epoch timestamp in seconds
  * @property {number} bearing
  * @property {number} speed
- * @property {string|null} [route_id] Assigned dynamically by useBuses
+ * @property {string|null} [route] GTFS route id of the trip, from the realtime feed
+ * @property {string|null} [route_id] The same as route, assigned by useBuses
  */
 
 /**
@@ -555,29 +556,6 @@ export const getTrip = async (tripId) => {
     }
   }
   return null;
-};
-
-/**
- *
- * @param {string[]} tripIds
- * @returns {Promise<{route_id: string, trip_id: string}[]>}
- */
-export const getTrips = async (tripIds) => {
-  // Escape single quotes to prevent SoQL injection
-  const tripIdParams = tripIds.map((tripId) => `'${String(tripId).replace(/'/g, "''")}'`).join(",");
-  let result = await fetch(
-    `https://data.edmonton.ca/resource/ctwr-tvrd.json?$select=trip_id,route_id&$where=trip_id IN (${tripIdParams})`,
-    {
-      headers: {
-        Accept: "application/json",
-        "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
-      },
-    },
-  );
-  if (result.ok) {
-    return result.json();
-  }
-  throw Error(result.status);
 };
 
 /**
