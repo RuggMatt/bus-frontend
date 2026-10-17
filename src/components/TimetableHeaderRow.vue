@@ -15,6 +15,11 @@ defineProps({
     type: /** @type {import('vue').PropType<(tripId: string) => string>} */ (Function),
     default: (/** @type {string} */ tripId) => `/trips/${tripId}`,
   },
+  // columns per trip, 2 with actual times for the time and how late it was
+  span: {
+    type: Number,
+    default: 1,
+  },
 });
 </script>
 
@@ -27,6 +32,7 @@ defineProps({
       <th
         v-for="trip in trips"
         :key="trip.trip_id"
+        :colspan="span"
         class="time-col"
       >
         <router-link :to="href(trip.trip_id)" class="timetable-link">
