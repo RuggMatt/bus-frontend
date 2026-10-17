@@ -9,7 +9,10 @@ test("a route's page for a stop lists the day's buses with when they went by", a
 
   await expect(page.getByRole("heading", { name: "University" })).toBeVisible();
   await expect(page.getByText("Jasper Ave & 104 St")).toBeVisible();
-  // the whole route's last week here
+  // the whole route's last week here, folded into a chip until tapped
+  const chip = page.getByRole("button", { name: /^Usually .* here\. Show last week's delays$/ });
+  await expect(page.getByText("21 buses on 3 trips")).toHaveCount(0);
+  await chip.click();
   await expect(page.getByText("21 buses on 3 trips")).toBeVisible();
 
   const rows = page.locator(".arrival-row");
