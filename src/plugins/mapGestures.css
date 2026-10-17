@@ -1,0 +1,33 @@
+/* one finger scrolls the page; leaflet's touch-action: none would stop that */
+.leaflet-container.leaflet-two-finger-pan {
+    touch-action: pan-x pan-y !important;
+}
+
+.leaflet-gesture-hint {
+    position: absolute;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    font-size: 1.125rem;
+    font-weight: 500;
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+.leaflet-gesture-hint--visible {
+    opacity: 1;
+    transition-duration: 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .leaflet-gesture-hint {
+        transition: none;
+    }
+}

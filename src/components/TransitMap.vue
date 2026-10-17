@@ -307,6 +307,8 @@ const createMap = () => {
     map = attached.map;
     mapToken = attached.token;
     flyIn = attached.handedOver && !prefersReducedMotion();
+    // the map sits in a scrolling page, so one finger scrolls it and two move the map
+    map.twoFingerPan.enable();
     // a long route has a few hundred stops, which are quicker on a canvas
     stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 }).addTo(map);
     pathLayer = L.layerGroup().addTo(map);

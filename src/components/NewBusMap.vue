@@ -341,6 +341,8 @@ const createMap = () => {
     const attached = attachSharedMap(mapElement.value, releaseMap);
     map = attached.map;
     mapToken = attached.token;
+    // full screen, so one finger moves the map (the route, trip and bus pages turn this on)
+    map.twoFingerPan.disable();
     homeLayer = L.layerGroup().addTo(map);
     map.on("click", clearRouteSelection);
     // back to where the user was, or the whole city the first time
