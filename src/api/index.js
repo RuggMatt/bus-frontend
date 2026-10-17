@@ -268,6 +268,59 @@ export const getTripRun = async (tripId, date) => {
 };
 
 /**
+ * How late buses were at a stop over a week, worked out nightly from the recorded
+ * positions. A delay is the time the bus was 25 m past the stop minus its scheduled
+ * arrival, in seconds.
+ * @typedef {Object} DelayStats
+ * @property {string} from YYYY-MM-DD, the first Edmonton service day covered
+ * @property {string} to YYYY-MM-DD, the last, inclusive
+ * @property {number} count Times a bus went by
+ * @property {number|null} mean Seconds, null without any times
+ * @property {number|null} min Seconds
+ * @property {number|null} max Seconds
+ * @property {Array<{minutes: number, count: number}>} histogram By whole minutes rounded
+ *   down (-30 s is in -1), only the minutes with times, earliest first. -10 holds
+ *   anything earlier and 30 anything later
+ */
+
+/**
+ * @param {string} url
+ * @returns {Promise<any>}
+ */
+const getJson = async (url) => {
+  const result = await fetch(url, { headers: { Accept: "application/json" } });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Object.assign(Error(result.status), { status: result.status });
+};
+
+/**
+ * One trip at one of its stops over the last 7 days up to yesterday: a stop at a time
+ * of day.
+ * @param {string|number} tripId
+ * @param {string|number} seq The stop's stop_sequence in the trip
+ * @returns {Promise<DelayStats & {trip: number|string, seq: number, stop: string|null, route: string|null}>}
+ */
+export const getTripStopStats = (tripId, seq) =>
+  getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/stats/trips/${encodeURIComponent(tripId)}/${encodeURIComponent(seq)}`);
+
+/**
+ * Every trip of a route at a stop over the last 7 days up to yesterday.
+ * @param {string} routeId GTFS route id ("008")
+ * @param {string} stopId
+ * @param {string|number|null} [seq] Only the visits at this stop_sequence, for a stop
+ *   the route passes more than once
+ * @returns {Promise<DelayStats & {route: string, stop: string, seq: number|null, trips: number}>}
+ */
+export const getRouteStopStats = (routeId, stopId, seq = null) => {
+  const params = seq === null ? "" : `?${new URLSearchParams({ seq: String(seq) })}`;
+  return getJson(
+    `${import.meta.env.VITE_APP_API_URL}/stop-times/stats/routes/${encodeURIComponent(routeId)}/stops/${encodeURIComponent(stopId)}${params}`,
+  );
+};
+
+/**
  * @typedef {Object} RouteTrip
  * @property {number} trip
  * @property {boolean} happened Always true, only trips that reported positions are listed

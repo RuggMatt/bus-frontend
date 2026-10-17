@@ -21,3 +21,21 @@ test("stepping between a route's trips keeps the page and changes the trip", asy
   // the first trip of the day has nothing before it
   await expect(page.getByRole("button", { name: "Previous trip" })).toBeDisabled();
 });
+
+test("a stop's details show how late this trip and the route usually are there", async ({ page }) => {
+  await page.goto(`/trips/5002?date=${today()}`);
+
+  await page.getByRole("button", { name: /Jasper Ave & 104 St/ }).click();
+  await expect(page.getByText("Usually 2 min late")).toBeVisible();
+  await expect(page.getByText("On 6 of the last 7 days")).toBeVisible();
+
+  await page.getByRole("button", { name: "Whole route" }).click();
+  await expect(page.getByText("Usually on time")).toBeVisible();
+  await expect(page.getByText("21 buses on 3 trips")).toBeVisible();
+
+  // the choice sticks when another stop is opened
+  await page.getByRole("button", { name: /Jasper Ave & 100 St/ }).click();
+  // the last stop's details close as these open
+  await expect(page.locator(".delay-stats")).toHaveCount(1);
+  await expect(page.getByText("21 buses on 3 trips")).toBeVisible();
+});

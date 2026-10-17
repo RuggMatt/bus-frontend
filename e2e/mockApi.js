@@ -138,6 +138,16 @@ const openData = (url) => {
   }
 };
 
+const weekStats = (count, mean, histogram) => ({
+  from: "2026-10-10",
+  to: "2026-10-16",
+  count,
+  mean,
+  min: histogram[0].minutes * 60,
+  max: histogram.at(-1).minutes * 60 + 59,
+  histogram,
+});
+
 /** Answers one backend request, or null for a 404. */
 const backend = (url) => {
   const path = url.pathname;
@@ -146,6 +156,21 @@ const backend = (url) => {
   if (/^\/bus\/trips\/[^/]+$/.test(path)) return [];
   const routeTrips = path.match(/^\/routes\/([^/]+)\/trips\/([^/]+)$/);
   if (routeTrips) return { route: routeTrips[1], date: routeTrips[2], count: 0, trips: [] };
+  // a week of stop times: this trip runs about 2 min late, the whole route on time
+  const tripStats = path.match(/^\/stop-times\/stats\/trips\/([^/]+)\/(\d+)$/);
+  if (tripStats) {
+    return {
+      trip: Number(tripStats[1]), seq: Number(tripStats[2]), stop: null, route: ROUTE.route_id,
+      ...weekStats(6, 130, [{ minutes: 1, count: 2 }, { minutes: 2, count: 3 }, { minutes: 4, count: 1 }]),
+    };
+  }
+  const routeStats = path.match(/^\/stop-times\/stats\/routes\/([^/]+)\/stops\/([^/]+)$/);
+  if (routeStats) {
+    return {
+      route: routeStats[1], stop: routeStats[2], seq: null, trips: TRIPS.length,
+      ...weekStats(21, 20, [{ minutes: -2, count: 2 }, { minutes: 0, count: 15 }, { minutes: 2, count: 4 }]),
+    };
+  }
   if (path === `/bus/${BUS.bus}`) {
     const now = Math.floor(Date.now() / 1000);
     return { bus: BUS.bus, latest: liveBus(), firstSeen: now - 86400 * 30, lastSeen: now, active: true };
