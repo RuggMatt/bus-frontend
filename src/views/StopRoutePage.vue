@@ -15,10 +15,10 @@ import { formatScheduledTime } from '../utils/busStatus';
 import { actualStopTime, delaysByTrip } from '../utils/actualTimes';
 import { typicalStatus } from '../utils/delayStats';
 import { estimateStopArrivals } from '../utils/stopEstimates';
-import { alongRouteMetres, distanceMetres } from '../utils/geo';
+import { alongRouteMetres, distanceMetres, formatDistance } from '../utils/geo';
 import { serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
 import { edmontonNow, timeToSeconds } from '../utils/serviceTime';
-import { arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
+import { approachDiagram, arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
 import RouteBadge from '../components/RouteBadge.vue';
 import DayPicker from '../components/DayPicker.vue';
@@ -143,8 +143,22 @@ const routeLongName = computed(() => entries.value[0]?.route_long_name ?? routeI
 // LRT lines go by name and colour in Edmonton, not number, and aren't tracked live
 const isRail = computed(() => (entries.value[0]?.route_type ?? routeInfo.value?.route_type) === RAIL_ROUTE_TYPE);
 
+/**
+ * The last value that wasn't empty. What's the same at every stop on the route, like the
+ * heading and the direction, stays put while the next stop's schedule loads
+ * @template T
+ * @param {() => T} getter
+ */
+const lastKnown = (getter) => {
+    const value = ref(getter());
+    watch(getter, (next) => {
+        if (next !== null && next !== '') value.value = next;
+    });
+    return value;
+};
+
 // where the route usually goes from here, as its name doesn't say the direction
-const mainHeadsign = computed(() => {
+const currentHeadsign = computed(() => {
     /** @type {Map<string, number>} */
     const counts = new Map();
     for (const entry of arrivals.value.length ? arrivals.value : directionEntries.value) {
@@ -202,9 +216,11 @@ const direction = computed(() => {
     if (typeof asked === 'string' && stopDirections.value.has(asked)) return asked;
     return [...stopDirections.value].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 });
+const shownDirection = lastKnown(() => direction.value);
 const directionEntries = computed(() => (direction.value === null
     ? entries.value
     : entries.value.filter((entry) => directionByTrip.value.get(entry.trip_id) === direction.value)));
+const mainHeadsign = lastKnown(() => currentHeadsign.value);
 
 const queryClient = useQueryClient();
 /** @type {import('vue').Ref<string | null>} the direction whose stops are loading */
@@ -266,7 +282,7 @@ const pickDirection = async (target) => {
 
 // the route's stops in order, along the shape most of its buses here take, to step
 // between stops without going back to the stop page
-const listTrip = computed(() => commonShapeTrip(directionEntries.value, shapeByTrip.value));
+const listTrip = lastKnown(() => commonShapeTrip(directionEntries.value, shapeByTrip.value));
 const { data: listStopTimes } = useQuery({
     queryKey: computed(() => ['trip-stop-times', listTrip.value]),
     queryFn: () => getBusStopTimes(/** @type {string} */ (listTrip.value)),
@@ -495,9 +511,12 @@ const liveShapeQueries = useQueries({
     }))),
 });
 
-// how late each bus on the way should be here, in seconds, by trip and stop_sequence
-const liveDelays = computed(() => {
-    /** @type {Map<string, number>} */
+/**
+ * Each bus on the way here, by trip and stop_sequence: how late it should be in seconds,
+ * and where it is along its route line
+ * @type {import('vue').ComputedRef<Map<string, {delay: number, bus: import('../api').Bus, path: [number, number][], busAlong: number, remaining: number}>>}
+ */
+const liveApproaches = computed(() => {
     const delays = new Map();
     if (!stop.value) return delays;
     const stopPoint = [Number(stop.value.stop_lat), Number(stop.value.stop_lon)];
@@ -515,10 +534,30 @@ const liveDelays = computed(() => {
         if (!entry) return;
         // the bus has kept moving since it reported, and can't get here before now
         const arrival = Math.max(bus.timestamp + remaining / AVERAGE_SPEED_METRES_PER_SECOND, nowSeconds.value);
-        delays.set(`${entry.trip_id}|${entry.stop_sequence}`, serviceDaySeconds(arrival, selectedDate.value) - timeToSeconds(entry.arrival_time));
+        delays.set(`${entry.trip_id}|${entry.stop_sequence}`, {
+            delay: serviceDaySeconds(arrival, selectedDate.value) - timeToSeconds(entry.arrival_time),
+            bus,
+            path,
+            busAlong: busAlong.along,
+            remaining,
+        });
     });
     return delays;
 });
+
+/**
+ * The buses on a trip: the live one on it today, else the ones we recorded on it
+ * @param {import('../api').StopScheduleEntry} entry
+ * @returns {Array<number|string>}
+ */
+const busesFor = (entry) => {
+    const live = liveByTrip.value.get(entry.trip_id);
+    if (live) return [live.bus];
+    const late = timeToSeconds(entry.arrival_time) >= 24 * 60 * 60;
+    return recorded.busesByTrip.value.get(entry.trip_id)
+        ?? (late ? recordedNextDay.busesByTrip.value.get(entry.trip_id) : undefined)
+        ?? [];
+};
 
 /**
  * Whether we recorded the run of a bus with no time here, or null when it's not known yet
@@ -551,7 +590,7 @@ const rows = computed(() => {
         const delay = estimating.value ? estimatedDelays.value.get(key) : storedDelays.value.get(entry.trip_id)?.get(seq);
         const actual = delay === undefined ? null : actualStopTime(entry.arrival_time, delay);
         const due = timeToSeconds(entry.arrival_time) - dayNow.value;
-        const liveDelay = actual ? undefined : liveDelays.value.get(key);
+        const liveDelay = actual ? undefined : liveApproaches.value.get(key)?.delay;
         const estimate = liveDelay === undefined ? null : actualStopTime(entry.arrival_time, liveDelay);
         const notSeen = !actual && !estimate && !isRail.value && due < -NOT_SEEN_SECONDS && !timePending(entry);
         const headsign = headsignWithoutRoute(entry.trip_headsign || '', props.routeId);
@@ -571,6 +610,8 @@ const rows = computed(() => {
             tracked: notSeen ? wasTracked(entry) : null,
             // a late bus still on its way isn't gone yet
             past: isToday.value && due < 0 && !estimate,
+            upcoming: isFuture.value || (isToday.value && due >= 0),
+            buses: isRail.value ? [] : busesFor(entry),
         };
     });
 });
@@ -582,6 +623,47 @@ const nextKey = computed(() => (isToday.value ? rows.value.find((row) => !row.pa
 const noStoredTimes = computed(() =>
     !estimating.value && !isRail.value && selectedDate.value < today && storedTimes.isSuccess.value
     && !arrivals.value.some((entry) => storedDelays.value.get(entry.trip_id)?.has(Number(entry.stop_sequence))));
+
+// --- a bus's details, opened from its row ---
+
+/** @type {import('vue').Ref<string | null>} */
+const openKey = ref(null);
+watch([() => props.stopId, selectedDate], () => {
+    openKey.value = null;
+});
+/** @param {string} key */
+const toggleRow = (key) => {
+    openKey.value = openKey.value === key ? null : key;
+};
+
+const openRow = computed(() => rows.value.find((row) => row.key === openKey.value) ?? null);
+const openApproach = computed(() => (openKey.value ? liveApproaches.value.get(openKey.value) ?? null : null));
+// the trip page's key, so the stops are shared
+const { data: openStopTimes } = useQuery({
+    queryKey: computed(() => ['trip-stop-times', openRow.value?.entry.trip_id ?? null]),
+    queryFn: () => getBusStopTimes(/** @type {NonNullable<typeof openRow.value>} */ (openRow.value).entry.trip_id),
+    enabled: () => !!openApproach.value,
+    staleTime: Infinity,
+});
+// the stops the bus has left before this one, and where it is among them
+const openDiagram = computed(() => {
+    const approach = openApproach.value;
+    const row = openRow.value;
+    if (!approach || !row || !openStopTimes.value) return null;
+    const here = openStopTimes.value.findIndex((stopTime) => stopTime.stop_sequence === row.entry.stop_sequence);
+    if (here === -1) return null;
+    const stops = openStopTimes.value.slice(0, here + 1).flatMap((stopTime) => {
+        const info = keyedStops.value?.[stopTime.stop_id];
+        const along = info ? alongRouteMetres(approach.path, [Number(info.stop_lat), Number(info.stop_lon)]) : null;
+        return info && along ? [{ name: info.stop_name, along: along.along }] : [];
+    });
+    return approachDiagram(stops, approach.busAlong);
+});
+/** @param {number} index */
+const dotLeft = (index) => {
+    const count = openDiagram.value?.dots.length ?? 1;
+    return count > 1 ? `${(index / (count - 1)) * 100}%` : '100%';
+};
 
 const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
 </script>
@@ -612,8 +694,8 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
 
     <!-- which way along the route, as the stops on either side of the street differ -->
     <v-btn-toggle
-      v-if="directions.length > 1 && direction !== null"
-      :model-value="direction"
+      v-if="directions.length > 1 && shownDirection !== null"
+      :model-value="shownDirection"
       mandatory
       color="primary"
       variant="outlined"
@@ -733,10 +815,15 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
       <v-card v-if="rows.length" variant="outlined" class="mt-3">
         <template v-for="(row, index) in rows" :key="row.key">
           <v-divider v-if="index > 0" />
-          <router-link
-            :to="{ path: `/trips/${row.entry.trip_id}`, query: { date: selectedDate } }"
+          <!-- tapping a bus opens its details under it -->
+          <div
+            role="button"
+            tabindex="0"
+            :aria-expanded="openKey === row.key"
             class="arrival-row d-flex align-start pa-3"
             :class="{ 'arrival-row--past': row.past, 'arrival-row--next': row.key === nextKey }"
+            @click="toggleRow(row.key)"
+            @keydown.enter.space.prevent="toggleRow(row.key)"
           >
             <div class="flex-grow-1 min-width-0">
               <div class="text-title-medium">
@@ -791,7 +878,72 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
                 </div>
               </template>
             </div>
-          </router-link>
+          </div>
+          <v-expand-transition>
+            <div v-if="openKey === row.key" class="arrival-details px-3 pb-3" :class="{ 'arrival-row--next': row.key === nextKey }">
+              <!-- a bus on its way: how far off, and a line of the stops it has left -->
+              <template v-if="openDiagram && openApproach">
+                <div class="text-body-medium">
+                  {{ openDiagram.stopsAway === 1 ? 'Next stop' : `${openDiagram.stopsAway} stops away` }} &middot; {{ formatDistance(openApproach.remaining) }}
+                </div>
+                <div
+                  class="approach mt-2"
+                  role="img"
+                  :aria-label="`The bus is ${openDiagram.stopsAway === 1 ? '1 stop' : `${openDiagram.stopsAway} stops`} from this stop${openDiagram.dots.length > 1 ? `, past ${openDiagram.dots[0]?.name}` : ''}`"
+                >
+                  <div class="approach__line" />
+                  <template v-for="(dot, dotIndex) in openDiagram.dots" :key="dotIndex">
+                    <span
+                      v-if="dot"
+                      class="approach__dot"
+                      :class="{ 'approach__dot--here': dotIndex === openDiagram.dots.length - 1 }"
+                      :style="{ left: dotLeft(dotIndex) }"
+                    />
+                    <span v-else class="approach__gap text-medium-emphasis" :style="{ left: dotLeft(dotIndex) }">&hellip;</span>
+                  </template>
+                  <v-icon
+                    icon="mdi-bus"
+                    color="primary"
+                    size="small"
+                    class="approach__bus"
+                    :style="{ left: `${openDiagram.bus * 100}%` }"
+                  />
+                </div>
+                <div class="d-flex justify-space-between ga-2 text-body-small text-medium-emphasis mt-1">
+                  <span v-if="openDiagram.dots.length > 1" class="approach__label">{{ openDiagram.dots[0]?.name }}</span>
+                  <span class="approach__label text-right ml-auto">This stop</span>
+                </div>
+              </template>
+              <div class="d-flex align-center flex-wrap ga-2 mt-2">
+                <template v-if="!isRail">
+                  <v-chip
+                    v-for="bus in row.buses"
+                    :key="bus"
+                    :to="`/buses/${bus}`"
+                    size="small"
+                    variant="tonal"
+                    color="primary"
+                    prepend-icon="mdi-bus"
+                  >
+                    Bus {{ bus }}
+                  </v-chip>
+                  <span v-if="!row.buses.length" class="text-body-small text-medium-emphasis">
+                    {{ row.upcoming ? 'No bus on this trip yet' : 'No bus recorded on this trip' }}
+                  </span>
+                </template>
+                <v-btn
+                  :to="{ path: `/trips/${row.entry.trip_id}`, query: { date: selectedDate } }"
+                  variant="text"
+                  size="small"
+                  color="primary"
+                  append-icon="mdi-chevron-right"
+                  class="text-none ml-auto"
+                >
+                  Trip details
+                </v-btn>
+              </div>
+            </div>
+          </v-expand-transition>
         </template>
       </v-card>
       <div v-else class="text-medium-emphasis mt-3">
@@ -822,8 +974,64 @@ const dayLabel = computed(() => formatDayLabel(selectedDate.value, today));
   border-left: 6px solid rgb(var(--v-theme-primary));
 }
 
+.arrival-row {
+  cursor: pointer;
+}
+
 .arrival-row--past {
   opacity: 0.7;
+}
+
+/* the stops before this one as dots on a line, with the bus between two of them */
+.approach {
+  position: relative;
+  height: 28px;
+  margin: 0 8px;
+}
+
+.approach__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 20px;
+  border-top: 2px solid rgba(var(--v-theme-on-surface), 0.25);
+}
+
+.approach__dot {
+  position: absolute;
+  top: 15px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--v-theme-on-surface), 0.5);
+  background: rgb(var(--v-theme-surface));
+}
+
+.approach__dot--here {
+  border-color: rgb(var(--v-theme-primary));
+  background: rgb(var(--v-theme-primary));
+}
+
+.approach__gap {
+  position: absolute;
+  top: 6px;
+  transform: translateX(-50%);
+  padding: 0 4px;
+  background: rgb(var(--v-theme-surface));
+}
+
+.approach__bus {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+
+.approach__label {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .arrival-row--next {

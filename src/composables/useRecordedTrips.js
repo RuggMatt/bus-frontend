@@ -6,8 +6,8 @@ import { edmontonNow } from "../utils/serviceTime";
 import { addDays } from "../utils/weeks";
 
 /**
- * The ids of a route's trips we recorded on an Edmonton day, and whether they've
- * loaded, so a trip missing while they load isn't taken as never recorded. Future
+ * The ids of a route's trips we recorded on an Edmonton day, the buses on each, and
+ * whether they've loaded, so a trip missing while they load isn't taken as never recorded. Future
  * days, or no date, make no request and give an empty set.
  * @param {import('vue').MaybeRefOrGetter<string>} routeId
  * @param {import('vue').MaybeRefOrGetter<string | null | undefined>} date YYYY-MM-DD
@@ -27,6 +27,8 @@ export const useRecordedTripsQuery = (routeId, date) => {
   });
   return {
     ids: computed(() => new Set((data.value?.trips ?? []).map((run) => String(run.trip)))),
+    // the buses that reported on each trip, usually one
+    busesByTrip: computed(() => new Map((data.value?.trips ?? []).map((run) => [String(run.trip), run.buses]))),
     isSuccess,
   };
 };

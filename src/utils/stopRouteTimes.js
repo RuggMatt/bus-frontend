@@ -112,3 +112,36 @@ export const stopIndexOnTrip = (stopTimes, stopId, seq) => {
   const exact = stopTimes.findIndex((stopTime) => stopTime.stop_id === stopId && stopTime.stop_sequence === seq);
   return exact === -1 ? stopTimes.findIndex((stopTime) => stopTime.stop_id === stopId) : exact;
 };
+
+/**
+ * Where a bus is among the stops before the one it's heading for, for a line of dots:
+ * the stop it last passed, then the stops still to go. A long way off, the middle ones
+ * are cut to a gap.
+ * @param {Array<{name: string, along: number}>} stops The trip's stops up to this one,
+ *   with how far along its route line each is, in metres
+ * @param {number} busAlong How far along the line the bus is
+ * @param {number} [most] The most stops still to go that are drawn, gap included
+ * @returns {{stopsAway: number, dots: Array<{name: string} | null>, bus: number} | null}
+ *   null once the bus is past this stop. A null dot is the gap. `bus` is how far across
+ *   the line the bus sits, 0 to 1
+ */
+export const approachDiagram = (stops, busAlong, most = 5) => {
+  const ahead = stops.findIndex((stop) => stop.along > busAlong);
+  if (ahead === -1) return null;
+  const upcoming = stops.slice(ahead);
+  const passed = ahead > 0 ? stops[ahead - 1] : null;
+  /** @type {Array<{name: string, along: number} | null>} */
+  const shown = upcoming.length > most ? [...upcoming.slice(0, most - 2), null, /** @type {{name: string, along: number}} */ (upcoming.at(-1))] : upcoming;
+  const dots = passed ? [passed, ...shown] : shown;
+  let bus = 0;
+  if (passed && dots.length > 1) {
+    const next = upcoming[0];
+    const part = Math.min(1, Math.max(0, (busAlong - passed.along) / (next.along - passed.along || 1)));
+    bus = part / (dots.length - 1);
+  }
+  return {
+    stopsAway: upcoming.length,
+    dots: dots.map((dot) => (dot ? { name: dot.name } : null)),
+    bus,
+  };
+};
