@@ -345,6 +345,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 
 ### Others
 - Electric and hydrogen bus stats, the status page (disk stats), and About.
+- **About** (`AboutPage.vue`): a static page saying what the site is, where the data comes from (the collector's ~30 s positions and three days of history, City of Edmonton open data for schedules and alerts, Mapbox for tiles, delays worked out overnight), that it's a personal project not affiliated with Edmonton Transit and that arrival times are estimates, and tonal buttons linking to the GitHub repo, the open data portal and ETS. The backend repo is private, so it isn't linked.
 - **Not found** (`NotFoundPage.vue`): the router's last route, `/:pathMatch(.*)*`, catches any other address, so a mistyped or old link says "Page not found" with the address and buttons to Buses, Routes and Stops instead of an empty page. Its tab title is "Page not found". Netlify's `_redirects` still serves it with a 200, as the app decides what exists.
 
 ## Shared UI
