@@ -43,3 +43,16 @@ test("a route's stops show how late buses were at each last week", async ({ page
   await rows.first().getByRole("button", { name: "Under 1 min late: 15 buses" }).click();
   await expect(rows.first()).toContainText("Under 1 min late: 15 buses");
 });
+
+test("a route's map can colour its stops by their average delay", async ({ page }) => {
+  await page.goto("/routes/008");
+
+  const toggle = page.getByRole("checkbox", { name: "Colour stops by average delay" });
+  await expect(toggle).not.toBeChecked();
+  await expect(page.locator(".delay-legend")).toHaveCount(0);
+
+  await toggle.check();
+  const legend = page.locator(".delay-legend");
+  await expect(legend).toContainText("On time");
+  await expect(legend).toContainText("No times");
+});

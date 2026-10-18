@@ -11,7 +11,7 @@ import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
 import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
-import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
+import { NO_TIMES_HEX, STATUS_HEX, formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import RouteBadge from '../components/RouteBadge.vue';
 import TransitMap from '../components/TransitMap.vue';
 import BusLink from '../components/BusLink.vue';
@@ -421,11 +421,6 @@ const otherRoutes = computed(() =>
     (stopRoutes.value ?? []).filter((route) => route.route_id !== tripData.value?.route_id),
 );
 
-// the canvas needs hex, so these mirror the theme colours scheduleStatus picks
-/** @type {Record<string, string>} */
-const STATUS_HEX = { success: '#4caf50', warning: '#fb8c00', info: '#2196f3' };
-const NO_ESTIMATE_HEX = '#999999';
-
 // disruptions in effect at some point while this trip runs on the picked day
 const serviceAlerts = useServiceAlerts();
 const nowLocal = useNowLocal();
@@ -499,7 +494,7 @@ const mapStops = computed(() =>
             stop_name: name,
             lat,
             lon,
-            color: status ? STATUS_HEX[status.color] ?? NO_ESTIMATE_HEX : NO_ESTIMATE_HEX,
+            color: status ? STATUS_HEX[status.color] ?? NO_TIMES_HEX : NO_TIMES_HEX,
             disruption,
             tooltip: `${name} • ${scheduled} • ${status?.label ?? 'No live estimate'}${disruption ? ` • ${disruption}` : ''}`,
         }];
