@@ -57,6 +57,12 @@ const routes = [
     component: () => import("../views/HydrogenBusStatsPage.vue"),
   },
   {
+    path: "/delays",
+    name: "Delays",
+    meta: { title: "Delays" },
+    component: () => import("../views/DelaysPage.vue"),
+  },
+  {
     path: "/about",
     name: "About",
     meta: { title: "About" },
