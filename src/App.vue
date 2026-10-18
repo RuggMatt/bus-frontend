@@ -117,6 +117,10 @@ const navSections = [
     ],
   },
   {
+    title: 'History',
+    items: [{ title: 'Delays', to: '/delays', icon: 'mdi-clock-alert-outline' }],
+  },
+  {
     items: [{ title: 'About', to: '/about', icon: 'mdi-information-outline' }],
   },
 ];

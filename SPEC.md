@@ -47,6 +47,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 | `/stop-times/stats/routes/:route/stops/:stopId?seq=` | The same for every trip of a route at a stop, plus `trips`, the distinct trips counted. `seq` only counts one visit, for a stop a trip passes twice |
 | `/stop-times/routes/:route/:date` | When the bus went by the stops of every trip of a route on a service day (route timetable's actual times): `trips` of `trip` and `stops` as `[seq, delay]`, by `stop_sequence`, delay in seconds. Worked out nightly like the stats, so today has none. A day without any is an empty `trips` |
 | `/stop-times/stats/routes/:route/stops` | The same for every stop of a route at once (route page's stops list): `route`, `from`/`to`, and `stops` of `stop`, `trips`, `count`, `mean`/`min`/`max` and `histogram`. A stop a trip passes twice counts both visits. Cached for an hour |
+| `/stop-times/delays/{trips,routes,buses}?from=&to=&sort=&limit=&route=` | The delays page's rankings over up to 31 service days, worst first by `sort`: `mean` (average delay), `max` (worst delay) or `late` (share of stops 5+ min late). Each has `stops`, `mean`, `max`, `onTime` (a minute early to under 2 late) and `late` (5+ min) counts. Trips are one run on a service day with `date`, `route`, `bus` (seen at most stops), `firstScheduled` (epoch s at the first stop seen), `maxStop` and `last` (delay at the last stop seen); `route=` only ranks one route's. Routes and buses add `trips`, `lateTrips` and `worst` (`trip`, `date`, and `route` for a bus). `days` says how many days of the range have been worked out. Summed up nightly, cached for an hour |
 | `/bus/:date/:time[/:spread]`, `/bus/stats/speed[/:bus]`, `/bus.db`, `/stop-times/trips/:tripId/:date` | Not used yet: positions around an Edmonton time, daily speeds, the whole SQLite database, and a run's stored stop times |
 
 `/bus/now` is a snapshot the backend takes about every 30 s. `nextBusRefreshDelay` (`src/utils/busRefresh.js`) times each refetch for when the next snapshot should be ready, and backs off if the collector looks stalled.
@@ -135,6 +136,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 | `['route-stop-times', routeId, date]` | A route's actual stop times on a day (`getRouteStopTimes`), `staleTime` 1 h, only fetched in the timetable's Actual mode on a past date, or on a route's page for a stop |
 | `['route-stops-stats', routeId]` | A week of delays at every stop of a route (`getRouteStopsStats`), `staleTime` 1 h |
 | `['stop-route-schedule', stopId, routeId, agency]` | Every time a route is scheduled at a stop, on all its services (`getStopRouteSchedule`), `staleTime: Infinity` |
+| `['delay-ranking', by, from, to, sort, route]` | A delays page ranking (`getDelayRanking`), `staleTime` 1 h, keeping the last one while the next loads |
 | `['service-alerts']` | Every recent service alert, grouped (`useServiceAlerts`), `staleTime` and refetch 5 min. A failure shows no alerts |
 
 ## Pages
@@ -329,6 +331,16 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - The map follows the first bus: the nearest, or the one tapped. Tapping a row selects it (tinted) and shows a "Trip details" button. Tapping it again clears it.
 - No buses out shows "No electric buses are out right now." or "The hydrogen bus isn't out right now."
 
+### Delays (`/delays`, `DelaysPage.vue`)
+- The worst offenders over a day, a Sunday–Saturday week or a month, from the backend's nightly delay rankings. It's under More (a "History" section in the sidebar).
+- **Period:** a Day / Week / Month toggle and a `DayPicker`, `WeekPicker` or `MonthPicker` (previous/next around "This month" or "September 2026"), up to yesterday, as today isn't worked out until overnight. Switching period keeps the day, week or month around the one shown (`src/utils/delayRankings.js`). A week or month that's only partly worked out says "Worked out for 3 of its 7 days so far".
+- **Trips / Routes / Buses** tabs, and **Average / Worst / Often 5+ min late** chips for what they're ranked by. Every choice is in the URL (`?period=`, `?date=` the period's first day, `?by=`, `?sort=`, `?route=`), written with `router.replace` and left off at the defaults (yesterday's trips by average).
+- Rows are numbered, in an outlined card like the bus page's trips. The right side is a chip for the measure ranked by (`rankingChip`, coloured like the other delay chips) with the other two under it on wider screens (`rankingDetails`).
+  - **A trip** is one run: the badge and headsign (`['trip-summaries', tripIds]`), the day, the scheduled time at its first stop seen and its bus. Opened, it has the average, the worst delay and the stop it was at (linking to the route's page for that stop on the day), the delay at the last stop seen, the on-time and 5+ min late shares, and "View trip" to `/trips/:id?date=`.
+  - **A route**: the badge and long name, its trips and how many were 5+ min late somewhere. Opened, it has the averages, its worst trip (linking to it), "Latest trips on route N" (the Trips tab with `?route=`, shown as a closable "Route N only" chip) and "View route".
+  - **A bus**: the bus, its trips, and opened, its worst trip and "View bus".
+- Nothing worked out for the period says so.
+
 ### Others
 - Electric and hydrogen bus stats, the status page (disk stats), and About.
 - **Not found** (`NotFoundPage.vue`): the router's last route, `/:pathMatch(.*)*`, catches any other address, so a mistyped or old link says "Page not found" with the address and buttons to Buses, Routes and Stops instead of an empty page. Its tab title is "Page not found". Netlify's `_redirects` still serves it with a 200, as the app decides what exists.
@@ -412,7 +424,7 @@ Two Leaflet handlers, added to every map by `src/plugins/leaflet.js`:
 - **Comments** are short, lowercase, and explain *why*. Match the surrounding density.
 - **Code:** reuse the utilities above rather than re-deriving (time, service days, route numbers, geo, status labels in `src/utils/busStatus.js`). Keep pure logic in `src/utils/` so it can be unit tested.
 - **Tests:** put Vitest tests in `tests/*.test.js` and import from `vitest` (no globals). Test against fixed dates. 2026-10-14 is a Wednesday.
-- **Browser smoke tests** (`e2e/*.e2e.js`, Playwright, not picked up by Vitest) cover what the unit tests can't: opening a bus on the main map, swiping its sheet away on a phone, stepping between trips, a stop's week on the trip page, a live trip's status and age badge, a detoured stop's details, the trip map's bounds, a route timetable's actual times, a route's page for a stop, Ctrl + scroll on an in-page map, and the not-found page. They run against a production build (`vite build && vite preview`) on a desktop and a phone (Pixel 7) project.
+- **Browser smoke tests** (`e2e/*.e2e.js`, Playwright, not picked up by Vitest) cover what the unit tests can't: opening a bus on the main map, swiping its sheet away on a phone, stepping between trips, a stop's week on the trip page, a live trip's status and age badge, a detoured stop's details, the trip map's bounds, a route timetable's actual times, a route's page for a stop, the delays page's rankings, Ctrl + scroll on an in-page map, and the not-found page. They run against a production build (`vite build && vite preview`) on a desktop and a phone (Pixel 7) project.
   - `e2e/mockApi.js` answers every request: the backend (`VITE_APP_API_URL` is `http://api.test`), `data.edmonton.ca` by dataset id, and Mapbox tiles (aborted). Its feed is one route (8) with three trips (5001–5003, 8, 9 and 10 AM) along four stops and one trip back (6001, 11 AM, "8 Abbottsfield", direction 1) along the stops across the street (2004–2001) (the stop schedule view only answers a route's times at one stop), running every day, bus 4699 on trip 5002, a detour naming the last stop, and the same actual stop times for the route on any day. Add to it when a test needs more, and keep it small.
   - Import `test` and `expect` from `e2e/fixtures.js`, which installs the mocks and fails a test on any uncaught page error.
   - Wait for the bus sheet with `settledBox` before swiping it: it slides up from below the screen, and a box read before then aims the touch off screen.

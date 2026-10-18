@@ -272,6 +272,24 @@ const backend = (url) => {
       }),
     };
   }
+  // the delay rankings: 5001 ran late, worst at the third stop, and 5002 a little
+  const delays = path.match(/^\/stop-times\/delays\/(trips|routes|buses)$/);
+  if (delays) {
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const days = Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+    const counts = { stops: 12, mean: 380, max: 900, onTime: 2, late: 8 };
+    const worst = { trip: 5001, date: from };
+    const ranking = {
+      trips: [
+        { trip: 5001, date: from, route: ROUTE.route_id, bus: BUS.bus, firstScheduled: Date.parse(`${from}T08:00:00-06:00`) / 1000, ...counts, maxStop: "1003", last: 600 },
+        { trip: 5002, date: from, route: ROUTE.route_id, bus: BUS.bus, firstScheduled: Date.parse(`${from}T09:00:00-06:00`) / 1000, stops: 4, mean: 90, max: 150, onTime: 3, late: 0, maxStop: "1004", last: 150 },
+      ],
+      routes: [{ route: ROUTE.route_id, trips: 9, lateTrips: 3, worst, ...counts }],
+      buses: [{ bus: BUS.bus, trips: 6, lateTrips: 2, worst: { ...worst, route: ROUTE.route_id }, ...counts }],
+    }[delays[1]];
+    return { from, to, days: Math.min(days, 3), sort: url.searchParams.get("sort"), [delays[1]]: ranking };
+  }
   if (path === `/bus/${BUS.bus}`) {
     const now = Math.floor(Date.now() / 1000);
     return { bus: BUS.bus, latest: liveBus(), firstSeen: now - 86400 * 30, lastSeen: now, active: true };

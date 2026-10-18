@@ -342,6 +342,57 @@ export const getRouteStopsStats = (routeId) =>
   getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/stats/routes/${encodeURIComponent(routeId)}/stops`);
 
 /**
+ * How late a trip, route or bus was over a range of service days, from the nightly
+ * stop times. Delays are in seconds, positive when late.
+ * @typedef {Object} DelayCounts
+ * @property {number} stops Stop times counted
+ * @property {number|null} mean Average delay
+ * @property {number} max Worst delay
+ * @property {number} onTime Stop times from a minute early to under 2 minutes late
+ * @property {number} late Stop times 5 or more minutes late
+ */
+
+/**
+ * @typedef {DelayCounts & {trip: number|string, date: string, route: string|null,
+ *   bus: number|string|null, firstScheduled: number, maxStop: string|null, last: number}} TripDelay
+ * One run of a trip: `date` is its service day, `bus` the one seen at most stops,
+ * `firstScheduled` the scheduled time (epoch s) at the first stop it was seen at,
+ * `maxStop` where it was latest and `last` its delay at the last stop seen
+ */
+
+/**
+ * @typedef {DelayCounts & {trips: number, lateTrips: number,
+ *   worst: {trip: number|string, date: string, route?: string|null}}} GroupDelay
+ * Every trip of a route or bus: `lateTrips` were 5+ minutes late somewhere, `worst` had
+ * the worst delay
+ */
+
+/**
+ * @typedef {Object} DelayRanking
+ * @property {string} from YYYY-MM-DD
+ * @property {string} to YYYY-MM-DD, inclusive
+ * @property {number} days How many days of the range have been worked out
+ * @property {'mean'|'max'|'late'} sort
+ * @property {TripDelay[]} [trips]
+ * @property {Array<GroupDelay & {route: string}>} [routes]
+ * @property {Array<GroupDelay & {bus: number|string}>} [buses]
+ */
+
+/**
+ * The latest trips, routes or buses over up to 31 service days, worst first.
+ * @param {'trip'|'route'|'bus'} by
+ * @param {{from: string, to: string, sort: 'mean'|'max'|'late', route?: string|null, limit?: number}} options
+ *   `route` only ranks one route's trips
+ * @returns {Promise<DelayRanking>}
+ */
+export const getDelayRanking = (by, { from, to, sort, route = null, limit = 50 }) => {
+  const params = new URLSearchParams({ from, to, sort, limit: String(limit) });
+  if (by === "trip" && route) params.set("route", route);
+  const path = { trip: "trips", route: "routes", bus: "buses" }[by];
+  return getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/delays/${path}?${params}`);
+};
+
+/**
  * @typedef {Object} RouteTrip
  * @property {number} trip
  * @property {boolean} happened Always true, only trips that reported positions are listed
