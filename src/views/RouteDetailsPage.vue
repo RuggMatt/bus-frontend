@@ -25,6 +25,7 @@ import { telHref } from '../utils/phone';
 import { edmontonNow, scheduleWindow, serviceRunsOnDay, weekdayOf } from '../utils/serviceTime';
 import { addDays, formatShortDate } from '../utils/weeks';
 import { formatDelay, onTimeShare, typicalStatus } from '../utils/delayStats';
+import { NO_TIMES_HEX, STATUS_HEX } from '../utils/busStatus';
 import { alertsForRoute, disruptedStops, effectLabel } from '../utils/serviceAlerts';
 import {
   regularServices,
@@ -187,19 +188,36 @@ const showUpcomingAlerts = ref(false);
 // stops this route's alerts in effect name, ringed on the map
 const routeDisruptedStops = computed(() => disruptedStops(serviceAlerts.value, nowLocal.value, props.routeId));
 
+// off by default: the stops list's week of delays, drawn on the map's stops
+const colourStopsByDelay = ref(false);
+
+/**
+ * A stop's colour and tooltip line from its average delay last week, like its chip in the stops list.
+ * @param {string} stopId
+ */
+const stopDelayColour = (stopId) => {
+  const stats = statsByStop.value.get(stopId);
+  if (!stats?.count || stats.mean === null) return { color: NO_TIMES_HEX, label: 'No times last week' };
+  const status = typicalStatus(stats.mean);
+  return { color: STATUS_HEX[status.color] ?? NO_TIMES_HEX, label: `Usually ${status.label.toLowerCase()}` };
+};
+
 const mapStops = computed(() =>
   [...new Set((directionStopTimes.value ?? []).map((st) => st.stop_id))]
     .map((stopId) => keyedStops.value?.[stopId])
     .filter((stop) => !!stop)
     .map((stop) => {
       const effect = routeDisruptedStops.value.get(stop.stop_id);
+      const delay = colourStopsByDelay.value ? stopDelayColour(stop.stop_id) : null;
+      const tooltip = [stop.stop_name, delay?.label, effect && effectLabel(effect)].filter(Boolean).join(' • ');
       return {
         stop_id: stop.stop_id,
         stop_name: stop.stop_name,
         lat: Number(stop.stop_lat),
         lon: Number(stop.stop_lon),
+        color: delay?.color,
         disruption: effect ? effectLabel(effect) : null,
-        tooltip: effect ? `${stop.stop_name} • ${effectLabel(effect)}` : undefined,
+        tooltip,
       };
     })
     .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
@@ -677,6 +695,13 @@ const stopList = computed(() =>
     };
   }));
 
+const delayLegend = [
+  { label: 'On time', color: STATUS_HEX.success },
+  { label: 'Late', color: STATUS_HEX.warning },
+  { label: 'Early', color: STATUS_HEX.info },
+  { label: 'No times', color: NO_TIMES_HEX },
+];
+
 /** @param {number} count */
 const busTimes = (count) => `${count} ${count === 1 ? 'bus' : 'buses'}`;
 
@@ -843,6 +868,25 @@ const stationTrains = computed(() => {
       :stop-link="(stop) => stopRouteLink(stop.stop_id)"
       class="mt-4"
     />
+
+    <!-- the stops' week of delays on the map, from the stops list's stats -->
+    <div v-if="showStopsList" class="delay-toggle d-flex align-center flex-wrap mt-1">
+      <v-switch
+        v-model="colourStopsByDelay"
+        label="Colour stops by average delay"
+        color="primary"
+        density="compact"
+        hide-details
+        class="flex-grow-0"
+      />
+      <div v-if="colourStopsByDelay" class="delay-legend d-flex flex-wrap text-body-small text-medium-emphasis">
+        <span v-for="item in delayLegend" :key="item.label" class="d-inline-flex align-center">
+          <span class="delay-legend__dot mr-1" :style="{ backgroundColor: item.color }" />
+          {{ item.label }}
+        </span>
+        <span v-if="stopsStats.isError.value" class="text-error">Delays could not be loaded</span>
+      </div>
+    </div>
 
     <!-- disruptions under the map, as on the trip page -->
     <div v-if="routeAlerts.active.length || routeAlerts.upcoming.length" class="mt-4">
@@ -1233,6 +1277,20 @@ const stationTrains = computed(() => {
 
 <style scoped>
 /* the histogram sits beside the stop on wider screens, and under it on phones */
+.delay-toggle {
+  column-gap: 16px;
+}
+
+.delay-legend {
+  gap: 4px 12px;
+}
+
+.delay-legend__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
 .stop-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 280px);

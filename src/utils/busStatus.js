@@ -11,3 +11,8 @@ export const scheduleStatus = (offsetMinutes) => {
   if (offsetMinutes <= -2) return { label: `${-offsetMinutes} min early`, color: "info" };
   return { label: "On time", color: "success" };
 };
+
+// map canvases need hex, so these mirror the theme colours scheduleStatus picks
+/** @type {Record<string, string>} */
+export const STATUS_HEX = { success: "#4caf50", warning: "#fb8c00", info: "#2196f3" };
+export const NO_TIMES_HEX = "#999999";
