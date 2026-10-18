@@ -16,11 +16,11 @@ import {
     percent,
     periodPhrase,
     periodRange,
-    periodStart,
     pickOption,
     rangeDays,
     rankingChip,
     rankingDetails,
+    switchedPeriodStart,
 } from '../utils/delayRankings';
 import { headsignWithoutRoute, routeNumber } from '../utils/routes';
 import { edmontonNow } from '../utils/serviceTime';
@@ -28,9 +28,8 @@ import { formatClockTime } from '../utils/tripTimes';
 import { addDays, formatDayLabel } from '../utils/weeks';
 import BusLink from '../components/BusLink.vue';
 import DayPicker from '../components/DayPicker.vue';
-import MonthPicker from '../components/MonthPicker.vue';
+import DelayRangePicker from '../components/DelayRangePicker.vue';
 import RouteBadge from '../components/RouteBadge.vue';
-import WeekPicker from '../components/WeekPicker.vue';
 
 const router = useRouter();
 const currentRoute = useRoute();
@@ -51,24 +50,24 @@ const sort = ref(pickOption(DELAY_SORTS, currentRoute.query.sort, 'mean'));
 /** @type {import('vue').Ref<string | null>} */
 const routeFilter = ref(typeof currentRoute.query.route === 'string' && currentRoute.query.route ? currentRoute.query.route : null);
 
-// switching period keeps the day, week or month around the one shown
+// a week or month opens on the last 7 or 30 days, and a day on the last one shown
 watch(period, (next, previous) => {
-    const shown = periodRange(previous, start.value);
-    start.value = periodStart(next, next === 'day' && shown.to > yesterday ? yesterday : shown.to);
+    start.value = switchedPeriodStart(next, periodRange(previous, start.value, today), today);
 });
 
 watch([period, start, by, sort, routeFilter], () => {
     /** @type {Record<string, string>} */
     const query = {};
     if (period.value !== 'day') query.period = period.value;
-    if (start.value !== periodStart(period.value, yesterday)) query.date = start.value;
+    // a day defaults to yesterday, a week or month to the last 7 or 30 days
+    if (start.value && !(period.value === 'day' && start.value === yesterday)) query.date = start.value;
     if (by.value !== 'trip') query.by = by.value;
     if (sort.value !== 'mean') query.sort = sort.value;
     if (by.value === 'trip' && routeFilter.value) query.route = routeFilter.value;
     router.replace({ query });
 });
 
-const range = computed(() => periodRange(period.value, start.value));
+const range = computed(() => periodRange(period.value, start.value, today));
 const periodLabel = computed(() => periodPhrase(formatPeriodLabel(period.value, start.value, today)));
 const activeRoute = computed(() => (by.value === 'trip' ? routeFilter.value : null));
 
@@ -186,8 +185,13 @@ const coverage = computed(() => {
         :max="yesterday"
         :today="today"
       />
-      <WeekPicker v-else-if="period === 'week'" v-model="start" :min="earliest" :max="yesterday" />
-      <MonthPicker v-else v-model="start" :min="earliest" :max="yesterday" />
+      <DelayRangePicker
+        v-else
+        v-model="start"
+        :kind="period"
+        :min="earliest"
+        :today="today"
+      />
     </div>
 
     <v-tabs v-model="by" color="primary" class="mb-2">

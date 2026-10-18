@@ -27,7 +27,19 @@ test("the delays page ranks the latest trips, routes and buses", async ({ page }
   // a month, with how much of it has been worked out
   await page.getByRole("button", { name: "Month" }).click();
   await expect(page).toHaveURL(/period=month/);
-  await expect(page.getByText(/Worked out for 3 of its \d+ days so far/)).toBeVisible();
+  await expect(page.getByText("Worked out for 3 of its 30 days so far")).toBeVisible();
+  // the last 30 days by default, with calendar months in the picker
+  await expect(page.getByRole("button", { name: "Pick a month" })).toHaveText("Last 30 days");
+  await expect(page).not.toHaveURL(/date=/);
+  await page.getByRole("button", { name: "Pick a month" }).click();
+  await page.getByRole("listitem").filter({ hasText: "Last month" }).click();
+  await expect(page).toHaveURL(/date=\d{4}-\d{2}-01/);
+  await expect(page.getByRole("button", { name: "Pick a month" })).toHaveText("Last month");
+  // a week starts on the last 7 days, never a week still to come
+  await page.getByRole("button", { name: "Week" }).click();
+  await expect(page.getByRole("button", { name: "Pick a week" })).toHaveText("Last 7 days");
+  await expect(page).not.toHaveURL(/date=/);
+  await page.getByRole("button", { name: "Month" }).click();
 
   // routes, and from a route to its latest trips
   await page.getByRole("tab", { name: "Routes" }).click();
