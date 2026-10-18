@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import { routeNumber } from "../utils/routes";
 import { pageTitle } from "../utils/pageTitle";
 import { setNavigatingByHistory } from "../plugins/sharedMap";
+import { installStaleBuildReload } from "../utils/staleBuild";
 
 const routes = [
   {
@@ -130,5 +131,8 @@ router.afterEach((to) => {
   const title = to.meta.title;
   document.title = pageTitle(typeof title === "function" ? title(to) : title);
 });
+
+// a tab open across a deploy loads the page it's going to fresh, from the new build
+installStaleBuildReload(router);
 
 export default router;
