@@ -54,13 +54,21 @@ export const periodStart = (period, dateString) => {
   return dateString;
 };
 
+// a week or month with no start is the days up to yesterday, rather than a calendar one
+export const ROLLING_DAYS = { week: 7, month: 30 };
+
 /**
  * The service days a period covers, inclusive. A month is at most 31, the backend's limit.
  * @param {DelayPeriod} period
- * @param {string} start YYYY-MM-DD, from periodStart
+ * @param {string} start YYYY-MM-DD, from periodStart, or "" for the last 7 or 30 days
+ * @param {string} today YYYY-MM-DD in Edmonton
  * @returns {{from: string, to: string}}
  */
-export const periodRange = (period, start) => {
+export const periodRange = (period, start, today) => {
+  if (!start && period !== "day") {
+    const to = addDays(today, -1);
+    return { from: addDays(to, 1 - ROLLING_DAYS[period]), to };
+  }
   if (period === "week") return { from: start, to: addDays(start, 6) };
   if (period === "month") return { from: start, to: addDays(addMonths(start, 1), -1) };
   return { from: start, to: start };
@@ -75,7 +83,8 @@ export const rangeDays = ({ from, to }) => Math.round((Date.parse(to) - Date.par
 
 /**
  * The period to show from the URL: a valid date no later than yesterday (today has
- * no times until overnight), moved to its period's start.
+ * no times until overnight), moved to its period's start. Without one a day is
+ * yesterday, and a week or month the last 7 or 30 days ("").
  * @param {DelayPeriod} period
  * @param {unknown} date ?date=
  * @param {string} today YYYY-MM-DD in Edmonton
@@ -83,17 +92,33 @@ export const rangeDays = ({ from, to }) => Math.round((Date.parse(to) - Date.par
  */
 export const initialPeriodStart = (period, date, today) => {
   const yesterday = addDays(today, -1);
-  return periodStart(period, isDateString(date) && date <= yesterday ? date : yesterday);
+  if (isDateString(date) && date <= yesterday) return periodStart(period, date);
+  return period === "day" ? yesterday : "";
 };
 
 /**
- * Names a month, e.g. "October 2026", or "This month"
+ * Where a switch to another period starts: a week or month is the last 7 or 30 days,
+ * and a day is the last day shown, no later than yesterday
+ * @param {DelayPeriod} next
+ * @param {{from: string, to: string}} shown The range shown before
+ * @param {string} today
+ * @returns {string}
+ */
+export const switchedPeriodStart = (next, shown, today) => {
+  if (next !== "day") return "";
+  const yesterday = addDays(today, -1);
+  return shown.to > yesterday ? yesterday : shown.to;
+};
+
+/**
+ * Names a month, e.g. "October 2026", "This month" or "Last month"
  * @param {string} start YYYY-MM-DD, the first of the month
  * @param {string} today YYYY-MM-DD
  * @returns {string}
  */
 export const formatMonthLabel = (start, today) => {
   if (start === monthStart(today)) return "This month";
+  if (start === addMonths(today, -1)) return "Last month";
   const [year, month] = start.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-US", {
     timeZone: "UTC",
@@ -103,13 +128,14 @@ export const formatMonthLabel = (start, today) => {
 };
 
 /**
- * Names a period for the empty and loading lines: "yesterday", "this week", "Oct 4 – 10"
+ * Names a period: "Yesterday", "Last 7 days", "This week", "Oct 4 – 10"
  * @param {DelayPeriod} period
  * @param {string} start
  * @param {string} today
  * @returns {string}
  */
 export const formatPeriodLabel = (period, start, today) => {
+  if (!start && period !== "day") return `Last ${ROLLING_DAYS[period]} days`;
   if (period === "week") return formatWeekLabel(start, today);
   if (period === "month") return formatMonthLabel(start, today);
   return formatDayLabel(start, today);
