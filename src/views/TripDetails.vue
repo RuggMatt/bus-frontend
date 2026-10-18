@@ -987,17 +987,16 @@ const stopRouteLink = (stopId) => (tripData.value?.route_id
               </div>
             </div>
             <div class="text-right flex-shrink-0 ml-2">
-              <div class="text-title-medium">
-                {{ row.scheduled }}
-              </div>
-              <template v-if="row.status">
-                <div v-if="row.estimated" class="text-body-small text-medium-emphasis">
-                  Actual &asymp; {{ row.estimated }}
-                </div>
-                <v-chip :color="row.status.color" size="x-small" variant="tonal">
+              <!-- the chip and the scheduled time share a line, chip first, to keep the row short -->
+              <div class="d-flex align-center justify-end ga-1">
+                <v-chip v-if="row.status" :color="row.status.color" size="x-small" variant="tonal">
                   {{ row.status.label }}
                 </v-chip>
-              </template>
+                <span class="text-title-medium">{{ row.scheduled }}</span>
+              </div>
+              <div v-if="row.status && row.estimated" class="text-body-small text-medium-emphasis">
+                Actual &asymp; {{ row.estimated }}
+              </div>
             </div>
           </div>
           <v-expand-transition>
