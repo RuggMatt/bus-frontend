@@ -34,3 +34,7 @@ npm run test:e2e  # playwright smoke tests against a build, with the APIs mocked
 ## How it works
 
 [SPEC.md](SPEC.md) describes the pages, data sources, shared components and conventions. Keep it up to date when behaviour changes.
+
+## License
+
+[MIT](LICENSE). The bus-data-collection backend is separate and not covered by it.
