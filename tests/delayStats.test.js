@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { binColor, binLabel, formatDelay, histogramBars, onTimeShare, typicalStatus } from "../src/utils/delayStats";
+import { binColor, binLabel, formatDelay, histogramBars, onTimeShare, summarizeDelays, typicalStatus } from "../src/utils/delayStats";
 
 describe("histogramBars", () => {
   it("fills the minutes nobody fell in", () => {
@@ -68,5 +68,18 @@ describe("formatDelay", () => {
     expect(formatDelay(-35)).toBe("35 s early");
     expect(formatDelay(120)).toBe("2 min late");
     expect(formatDelay(0.2)).toBe("On time");
+  });
+});
+
+describe("summarizeDelays", () => {
+  it("counts stops like the per-stop chips and averages the delays", () => {
+    expect(summarizeDelays([0, 60, 150, null, -150, 400])).toEqual({
+      count: 5, onTime: 2, late: 2, early: 1, mean: 92, worst: 400,
+    });
+  });
+
+  it("is null without any times", () => {
+    expect(summarizeDelays([null, null])).toBeNull();
+    expect(summarizeDelays([])).toBeNull();
   });
 });

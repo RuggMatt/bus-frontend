@@ -86,3 +86,33 @@ export const formatDelay = (seconds) => {
   const parts = [minutes ? `${minutes} min` : "", rest ? `${rest} s` : ""].filter(Boolean).join(" ");
   return `${parts} ${seconds < 0 ? "early" : "late"}`;
 };
+
+/**
+ * @typedef {Object} DelaySummary
+ * @property {number} count Stops with a time
+ * @property {number} onTime
+ * @property {number} late
+ * @property {number} early
+ * @property {number} mean Seconds, negative is early
+ * @property {number} worst The latest it was at a stop, in seconds
+ */
+
+/**
+ * How a run went over its stops, counted like the per-stop chips (`scheduleStatus`).
+ * @param {Array<number | null>} delays Seconds at each stop, null for stops without a time
+ * @returns {DelaySummary | null} null when no stop has a time
+ */
+export const summarizeDelays = (delays) => {
+  const known = /** @type {number[]} */ (delays.filter((delay) => delay !== null && Number.isFinite(delay)));
+  if (!known.length) return null;
+  const summary = { count: known.length, onTime: 0, late: 0, early: 0, mean: 0, worst: -Infinity };
+  for (const delay of known) {
+    const color = scheduleStatus(Math.round(delay / 60)).color;
+    if (color === "warning") summary.late++;
+    else if (color === "info") summary.early++;
+    else summary.onTime++;
+    summary.mean += delay / known.length;
+    summary.worst = Math.max(summary.worst, delay);
+  }
+  return summary;
+};
