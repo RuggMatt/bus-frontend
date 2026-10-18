@@ -34,7 +34,10 @@ const openBus = async (page) => {
 
 test("tapping a bus shows where it's going, and links to its trip", async ({ page }) => {
   await page.goto("/");
+  // coloured by its predicted delay, and the card says the same
+  await expect(busMarker(page)).toHaveClass(/bus-marker-icon--status-warning/);
   await openBus(page);
+  await expect(page.locator(".v-chip", { hasText: "7 min late" })).toBeVisible();
 
   const details = page.getByRole("link", { name: "Timetable for route 8" });
   await expect(details).toBeVisible();

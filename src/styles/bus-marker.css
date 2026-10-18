@@ -10,6 +10,27 @@
     --bus-outline: #0a4526;
 }
 
+/* the main map colours each bus by its predicted delay: the status chips' colours, darker so the glyph shows */
+.bus-marker-icon--status-success {
+    --bus-color: #2e7d32;
+    --bus-outline: #1b4d1f;
+}
+
+.bus-marker-icon--status-warning {
+    --bus-color: #ef6c00;
+    --bus-outline: #7a3700;
+}
+
+.bus-marker-icon--status-info {
+    --bus-color: #1e88e5;
+    --bus-outline: #0b3c75;
+}
+
+.bus-marker-icon--status-unknown {
+    --bus-color: #78909c;
+    --bus-outline: #37474f;
+}
+
 .bus-marker-icon--selected {
     --bus-outline: #0a1a2f;
     --bus-outline-width: 6;

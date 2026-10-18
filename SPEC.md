@@ -34,7 +34,7 @@ The backend describes itself in OpenAPI 3.1 at `/openapi.json` (locally `http://
 
 | Endpoint | Used for |
 | --- | --- |
-| `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `route` (GTFS route id, from the realtime feed), `timestamp` (epoch s), `bearing`, `speed` (m/s) |
+| `/bus/now` | Live positions of every bus: `bus`, `lat`, `long`, `trip`, `route` (GTFS route id, from the realtime feed), `timestamp` (epoch s), `bearing`, `speed` (m/s), and `delay`: ETS's predicted delay at the trip's next stop in seconds (positive when late, null when unknown), from its TripUpdates feed |
 | `/bus/trips/:tripId` | Recorded positions for a trip in the past 3 days, newest first (trip page without a date) |
 | `/bus/trips/:tripId/:date` | The run of a trip that started on an Edmonton day (trip page with `?date=`): `start`/`end`, `points`, `buses`, `avgSpeed`/`maxSpeed`, and `positions`, oldest first. A run past midnight belongs to the day it started. 404 if no run started that day |
 | `/routes/:routeId/trips/:date` | The trips of a route we recorded on an Edmonton day (trip picker, route timetable): `trips` of `trip`, `start`/`end` (epoch s), `points`, `buses`, oldest first. Route ids are GTFS ones (`008`). Only trips with positions are listed, and a run belongs to the day it started |
@@ -156,7 +156,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
 - **Icon:** a white bus front on a primary (`#3f51b5`) rounded square. `public/favicon.svg` is the source, and `favicon.ico` (16, 32 and 48 px) and the 180 px `apple-touch-icon.png` are rendered from it. `theme-color` is the same primary.
 
 ### Main map (`/`, `HomePage.vue`, `NewBusMap.vue`)
-- Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Coming back to the page draws the cached snapshot straight away and flies back to the view the user left. Only a back or forward step also reselects the bus they had selected, if it's still in the snapshot (the card or sheet opens with its latest position); the Buses tab or a link opens the map with nothing selected (`navigatingByHistory` in `sharedMap.js`, set from the router's history listener).
+- Live buses are shown as directional pin markers (`src/plugins/busIcon.js`), from `useBuses`. Each pin is coloured by the bus's predicted `delay` (`createBusIcon`'s `status`, `predictedOffsetMinutes` in `src/utils/busStatus.js`): green on time, orange late and blue early, as `scheduleStatus` decides for the chips, in darker shades so the white glyph shows, and grey with no prediction. Electric buses keep the lightning glyph but not their green fill on this map. Other maps' pins aren't coloured, and neither are these while `/bus/now` has no `delay` field at all (a backend from before it). Coming back to the page draws the cached snapshot straight away and flies back to the view the user left. Only a back or forward step also reselects the bus they had selected, if it's still in the snapshot (the card or sheet opens with its latest position); the Buses tab or a link opens the map with nothing selected (`navigatingByHistory` in `sharedMap.js`, set from the router's history listener).
 - A locate button at the bottom right (same style as the stops map's) centres the map on the user at zoom 16 and draws a blue dot. A snackbar shows if the location can't be found.
 - Tapping a bus highlights its route and opens `BusDetails.vue`. Other routes' buses are hidden (`bus-marker-icon--hidden`, `visibility: hidden`, so they can't be tapped or focused either) until it's closed, leaving the bus and the rest of its route's buses. The route comes from the live bus's `route_id`, not its trip query, so switching buses doesn't show every bus while the new trip loads. `AnimatedMarker` eases only `transform` while a bus moves: easing `all` also delayed the hidden class until the move ended, so buses flashed on each refresh. On desktop that's a left panel, on mobile a bottom sheet.
 - The mobile bottom sheet is full width and non-modal. Its swipe-down `touchmove` isn't passive and cancels the browser's default while dragging, and the root's `overscroll-behavior-y` is `none` while it's open, so Chrome doesn't take the swipe as pull to refresh.
@@ -172,7 +172,7 @@ Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
   1. Find the bus's position along the trip shape.
   2. The next stop is the first one past the bus.
   3. Estimated arrival = report time + remaining distance ÷ `AVERAGE_SPEED_METRES_PER_SECOND` (20 km/h including stops).
-  4. Status = estimate minus the scheduled time.
+  4. Status = estimate minus the scheduled time, unless the bus has a predicted `delay` from `/bus/now`. Then that, rounded to the minute, so the card matches the pin. The route page's Active Buses cards and the trip page's live status use the same `useBusTrip`; the trip page looks its bus up in the shared `['buses-live']` snapshot (only while the bus is out) for the delay.
 - The card uses the position from the moment of the tap. It doesn't update as the bus moves.
 - A trip that isn't found shows the "Route could not be found" snackbar.
 

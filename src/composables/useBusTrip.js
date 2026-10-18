@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/vue-query";
 import { computed } from "vue";
 import { getBusStopTimes, getTrip } from "../api";
 import { alongRouteMetres } from "../utils/geo";
+import { predictedOffsetMinutes } from "../utils/busStatus";
 import { edmontonNow, scheduledSecondsNear } from "../utils/serviceTime";
 import { useRoutes } from "./useRoutes";
 import { useStops } from "./useStops";
@@ -64,7 +65,10 @@ export const useBusTrip = (bus) => {
     return {
       name: upcoming.stop.stop_name,
       scheduledTime: upcoming.stopTime.arrival_time,
-      offsetMinutes: Math.round((Math.max(arrivalSeconds, nowSeconds) - scheduledSeconds) / 60),
+      // the agency's prediction when /bus/now has one, so the card matches the map's pin
+      offsetMinutes:
+        predictedOffsetMinutes(bus.value) ??
+        Math.round((Math.max(arrivalSeconds, nowSeconds) - scheduledSeconds) / 60),
     };
   });
 
