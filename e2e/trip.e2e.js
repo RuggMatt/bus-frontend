@@ -2,6 +2,10 @@ import { test, expect } from "./fixtures.js";
 
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
 
+/** YYYY-MM-DD in Edmonton, `offset` days from today */
+const edmontonDay = (offset) =>
+  new Date(Date.now() + offset * 86400000).toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
+
 test("stepping between a route's trips keeps the page and changes the trip", async ({ page }) => {
   await page.goto(`/trips/5002?date=${today()}`);
 
@@ -9,17 +13,17 @@ test("stepping between a route's trips keeps the page and changes the trip", asy
   await expect(picker).toContainText("9:00");
   await expect(page.getByText("Jasper Ave & 109 St").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Next trip" }).click();
+  await page.getByRole("button", { name: "Next trip", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/trips/5003\\?date=${today()}`));
   await expect(picker).toContainText("10:00");
 
-  await page.getByRole("button", { name: "Previous trip" }).click();
-  await page.getByRole("button", { name: "Previous trip" }).click();
+  await page.getByRole("button", { name: "Previous trip", exact: true }).click();
+  await page.getByRole("button", { name: "Previous trip", exact: true }).click();
   await expect(page).toHaveURL(/\/trips\/5001/);
   await expect(picker).toContainText("8:00");
 
   // the first trip of the day has nothing before it
-  await expect(page.getByRole("button", { name: "Previous trip" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Previous trip", exact: true })).toBeDisabled();
 });
 
 test("a stop's details show how late this trip and the route usually are there", async ({ page }) => {
@@ -87,4 +91,26 @@ test("the trip map can't be dragged away from Edmonton", async ({ page, isMobile
   const busBox = await bus.boundingBox();
   expect(busBox.x).toBeGreaterThan(box.x);
   expect(busBox.x).toBeLessThan(box.x + box.width);
+});
+
+test("a recorded run sums up how late it was, and steps to the bus's next trip", async ({ page }) => {
+  const yesterday = edmontonDay(-1);
+  await page.goto(`/trips/5001?date=${yesterday}`);
+
+  const summary = page.locator(".delay-summary");
+  await expect(summary).toContainText("On time at 2 of 4 stops");
+  await expect(summary).toContainText("2 late");
+  await expect(summary).toContainText("Finished 3 min late");
+
+  // the bus's first trip of the day has nothing before it, and the out-of-service stretch is skipped
+  await expect(page.getByRole("button", { name: /^Bus 4699's previous trip/ })).toBeDisabled();
+  await page.getByRole("link", { name: /^Bus 4699's next trip/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/trips/5002\\?date=${yesterday}`));
+});
+
+test("a live trip links to the trip its bus ran before", async ({ page }) => {
+  await page.goto("/trips/5002");
+
+  await page.getByRole("link", { name: /^Bus 4699's previous trip/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/trips/5001\\?date=${today()}`));
 });

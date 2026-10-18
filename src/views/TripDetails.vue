@@ -1,7 +1,7 @@
 <script setup>
 // @ts-check
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
+import { getBusRecentTrips, getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
@@ -20,6 +20,8 @@ import ServiceAlertCard from '../components/ServiceAlertCard.vue';
 import DayPicker from '../components/DayPicker.vue';
 import TripPicker from '../components/TripPicker.vue';
 import StopDelayStats from '../components/StopDelayStats.vue';
+import { summarizeDelays, typicalStatus } from '../utils/delayStats';
+import { busTripNeighbours } from '../utils/busTrips';
 import { tripPath } from '../composables/useStopArrivals';
 import { estimateStopArrivals } from '../utils/stopEstimates';
 import { schedulePeriod, serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
@@ -363,19 +365,19 @@ const weekdayLabel = computed(() => {
 });
 
 /**
- * Returns the difference in minutes between estimated and scheduled arrival.
- * Negative = early, positive = late, 0 = on time.
+ * Returns the difference in seconds between estimated and scheduled arrival.
+ * Negative = early, positive = late.
  * @param {BusStopTime} stop
  * @param {number | null} estimatedEpoch
  * @returns {number|null}
  */
-function getTimeDiffMinutes(stop, estimatedEpoch) {
+function getDelaySeconds(stop, estimatedEpoch) {
     if (estimatedEpoch === null) return null;
     if (!stop.arrival_time) return null;
     // compare in Edmonton time, as the viewer's midnight can be hours off the schedule's
     const estimatedSeconds = edmontonNow(new Date(estimatedEpoch * 1000)).secondsSinceMidnight;
     const scheduledSeconds = scheduledSecondsNear(stop.arrival_time, estimatedSeconds);
-    return Math.round((estimatedSeconds - scheduledSeconds) / 60);
+    return estimatedSeconds - scheduledSeconds;
 }
 
 // a loop can visit the same stop twice, so rows are told apart by their sequence
@@ -467,7 +469,7 @@ const stopRows = computed(() => {
     return stops.map((stop, index) => {
         const stopInfo = keyedStops.value?.[stop.stop_id];
         const estimatedEpoch = estimates[index];
-        const diff = getTimeDiffMinutes(stop, estimatedEpoch);
+        const delaySeconds = getDelaySeconds(stop, estimatedEpoch);
         return {
             stop,
             stopInfo,
@@ -475,13 +477,29 @@ const stopRows = computed(() => {
             code: stopInfo?.stop_code || stop.stop_id,
             scheduled: formatScheduledTime(stop.arrival_time),
             estimated: convertUnixEpochToTime(estimatedEpoch),
-            status: diff === null ? null : scheduleStatus(diff),
+            delaySeconds,
+            status: delaySeconds === null ? null : scheduleStatus(Math.round(delaySeconds / 60)),
             // a closed or moved stop, named by a disruption
             disruption: tripAlerts.value.affectedStops.has(stop.stop_id)
                 ? effectLabel(/** @type {string} */ (tripAlerts.value.affectedStops.get(stop.stop_id)))
                 : null,
         };
     });
+});
+
+// how the run went over the stops it has passed, for the summary at the top
+const delaySummary = computed(() => {
+    const summary = summarizeDelays(stopRows.value.map((row) => row.delaySeconds));
+    if (!summary) return null;
+    const last = stopRows.value.at(-1)?.delaySeconds ?? null;
+    return {
+        ...summary,
+        status: typicalStatus(summary.mean),
+        // only worth saying when it was late somewhere
+        worstLabel: summary.late ? scheduleStatus(Math.round(summary.worst / 60)).label : null,
+        // null when the bus wasn't seen at the last stop
+        lastLabel: last === null ? null : scheduleStatus(Math.round(last / 60)).label.toLowerCase(),
+    };
 });
 
 const mapStops = computed(() =>
@@ -530,6 +548,38 @@ const mapBuses = computed(() => {
     if (!latest || view.value === 'positions') return [];
     return nowSeconds.value - latest.timestamp <= RECENT_RUN_SECONDS ? [latest] : [];
 });
+
+// the bus's other trips that day, so it can be followed from trip to trip to see knock-on delays
+const runBus = computed(() => (switching.value ? null : latestTripPoint.value?.bus ?? null));
+const runRange = computed(() => {
+    const times = runPositions.value.map((position) => position.timestamp);
+    return times.length ? { start: Math.min(...times), end: Math.max(...times) } : null;
+});
+/** @param {Array<import('../api/index').TripSummary> | undefined} trips */
+const busNeighboursIn = (trips) => (trips && runRange.value
+    ? busTripNeighbours(trips, String(props.tripId), runRange.value.start, runRange.value.end)
+    : { previous: null, next: null });
+const { data: busDayTrips } = useQuery({
+    queryKey: computed(() => ['bus-day-trips', runBus.value, pickerDate.value]),
+    queryFn: () => getBusRecentTrips(/** @type {string|number} */ (runBus.value), { from: pickerDate.value, to: pickerDate.value }),
+    enabled: () => runBus.value !== null && runBus.value !== '',
+    // a past day is done, and today's only gains trips
+    staleTime: () => (pickerDate.value < addDays(today, -1) ? Infinity : 60000),
+    // while the bus hasn't started its next trip yet today, look again now and then
+    refetchInterval: (query) => (pickerDate.value === today && !busNeighboursIn(query.state.data).next ? 120000 : false),
+});
+const busNeighbours = computed(() => busNeighboursIn(busDayTrips.value));
+
+/** @param {import('../api/index').TripSummary | null} trip */
+const busTripLink = (trip) => (trip
+    ? { path: `/trips/${encodeURIComponent(String(trip.trip))}`, query: { date: edmontonDate(trip.start), ...viewQuery() } }
+    : undefined);
+
+/**
+ * @param {string} which
+ * @param {import('../api/index').TripSummary | null} trip
+ */
+const busTripLabel = (which, trip) => `Bus ${runBus.value}'s ${which} trip${trip ? `, ${formatClockTime(trip.start)} – ${formatClockTime(trip.end)}` : ''}`;
 
 // the run's recorded positions, oldest first
 const positionRows = computed(() => {
@@ -707,9 +757,55 @@ const stopRouteLink = (stopId) => (tripData.value?.route_id
             Trip {{ tripId }}<template v-if="isFuture">
               &middot; Not run yet
             </template><template v-else-if="latestTripPoint">
-              &middot; <BusLink :bus="latestTripPoint.bus" :style="{ viewTransitionName: `bus-${latestTripPoint.bus}` }" />
+              &middot;
+              <!-- the bus's trips before and after this one, to follow it through the day -->
+              <span class="bus-steps">
+                <v-btn
+                  icon="mdi-chevron-left"
+                  variant="text"
+                  size="x-small"
+                  density="comfortable"
+                  :to="busTripLink(busNeighbours.previous)"
+                  :disabled="!busNeighbours.previous"
+                  :aria-label="busTripLabel('previous', busNeighbours.previous)"
+                  :title="busTripLabel('previous', busNeighbours.previous)"
+                />
+                <BusLink :bus="latestTripPoint.bus" :style="{ viewTransitionName: `bus-${latestTripPoint.bus}` }" />
+                <v-btn
+                  icon="mdi-chevron-right"
+                  variant="text"
+                  size="x-small"
+                  density="comfortable"
+                  :to="busTripLink(busNeighbours.next)"
+                  :disabled="!busNeighbours.next"
+                  :aria-label="busTripLabel('next', busNeighbours.next)"
+                  :title="busTripLabel('next', busNeighbours.next)"
+                />
+              </span>
             </template>
           </div>
+        </div>
+        <!-- how late the run was over the stops it has passed -->
+        <div
+          v-if="!switching && delaySummary"
+          class="delay-summary d-flex align-center flex-wrap ga-2 px-2 mt-2"
+        >
+          <v-chip :color="delaySummary.status.color" size="small" variant="tonal">
+            {{ delaySummary.status.color === 'success' ? 'On time on average' : `${delaySummary.status.label} on average` }}
+          </v-chip>
+          <span class="text-body-small text-medium-emphasis">
+            On time at {{ delaySummary.onTime }} of {{ delaySummary.count }} stops<template v-if="liveBus">
+              so far
+            </template><template v-if="delaySummary.late">
+              &middot; {{ delaySummary.late }} late
+            </template><template v-if="delaySummary.early">
+              &middot; {{ delaySummary.early }} early
+            </template><template v-if="delaySummary.worstLabel">
+              &middot; Worst {{ delaySummary.worstLabel }}
+            </template><template v-if="delaySummary.lastLabel">
+              &middot; Finished {{ delaySummary.lastLabel }}
+            </template>
+          </span>
         </div>
       </template>
       <TransitMap
@@ -1009,6 +1105,10 @@ const stopRouteLink = (stopId) => (tripData.value?.route_id
   .view-toggle .v-btn {
     flex: 1 1 0;
   }
+}
+
+.bus-steps {
+    white-space: nowrap;
 }
 
 .min-width-0 {

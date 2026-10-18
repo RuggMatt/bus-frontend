@@ -43,7 +43,7 @@ test("tapping a bus shows where it's going, and links to its trip", async ({ pag
 
   await page.getByRole("link", { name: "Trip details" }).click();
   await expect(page).toHaveURL(`/trips/${BUS.trip}`);
-  await expect(page.getByRole("button", { name: "Next trip" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next trip", exact: true })).toBeVisible();
 });
 
 test("swiping the bus sheet down closes it", async ({ page, isMobile }) => {

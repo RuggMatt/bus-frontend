@@ -135,6 +135,60 @@ export const BUS = {
 
 const liveBus = () => ({ ...BUS, timestamp: Math.floor(Date.now() / 1000) - 5 });
 
+/** Epoch seconds at a local time on an Edmonton day, whatever the time of year. */
+const edmontonEpoch = (date, time) => {
+  const guess = Date.parse(`${date}T${time}Z`);
+  const local = new Date(guess).toLocaleString("sv-SE", { timeZone: "America/Edmonton" }).replace(" ", "T");
+  return (2 * guess - Date.parse(`${local}Z`)) / 1000;
+};
+
+// yesterday the bus ran 5001 on time at its first two stops and 3 min late at the last two,
+// then went on to 5002 and 5003
+const RUN_DATE = edmontonDate(-1);
+const RUN_KEYFRAMES = [["08:00:30", 0], ["08:06:00", 1], ["08:13:00", 2], ["08:18:00", 3]];
+
+/** A position every 30 s along the stops, between the times it reached each. */
+const runPositions = () => {
+  const frames = RUN_KEYFRAMES.map(([time, index]) => ({ at: edmontonEpoch(RUN_DATE, time), stop: STOPS[index] }));
+  const positions = [];
+  for (let at = frames[0].at; at <= frames.at(-1).at + 30; at += 30) {
+    const leg = Math.max(1, frames.findIndex((frame) => frame.at >= at));
+    const from = frames[Math.min(leg, frames.length - 1) - 1];
+    const to = frames[Math.min(leg, frames.length - 1)];
+    // the last one is just past the end of the route
+    const share = Math.min((at - from.at) / (to.at - from.at), 1.05);
+    positions.push({
+      bus: BUS.bus,
+      trip: 5001,
+      route: ROUTE.route_id,
+      timestamp: at,
+      lat: Number(from.stop.stop_lat) + share * (Number(to.stop.stop_lat) - Number(from.stop.stop_lat)),
+      long: Number(from.stop.stop_lon) + share * (Number(to.stop.stop_lon) - Number(from.stop.stop_lon)),
+      bearing: 90,
+      speed: 5,
+    });
+  }
+  return positions;
+};
+
+/** Bus 4699's trips on a day: yesterday's three, or this morning's 5001 and the 5002 it's on now. */
+const busDayTrips = (date) => {
+  if (date === RUN_DATE) {
+    const at = (time) => edmontonEpoch(RUN_DATE, time);
+    return [
+      { trip: 5003, start: at("10:00:00"), end: at("10:15:00"), points: 30 },
+      { trip: 5002, start: at("09:00:00"), end: at("09:15:00"), points: 30 },
+      { trip: null, start: at("08:30:00"), end: at("08:45:00"), points: 30 },
+      { trip: 5001, start: at("08:00:30"), end: at("08:18:30"), points: 37 },
+    ];
+  }
+  const now = Math.floor(Date.now() / 1000);
+  return [
+    { trip: BUS.trip, start: now - 600, end: now - 5, points: 20 },
+    { trip: 5001, start: now - 4000, end: now - 3000, points: 30 },
+  ];
+};
+
 /** Trip ids named in a SODA `trip_id IN ('a','b')` filter, or its `trip_id=` param. */
 const tripIdsIn = (url) => {
   const param = url.searchParams.get("trip_id");
@@ -233,6 +287,14 @@ const backend = (url) => {
   if (path === "/bus/now") return [liveBus()];
   if (path === `/bus/trips/${BUS.trip}`) return [liveBus()];
   if (/^\/bus\/trips\/[^/]+$/.test(path)) return [];
+  if (path === `/bus/trips/5001/${RUN_DATE}`) {
+    const positions = runPositions();
+    return {
+      trip: 5001, date: RUN_DATE, start: positions[0].timestamp, end: positions.at(-1).timestamp,
+      points: positions.length, buses: [BUS.bus], avgSpeed: 5, maxSpeed: 5, positions,
+    };
+  }
+  if (path === `/bus/${BUS.bus}/recent-trips`) return busDayTrips(url.searchParams.get("from"));
   const routeTrips = path.match(/^\/routes\/([^/]+)\/trips\/([^/]+)$/);
   if (routeTrips) return { route: routeTrips[1], date: routeTrips[2], count: 0, trips: [] };
   // a week of stop times: this trip runs about 2 min late, the whole route on time
