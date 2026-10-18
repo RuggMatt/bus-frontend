@@ -11,7 +11,8 @@ test("a page chunk gone after a deploy loads the page fresh instead of failing",
     return route.continue();
   });
 
-  await page.getByRole("link", { name: "Routes" }).first().click();
+  // the nav tab, not the about page's open data link, which mentions routes too
+  await page.getByRole("link", { name: "Routes", exact: true }).first().click();
   await expect(page).toHaveURL("/routes");
   await expect(page.getByText(/Abbottsfield - Downtown - University/).first()).toBeVisible();
   expect(failed).toBeGreaterThan(1);
