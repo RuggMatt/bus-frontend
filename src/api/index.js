@@ -55,6 +55,8 @@ export const getElectricBusStatsHourly = async () => {
  * @property {number} speed
  * @property {string|null} [route] GTFS route id of the trip, from the realtime feed
  * @property {string|null} [route_id] The same as route, assigned by useBuses
+ * @property {number|null} [delay] /bus/now only: the agency's predicted delay at the trip's
+ *   next stop, in seconds, positive when late. Null when unknown
  */
 
 /**

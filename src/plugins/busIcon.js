@@ -1,5 +1,6 @@
 import L from './leaflet';
 import '../styles/bus-marker.css';
+import { predictedOffsetMinutes, scheduleStatus } from '../utils/busStatus';
 import { formatReportAge, reportAgeLevel } from '../utils/reportAge';
 
 const BUS_PIN_SHAPE = '<polygon points="18,1.5 11.5,10 24.5,10" /><circle cx="18" cy="18" r="11" />';
@@ -25,17 +26,21 @@ export const refreshReportAges = (element) => {
 /**
  * Pin pointing in the bus's direction of travel, with an upright glyph on top
  * @param {import("../api").Bus} bus
- * @param {{showAge?: boolean, label?: string, history?: boolean, selected?: boolean}} [options]
+ * @param {{showAge?: boolean, label?: string, history?: boolean, selected?: boolean, status?: boolean}} [options]
  *   showAge: label the pin with how old its position is, kept current by refreshReportAges.
+ *   status: colour the pin by how late the bus is running (its `delay`), grey when unknown.
  *   label: a fixed badge instead, e.g. the time of a recorded position. history: a smaller
  *   pin for a past position. selected: the one picked from a list
  */
-export const createBusIcon = (bus, { showAge = false, label = "", history = false, selected = false } = {}) => {
+export const createBusIcon = (bus, { showAge = false, label = "", history = false, selected = false, status = false } = {}) => {
     const level = showAge && bus.timestamp ? reportAgeLevel(bus.timestamp) : "fresh";
+    const offset = status ? predictedOffsetMinutes(bus) : null;
     return L.divIcon({
         className: [
             "bus-marker-icon",
             isElectric(bus) && "bus-marker-icon--electric",
+            // success, warning or info like the status chips. The glyph still marks electric buses
+            status && `bus-marker-icon--status-${offset === null ? "unknown" : scheduleStatus(offset).color}`,
             // greyed out so an hours-old position doesn't pass for a live one
             level === "old" && "bus-marker-icon--old",
             history && "bus-marker-icon--history",

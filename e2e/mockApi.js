@@ -133,6 +133,9 @@ export const BUS = {
   speed: 8,
 };
 
+// the agency's predicted delay /bus/now adds, in seconds
+export const BUS_DELAY = 420;
+
 const liveBus = () => ({ ...BUS, timestamp: Math.floor(Date.now() / 1000) - 5 });
 
 /** Epoch seconds at a local time on an Edmonton day, whatever the time of year. */
@@ -284,7 +287,7 @@ const weekStats = (count, mean, histogram) => ({
 /** Answers one backend request, or null for a 404. */
 const backend = (url) => {
   const path = url.pathname;
-  if (path === "/bus/now") return [liveBus()];
+  if (path === "/bus/now") return [{ ...liveBus(), delay: BUS_DELAY }];
   if (path === `/bus/trips/${BUS.trip}`) return [liveBus()];
   if (/^\/bus\/trips\/[^/]+$/.test(path)) return [];
   if (path === `/bus/trips/5001/${RUN_DATE}`) {

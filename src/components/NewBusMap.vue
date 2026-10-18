@@ -76,6 +76,8 @@ const renderBuses = (newBuses) => {
         return;
     }
     removeOldBuses(newBuses);
+    // a backend without predicted delays would leave every bus grey, so keep the plain colours
+    const status = newBuses.some((bus) => "delay" in bus);
     for (let bus of newBuses) {
         // add new ones
         if (buses[bus.bus]) {
@@ -83,7 +85,7 @@ const renderBuses = (newBuses) => {
             let prev = buses[bus.bus];
             let line = L.polyline([prev.getLatLng(), [bus.lat, bus.long]])
             prev.remove();
-            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(homeLayer)
+            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: createBusIcon(bus, { status }), route_id: bus.route_id}).addTo(homeLayer)
             newMarker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -91,7 +93,7 @@ const renderBuses = (newBuses) => {
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
-            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: createBusIcon(bus), route_id: bus.route_id}).addTo(homeLayer)
+            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: createBusIcon(bus, { status }), route_id: bus.route_id}).addTo(homeLayer)
             marker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);

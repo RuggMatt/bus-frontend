@@ -7,6 +7,7 @@ import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
 import { usePageTitle } from '../composables/usePageTitle';
 import { useBusTrip } from '../composables/useBusTrip';
+import { liveBusesQuery } from '../composables/useBuses';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
@@ -530,11 +531,22 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(nowInterval));
 
 // the bus is out on this trip now, rather than having finished it or not reported for a while
-const liveBus = computed(() => {
+const liveRun = computed(() => {
     const latest = latestTripPoint.value;
     if (!latest || isFuture.value || switching.value) return null;
     if (nowSeconds.value - latest.timestamp > ACTIVE_TRIP_STALE_SECONDS) return null;
-    return { ...latest, trip: String(props.tripId) };
+    return latest;
+});
+
+// the shared /bus/now snapshot, only while the bus is out, for its predicted delay
+const { data: liveSnapshot } = useQuery({ ...liveBusesQuery, enabled: () => !!liveRun.value });
+
+const liveBus = computed(() => {
+    if (!liveRun.value) return null;
+    const live = liveSnapshot.value?.find(
+        (bus) => String(bus.bus) === String(liveRun.value.bus) && String(bus.trip) === String(props.tripId),
+    );
+    return { ...liveRun.value, trip: String(props.tripId), delay: live?.delay ?? null };
 });
 
 // worked out like the map's bus card, from the next stop, so the two agree. None once
