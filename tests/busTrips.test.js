@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busTripNeighbours } from "../src/utils/busTrips";
+import { busTripNeighbours, matchTripDelays } from "../src/utils/busTrips";
 
 // newest first, as the backend gives them
 const trips = [
@@ -31,5 +31,24 @@ describe("busTripNeighbours", () => {
   it("has nothing either side when the trip isn't among the bus's", () => {
     expect(busTripNeighbours(trips, "999", 3000, 3900)).toEqual({ previous: null, next: null });
     expect(busTripNeighbours([], "102", 3000, 3900)).toEqual({ previous: null, next: null });
+  });
+});
+
+describe("matchTripDelays", () => {
+  const day = 86400;
+  const run = (trip, start) => ({ trip, start, end: start + 1800 });
+  const delay = (trip, firstScheduled, mean) => ({ trip, firstScheduled, mean });
+
+  it("matches each run to its own day's delay", () => {
+    const runs = [run(101, day + 100), run(101, 100), run(null, 50)];
+    const matched = matchTripDelays(runs, [delay("101", 0, 60), delay(101, day, 120)]);
+    expect(matched.get(runs[0])?.mean).toBe(120);
+    expect(matched.get(runs[1])?.mean).toBe(60);
+    expect(matched.has(runs[2])).toBe(false);
+  });
+
+  it("leaves out runs with no delay near them, like today's", () => {
+    const runs = [run(101, 2 * day), run(102, 0)];
+    expect(matchTripDelays(runs, [delay(101, 0, 60)]).size).toBe(0);
   });
 });
