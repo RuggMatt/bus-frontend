@@ -4,8 +4,10 @@ import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getDelayRanking, getTripSummaries } from '../api';
+import { useLiveBuses } from '../composables/useBuses';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
+import { scheduleStatus } from '../utils/busStatus';
 import { formatDelay } from '../utils/delayStats';
 import {
     DELAY_PERIODS,
@@ -22,6 +24,7 @@ import {
     rankingDetails,
     switchedPeriodStart,
 } from '../utils/delayRankings';
+import { liveTripCounts, liveTrips } from '../utils/liveDelays';
 import { headsignWithoutRoute, routeNumber } from '../utils/routes';
 import { edmontonNow } from '../utils/serviceTime';
 import { formatClockTime } from '../utils/tripTimes';
@@ -88,6 +91,35 @@ const toggleRow = (key) => { selectedKey.value = selectedKey.value === key ? nul
 const { keyedroutes } = useRoutes();
 const { keyedStops } = useStops();
 
+// trips out now, latest first, from the shared /bus/now snapshot
+const { data: liveBuses, isLoading: liveLoading, isError: liveError } = useLiveBuses();
+const running = computed(() => liveTrips(liveBuses.value));
+const runningCounts = computed(() => liveTripCounts(running.value));
+const RUNNING_PREVIEW = 5;
+const showAllRunning = ref(false);
+const shownRunning = computed(() => (showAllRunning.value ? running.value : running.value.slice(0, RUNNING_PREVIEW)));
+
+const runningTripIds = computed(() => [...new Set(shownRunning.value.map((trip) => trip.trip))].sort());
+const { data: runningSummaries } = useQuery({
+    queryKey: computed(() => ['trip-summaries', runningTripIds.value]),
+    queryFn: () => getTripSummaries(runningTripIds.value),
+    enabled: () => runningTripIds.value.length > 0,
+    staleTime: Infinity,
+    // the shown trips change with each snapshot, so keep the names while the next ones load
+    placeholderData: keepPreviousData,
+});
+const runningHeadsigns = computed(() => new Map((runningSummaries.value ?? []).map((trip) => [trip.trip_id, trip.trip_headsign])));
+
+/** @param {string} trip the live trip page, without a date */
+const liveTripLink = (trip) => `/trips/${encodeURIComponent(trip)}`;
+
+/** @param {import('../utils/liveDelays').LiveTrip} trip */
+const runningTitle = (trip) => {
+    const headsign = runningHeadsigns.value.get(trip.trip);
+    if (headsign) return headsignWithoutRoute(headsign, trip.route ?? '');
+    return (trip.route && routeName(trip.route)) || `Trip ${trip.trip}`;
+};
+
 const tripIds = computed(() =>
     [...new Set((ranking.value?.trips ?? []).map((trip) => String(trip.trip)))].sort(),
 );
@@ -153,6 +185,89 @@ const coverage = computed(() => {
     <h1 class="text-headline-small px-2">
       Delays
     </h1>
+
+    <section class="mb-6" aria-labelledby="running-now">
+      <h2 id="running-now" class="text-title-large px-2 mt-2">
+        Running now
+      </h2>
+      <div class="text-body-medium text-medium-emphasis px-2 mb-3">
+        Trips out now, latest first, by how late ETS expects them at their next stop.
+      </div>
+      <div v-if="liveLoading" class="d-flex justify-center py-6">
+        <v-progress-circular indeterminate color="primary" />
+      </div>
+      <div v-else-if="liveError" class="text-error px-2">
+        Live buses could not be loaded.
+      </div>
+      <div v-else-if="!running.length" class="text-medium-emphasis px-2">
+        No trips with a predicted delay are running right now.
+      </div>
+      <template v-else>
+        <div class="d-flex flex-wrap ga-2 px-2 mb-3 running-counts">
+          <v-chip size="small" variant="outlined">
+            {{ runningCounts.total }} running
+          </v-chip>
+          <v-chip size="small" variant="tonal" color="success">
+            {{ runningCounts.onTime }} on time
+          </v-chip>
+          <v-chip size="small" variant="tonal" color="warning">
+            {{ runningCounts.late }} late
+          </v-chip>
+          <v-chip v-if="runningCounts.veryLate" size="small" variant="tonal" color="warning">
+            {{ runningCounts.veryLate }} 5+ min late
+          </v-chip>
+          <v-chip size="small" variant="tonal" color="info">
+            {{ runningCounts.early }} early
+          </v-chip>
+        </div>
+        <v-card variant="outlined">
+          <template v-for="(trip, index) in shownRunning" :key="trip.trip">
+            <v-divider v-if="index > 0" />
+            <!-- a div rather than a link, as the bus link sits inside it -->
+            <div
+              v-ripple
+              class="running-row d-flex align-center pa-3"
+              role="link"
+              tabindex="0"
+              @click="router.push(liveTripLink(trip.trip))"
+              @keydown.enter.prevent="router.push(liveTripLink(trip.trip))"
+            >
+              <div class="flex-grow-1 min-width-0">
+                <div class="d-flex align-center text-body-large">
+                  <RouteBadge v-if="trip.route" :route-id="trip.route" size="small" class="mr-2" />
+                  <span class="text-truncate">{{ runningTitle(trip) }}</span>
+                </div>
+                <div class="text-body-small text-medium-emphasis text-truncate">
+                  <BusLink :bus="trip.bus" />
+                </div>
+              </div>
+              <v-chip
+                :color="scheduleStatus(trip.minutes).color"
+                size="small"
+                variant="tonal"
+                class="flex-shrink-0 ml-2"
+              >
+                {{ scheduleStatus(trip.minutes).label }}
+              </v-chip>
+            </div>
+          </template>
+        </v-card>
+        <v-btn
+          v-if="running.length > RUNNING_PREVIEW"
+          block
+          variant="text"
+          color="primary"
+          class="mt-1"
+          @click="showAllRunning = !showAllRunning"
+        >
+          {{ showAllRunning ? 'Show fewer' : `Show all ${running.length} trips` }}
+        </v-btn>
+      </template>
+    </section>
+
+    <h2 class="text-title-large px-2">
+      Past days
+    </h2>
     <div class="text-body-medium text-medium-emphasis px-2 mb-4">
       The latest trips, routes and buses, from when buses went by each stop. These are worked out
       overnight, so today isn't in them yet.
@@ -424,10 +539,12 @@ const coverage = computed(() => {
 .rank {
     width: 2em;
 }
-.delay-row {
+.delay-row,
+.running-row {
     cursor: pointer;
 }
-.delay-row:hover {
+.delay-row:hover,
+.running-row:hover {
     background: rgba(var(--v-theme-on-surface), 0.04);
 }
 .delay-row--expanded,
