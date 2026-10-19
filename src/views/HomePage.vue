@@ -79,6 +79,18 @@ watch(showBottomSheet, (open) => {
   if (!open && bus.value && !mdAndUp.value) busMap.value?.clearSelection();
 });
 
+// how tall the open sheet is, so the map can fit the bus's route above it
+const sheetCard = ref(null);
+const sheetHeight = ref(0);
+const sheetObserver = new ResizeObserver(([entry]) => {
+  sheetHeight.value = entry.target.getBoundingClientRect().height;
+});
+watch(() => sheetCard.value?.$el, (el, oldEl) => {
+  if (oldEl) sheetObserver.unobserve(oldEl);
+  if (el) sheetObserver.observe(el);
+});
+onBeforeUnmount(() => sheetObserver.disconnect());
+
 const viewBusDetails = (clickedBus) => {
     bus.value = clickedBus;
     if (!mdAndUp.value) {
@@ -97,7 +109,12 @@ const viewBusDetails = (clickedBus) => {
 
     <!-- Full Screen Map -->
     <div class="map-container">
-      <NewBusMap ref="busMap" :restore-bus-id="restoredBus?.bus ?? null" @bus-details="viewBusDetails($event)" />
+      <NewBusMap
+        ref="busMap"
+        :restore-bus-id="restoredBus?.bus ?? null"
+        :bottom-inset="showBottomSheet ? sheetHeight : 0"
+        @bus-details="viewBusDetails($event)"
+      />
     </div>
 
     <!-- Mobile: Bottom Sheet -->
@@ -111,6 +128,7 @@ const viewBusDetails = (clickedBus) => {
       scroll-strategy="none"
     >
       <VCard
+        ref="sheetCard"
         class="rounded-t-lg"
         :class="{ 'sheet-dragging': dragStartY !== null }"
         :style="{ transform: dragOffset ? `translateY(${dragOffset}px)` : undefined }"
