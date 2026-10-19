@@ -55,3 +55,19 @@ test("the delays page ranks the latest trips, routes and buses", async ({ page }
   await expect(rows.nth(0)).toContainText("Bus 4699");
   await expect(rows.nth(0)).toContainText("6 trips");
 });
+
+test("the delays page lists the trips running now, latest first", async ({ page }) => {
+  await page.goto("/delays");
+
+  const running = page.locator("section", { has: page.getByRole("heading", { name: "Running now" }) });
+  await expect(running.getByText("1 running")).toBeVisible();
+  const rows = running.locator(".running-row");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.nth(0)).toContainText("University");
+  await expect(rows.nth(0)).toContainText("Bus 4699");
+  await expect(rows.nth(0).getByText("7 min late")).toBeVisible();
+
+  // a row opens the live trip
+  await rows.nth(0).click();
+  await expect(page).toHaveURL(/\/trips\/5002$/);
+});
