@@ -31,6 +31,11 @@ const props = defineProps({
         type: [String, Number],
         default: null,
     },
+    // px of the screen's bottom the page covers (the phone's bus sheet), kept clear of the route
+    bottomInset: {
+        type: Number,
+        default: 0,
+    },
 });
 let pendingRestore = props.restoreBusId;
 // a restored selection keeps the remembered view rather than fitting its route
@@ -166,6 +171,7 @@ const handleBusClick = (bus, fit = true) => {
 
 const clearRouteSelection = () => {
     selectedBus.value = null;
+    routeFitted = false;
     routePathPoints.length = 0;
     previousPolyline?.remove();
     previousPolyline = null;
@@ -233,10 +239,12 @@ watch(trip, () => {
         routePathPoints.length = 0;
         previousPolyline?.remove();
         previousPolyline = null;
+        routeFitted = false;
         applyRouteHighlighting();
         return;
     }
     previousPolyline?.remove();
+    routeFitted = false;
     const coordinates = trip.value.geometry_line?.coordinates || [];
     routePathPoints = coordinates.flatMap((segment) => segment.map(([a, b]) => [b, a]));
     if (!routePathPoints.length) {
@@ -246,10 +254,57 @@ watch(trip, () => {
     previousPolyline = L.polyline(routePathPoints, { pane: ROUTE_PANE }).addTo(homeLayer);
     previousPolyline.on("click", (event) => L.DomEvent.stopPropagation(event));
     if (fitSelection) {
-        map.fitBounds(previousPolyline.getBounds());
+        fitRoute();
     }
     applyRouteHighlighting();
 })
+
+// set while the map still shows the fitted route, so the fit can follow the sheet
+// as it opens and grows; touching the map leaves it where the user put it
+let routeFitted = false;
+// Leaflet drops a zoom asked for mid-animation, so a fit waits for the last to land
+let fitMoving = false;
+let refitQueued = false;
+
+const fitRoute = () => {
+    if (!map || !previousPolyline) {
+        return;
+    }
+    routeFitted = true;
+    if (fitMoving) {
+        refitQueued = true;
+        return;
+    }
+    const mapBox = map.getContainer().getBoundingClientRect();
+    // the sheet sits at the bottom of the window, which can be below the map's bottom
+    const covered = Math.max(0, props.bottomInset - (window.innerHeight - mapBox.bottom));
+    // a sheet that takes most of the map still leaves room for the route above it
+    const bottom = Math.min(covered, mapBox.height / 2);
+    fitMoving = true;
+    // before the fit, as a fit that doesn't animate ends straight away
+    map.once("moveend", fitLanded);
+    map.fitBounds(previousPolyline.getBounds(), { paddingBottomRight: [0, bottom] });
+}
+
+const fitLanded = () => {
+    fitMoving = false;
+    if (refitQueued) {
+        refitQueued = false;
+        if (routeFitted) {
+            fitRoute();
+        }
+    }
+}
+
+const stopFollowingSheet = () => {
+    routeFitted = false;
+}
+
+watch(() => props.bottomInset, () => {
+    if (routeFitted) {
+        fitRoute();
+    }
+});
 
 /** @type {import("leaflet").Marker[]} */
 let stopMarkers = [];
@@ -327,6 +382,11 @@ const locate = () => {
 const releaseMap = () => {
     map?.off("click", clearRouteSelection);
     map?.off("moveend", landedHome);
+    map?.off("moveend", fitLanded);
+    fitMoving = false;
+    refitQueued = false;
+    map?.getContainer().removeEventListener("pointerdown", stopFollowingSheet);
+    map?.getContainer().removeEventListener("wheel", stopFollowingSheet);
     homeLayer?.remove();
     homeLayer = null;
     userMarker = null;
@@ -348,6 +408,8 @@ const createMap = () => {
     map.ctrlScrollZoom.disable();
     homeLayer = L.layerGroup().addTo(map);
     map.on("click", clearRouteSelection);
+    map.getContainer().addEventListener("pointerdown", stopFollowingSheet);
+    map.getContainer().addEventListener("wheel", stopFollowingSheet, { passive: true });
     // back to where the user was, or the whole city the first time
     const center = rememberedHomeView?.center ?? HOME_CENTER;
     const zoom = rememberedHomeView?.zoom ?? HOME_ZOOM;

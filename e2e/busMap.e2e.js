@@ -75,3 +75,21 @@ test("swiping the bus sheet down closes it", async ({ page, isMobile }) => {
   await openBus(page);
   await expect(sheet).toBeVisible();
 });
+
+test("the bus's route fits in the map above its sheet", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "the bottom sheet is only on phones");
+  await page.goto("/");
+  await openBus(page);
+
+  const sheet = await settledBox(page.locator(".v-bottom-sheet .v-card"));
+  const map = await page.locator(".map-container").boundingBox();
+  const route = page.locator(".leaflet-route-pane path");
+  await expect(route).toBeVisible();
+  // centred in the part of the map the sheet leaves showing, once the fit has
+  // followed the sheet open
+  const shownMiddle = (map.y + sheet.y) / 2;
+  await expect(async () => {
+    const box = await route.boundingBox();
+    expect(Math.abs(box.y + box.height / 2 - shownMiddle)).toBeLessThan(40);
+  }).toPass();
+});
