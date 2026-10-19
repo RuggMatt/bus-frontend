@@ -383,13 +383,14 @@ export const getRouteStopsStats = (routeId) =>
 /**
  * The latest trips, routes or buses over up to 31 service days, worst first.
  * @param {'trip'|'route'|'bus'} by
- * @param {{from: string, to: string, sort: 'mean'|'max'|'late', route?: string|null, limit?: number}} options
- *   `route` only ranks one route's trips
+ * @param {{from: string, to: string, sort: 'mean'|'max'|'late', route?: string|null, bus?: string|null, limit?: number}} options
+ *   `route` only ranks one route's trips, and `bus` one bus's (the bus seen at most of a run's stops)
  * @returns {Promise<DelayRanking>}
  */
-export const getDelayRanking = (by, { from, to, sort, route = null, limit = 50 }) => {
+export const getDelayRanking = (by, { from, to, sort, route = null, bus = null, limit = 50 }) => {
   const params = new URLSearchParams({ from, to, sort, limit: String(limit) });
   if (by === "trip" && route) params.set("route", route);
+  if (by === "trip" && bus) params.set("bus", bus);
   const path = { trip: "trips", route: "routes", bus: "buses" }[by];
   return getJson(`${import.meta.env.VITE_APP_API_URL}/stop-times/delays/${path}?${params}`);
 };

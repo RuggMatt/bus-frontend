@@ -3,15 +3,20 @@
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getBus, getBusRecentTrips, getBusStopTimes, getBusTripCounts, getTrip, getTripSummaries } from '../api';
+import { getBus, getBusRecentTrips, getBusStopTimes, getBusTripCounts, getDelayRanking, getTrip, getTripSummaries } from '../api';
+import { useLiveBuses } from '../composables/useBuses';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
 import { tripPath } from '../composables/useStopArrivals';
 import { nextBusRefreshDelay } from '../utils/busRefresh';
+import { predictedOffsetMinutes, scheduleStatus } from '../utils/busStatus';
+import { matchTripDelays } from '../utils/busTrips';
+import { formatDelay, typicalStatus } from '../utils/delayStats';
+import { percent } from '../utils/delayRankings';
 import { formatReportAge, reportAgeLevel } from '../utils/reportAge';
 import { edmontonNow } from '../utils/serviceTime';
 import { edmontonDate, formatTripDuration, formatTripTimes, tripDayLabel } from '../utils/tripTimes';
-import { formatShortDate, isDateString, weekRange, weekStart } from '../utils/weeks';
+import { addDays, formatShortDate, isDateString, weekRange, weekStart } from '../utils/weeks';
 import { headsignWithoutRoute } from '../utils/routes';
 import { summarizeCounts, tripCountsRange } from '../utils/tripCounts';
 import RouteBadge from '../components/RouteBadge.vue';
@@ -75,6 +80,30 @@ const { data: recentTrips, isLoading: tripsLoading, isError: tripsError, refetch
     // a past week is done, only the current one gains trips
     staleTime: () => (isCurrentWeek.value ? 0 : Infinity),
 });
+
+// how late each run was, from the nightly delays, so up to yesterday. A run just past
+// midnight belongs to the service day before, so that's asked for too
+const delaysRange = computed(() => {
+    const { to } = weekRange(selectedWeek.value);
+    const yesterday = addDays(today.value, -1);
+    return { from: addDays(selectedWeek.value, -1), to: to < yesterday ? to : yesterday };
+});
+
+const { data: tripDelays } = useQuery({
+    queryKey: computed(() => ['bus-trip-delays', props.busId, delaysRange.value.from, delaysRange.value.to]),
+    // a week of a bus's runs fits in the most the backend gives
+    queryFn: () => getDelayRanking('trip', { ...delaysRange.value, sort: 'mean', bus: props.busId, limit: 200 }),
+    // nothing changes until the nightly run, which the backend caches for an hour
+    staleTime: 60 * 60_000,
+});
+
+const delaysByRun = computed(() => matchTripDelays(recentTrips.value ?? [], tripDelays.value?.trips ?? []));
+
+// ETS's prediction for the trip the bus is on now, from the shared /bus/now snapshot
+const { data: liveBuses } = useLiveBuses();
+const liveOffset = computed(() =>
+    predictedOffsetMinutes((liveBuses.value ?? []).find((bus) => String(bus.bus) === props.busId)),
+);
 
 /** @type {import('../utils/tripCounts').CountPeriod[]} */
 const COUNT_PERIODS = ['day', 'week', 'month'];
@@ -252,7 +281,26 @@ const trackedSince = computed(() =>
  * @property {number | null} avgSpeed km/h
  * @property {number | null} maxSpeed km/h
  * @property {boolean} ongoing
+ * @property {{label: string, color: string} | null} delayChip how late it ran on average, or is running now
+ * @property {string | null} delayDetails
  */
+
+/**
+ * @param {import('../api').TripDelay | undefined} delay
+ * @param {boolean} ongoing
+ */
+const delayChip = (delay, ongoing) => {
+    if (ongoing) return liveOffset.value === null ? null : scheduleStatus(liveOffset.value);
+    if (!delay || delay.mean === null) return null;
+    const status = typicalStatus(delay.mean);
+    return { label: status.label === 'On time' ? 'On time' : `Avg ${status.label}`, color: status.color };
+};
+
+/** @param {import('../api').TripDelay | undefined} delay */
+const delayDetails = (delay) =>
+    delay && delay.mean !== null
+        ? `Average ${formatDelay(delay.mean).toLowerCase()} · worst ${formatDelay(delay.max).toLowerCase()} · ${percent(delay.onTime, delay.stops)} of stops on time`
+        : null;
 
 /** @param {number | null} metresPerSecond */
 const toKmh = (metresPerSecond) =>
@@ -274,6 +322,7 @@ const tripDays = computed(() => {
             day = { label, rows: [] };
             days.push(day);
         }
+        const delay = delaysByRun.value.get(summary);
         day.rows.push({
             key: rowKey(summary),
             tripId,
@@ -285,6 +334,8 @@ const tripDays = computed(() => {
             avgSpeed: toKmh(summary.avgSpeed),
             maxSpeed: toKmh(summary.maxSpeed),
             ongoing,
+            delayChip: delayChip(delay, ongoing),
+            delayDetails: ongoing ? null : delayDetails(delay),
         });
     });
     return days;
@@ -440,9 +491,20 @@ const tripDays = computed(() => {
                 <div class="text-body-medium">
                   {{ row.times }}
                 </div>
-                <v-chip v-if="row.ongoing" color="success" size="x-small" variant="tonal">
-                  Now
-                </v-chip>
+                <div v-if="row.ongoing || row.delayChip" class="d-flex justify-end ga-1">
+                  <v-chip v-if="row.ongoing" color="success" size="x-small" variant="tonal">
+                    Now
+                  </v-chip>
+                  <v-chip
+                    v-if="row.delayChip"
+                    :color="row.delayChip.color"
+                    size="x-small"
+                    variant="tonal"
+                    class="delay-chip"
+                  >
+                    {{ row.delayChip.label }}
+                  </v-chip>
+                </div>
               </div>
             </div>
             <v-expand-transition>
@@ -456,6 +518,10 @@ const tripDays = computed(() => {
                   Average {{ row.avgSpeed }} km/h<template v-if="row.maxSpeed !== null">
                     &middot; top {{ row.maxSpeed }} km/h
                   </template>
+                </div>
+                <div v-if="row.delayDetails">
+                  <v-icon icon="mdi-clock-alert-outline" size="small" class="mr-1" />
+                  {{ row.delayDetails }}
                 </div>
                 <div>
                   <v-icon icon="mdi-map-marker-path" size="small" class="mr-1" />
