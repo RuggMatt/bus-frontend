@@ -71,3 +71,26 @@ test("the delays page lists the trips running now, latest first", async ({ page 
   await rows.nth(0).click();
   await expect(page).toHaveURL(/\/trips\/5002$/);
 });
+
+test("the trips running now come in pages of 10", async ({ page }) => {
+  // 23 trips, from 23 min late down to 1 min late
+  await page.route("**/bus/now", (route) => {
+    const now = Math.floor(Date.now() / 1000);
+    route.fulfill({
+      json: Array.from({ length: 23 }, (_, index) => ({
+        bus: 4000 + index, trip: 9000 + index, route: "008", lat: 53.54, long: -113.49,
+        bearing: 0, speed: 5, timestamp: now - 5, delay: (23 - index) * 60,
+      })),
+    });
+  });
+  await page.goto("/delays");
+
+  const running = page.locator("section", { has: page.getByRole("heading", { name: "Running now" }) });
+  const rows = running.locator(".running-row");
+  await expect(rows).toHaveCount(10);
+  await expect(rows.nth(0)).toContainText("23 min late");
+
+  await running.getByRole("button", { name: "Page 3" }).click();
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText("3 min late");
+});

@@ -84,7 +84,13 @@ const { data: ranking, isLoading, isError, isPlaceholderData } = useQuery({
 
 // a new ranking closes the open row
 const selectedKey = ref(/** @type {string | null} */ (null));
-watch(() => [by.value, range.value.from, sort.value, activeRoute.value], () => { selectedKey.value = null; });
+// and goes back to its first page
+const RANKING_PAGE_SIZE = 10;
+const rankingPage = ref(1);
+watch(() => [by.value, range.value.from, sort.value, activeRoute.value], () => {
+    selectedKey.value = null;
+    rankingPage.value = 1;
+});
 /** @param {string} key */
 const toggleRow = (key) => { selectedKey.value = selectedKey.value === key ? null : key; };
 
@@ -95,9 +101,15 @@ const { keyedStops } = useStops();
 const { data: liveBuses, isLoading: liveLoading, isError: liveError } = useLiveBuses();
 const running = computed(() => liveTrips(liveBuses.value));
 const runningCounts = computed(() => liveTripCounts(running.value));
-const RUNNING_PREVIEW = 5;
-const showAllRunning = ref(false);
-const shownRunning = computed(() => (showAllRunning.value ? running.value : running.value.slice(0, RUNNING_PREVIEW)));
+const RUNNING_PAGE_SIZE = 10;
+const runningPage = ref(1);
+const runningPages = computed(() => Math.max(1, Math.ceil(running.value.length / RUNNING_PAGE_SIZE)));
+// a new snapshot can have fewer trips, so stay on a page that still exists
+const currentRunningPage = computed(() => Math.min(runningPage.value, runningPages.value));
+const shownRunning = computed(() => {
+    const first = (currentRunningPage.value - 1) * RUNNING_PAGE_SIZE;
+    return running.value.slice(first, first + RUNNING_PAGE_SIZE);
+});
 
 const runningTripIds = computed(() => [...new Set(shownRunning.value.map((trip) => trip.trip))].sort());
 const { data: runningSummaries } = useQuery({
@@ -171,6 +183,10 @@ const rows = computed(() => {
     }
     return (data.buses ?? []).map((bus) => ({ key: String(bus.bus), kind: /** @type {const} */ ('bus'), bus }));
 });
+
+const rankingPages = computed(() => Math.max(1, Math.ceil(rows.value.length / RANKING_PAGE_SIZE)));
+const rankingOffset = computed(() => (Math.min(rankingPage.value, rankingPages.value) - 1) * RANKING_PAGE_SIZE);
+const shownRows = computed(() => rows.value.slice(rankingOffset.value, rankingOffset.value + RANKING_PAGE_SIZE));
 
 const totalDays = computed(() => rangeDays(range.value));
 const coverage = computed(() => {
@@ -252,16 +268,17 @@ const coverage = computed(() => {
             </div>
           </template>
         </v-card>
-        <v-btn
-          v-if="running.length > RUNNING_PREVIEW"
-          block
-          variant="text"
-          color="primary"
-          class="mt-1"
-          @click="showAllRunning = !showAllRunning"
-        >
-          {{ showAllRunning ? 'Show fewer' : `Show all ${running.length} trips` }}
-        </v-btn>
+        <v-pagination
+          v-if="runningPages > 1"
+          :model-value="currentRunningPage"
+          :length="runningPages"
+          :total-visible="5"
+          density="comfortable"
+          rounded="circle"
+          class="mt-2"
+          aria-label="Running trips pages"
+          @update:model-value="runningPage = $event"
+        />
       </template>
     </section>
 
@@ -362,7 +379,7 @@ const coverage = computed(() => {
         {{ coverage }}
       </div>
       <v-card variant="outlined" :class="{ 'delays-list--stale': isPlaceholderData }">
-        <template v-for="(row, index) in rows" :key="row.key">
+        <template v-for="(row, index) in shownRows" :key="row.key">
           <v-divider v-if="index > 0" />
           <div
             v-ripple
@@ -376,7 +393,7 @@ const coverage = computed(() => {
             @keydown.space.prevent="toggleRow(row.key)"
           >
             <div class="rank text-body-medium text-medium-emphasis flex-shrink-0">
-              {{ index + 1 }}
+              {{ rankingOffset + index + 1 }}
             </div>
             <div class="flex-grow-1 min-width-0">
               <template v-if="row.kind === 'trip'">
@@ -525,6 +542,17 @@ const coverage = computed(() => {
           </v-expand-transition>
         </template>
       </v-card>
+      <v-pagination
+        v-if="rankingPages > 1"
+        :model-value="Math.min(rankingPage, rankingPages)"
+        :length="rankingPages"
+        :total-visible="5"
+        density="comfortable"
+        rounded="circle"
+        class="mt-2"
+        aria-label="Ranking pages"
+        @update:model-value="rankingPage = $event; selectedKey = null"
+      />
     </template>
   </v-container>
 </template>
