@@ -291,10 +291,16 @@ const backend = (url) => {
   if (path === `/bus/trips/${BUS.trip}`) return [liveBus()];
   if (/^\/bus\/trips\/[^/]+$/.test(path)) return [];
   if (path === `/bus/trips/5001/${RUN_DATE}`) {
-    const positions = runPositions();
+    // the bus takes its next trip's id from 08:16, two minutes before the last stop, so
+    // that stop is timed from the positions after the run
+    const switched = edmontonEpoch(RUN_DATE, "08:16:00");
+    const all = runPositions();
+    const positions = all.filter((position) => position.timestamp < switched);
+    const after = all.filter((position) => position.timestamp >= switched)
+      .map(({ bus, lat, long, timestamp }) => ({ bus, trip: 5002, lat, long, timestamp }));
     return {
       trip: 5001, date: RUN_DATE, start: positions[0].timestamp, end: positions.at(-1).timestamp,
-      points: positions.length, buses: [BUS.bus], avgSpeed: 5, maxSpeed: 5, positions,
+      points: positions.length, buses: [BUS.bus], avgSpeed: 5, maxSpeed: 5, positions, before: [], after,
     };
   }
   if (path === `/bus/${BUS.bus}/recent-trips`) return busDayTrips(url.searchParams.get("from"));

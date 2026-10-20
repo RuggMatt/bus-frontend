@@ -20,6 +20,11 @@ const AHEAD_SLACK_METRES = 300;
 // a route can pass the same spot twice, as on a loop. Of the passes within this of the
 // closest one, the earliest is taken
 const SAME_PASS_METRES = 30;
+// a bus can switch to its next trip a few stops early, or late. Its positions this long
+// either side of a run, whatever trip they're on, can fill in the stops at either end
+export const NEIGHBOUR_SECONDS = 15 * 60;
+// a position this close to the first stop has the bus at the start of the trip
+const AT_START_METRES = 100;
 
 /**
  * A route shape measured once, in flat metres (accurate enough over a bus route), so
@@ -90,24 +95,31 @@ const projectBetween = (measured, point, fromAlong, toAlong) => {
 };
 
 /**
- * How far along the route the bus had got at each position, oldest first. Progress only
- * goes forward, and each position is looked for near the last one, so a loop or a route
- * that comes back past the same spot doesn't jump the bus ahead or back
- * @param {ReturnType<typeof measurePath>} measured
+ * Positions as points on the map, oldest first, leaving out any without a place or time
  * @param {Array<{lat: number|string, long: number|string, timestamp: number}>} positions
- * @returns {Array<{along: number, timestamp: number}>}
+ * @returns {Array<{point: [number, number], timestamp: number}>}
  */
-const progressAlong = (measured, positions) => {
-  const sorted = positions
+const toPoints = (positions) =>
+  positions
     .map((position) => ({
       point: /** @type {[number, number]} */ ([Number(position.lat), Number(position.long)]),
       timestamp: position.timestamp,
     }))
     .filter(({ point, timestamp }) => point.every(Number.isFinite) && Number.isFinite(timestamp))
     .sort((a, b) => a.timestamp - b.timestamp);
+
+/**
+ * How far along the route the bus had got at each position, oldest first. Progress only
+ * goes forward, and each position is looked for near the last one, so a loop or a route
+ * that comes back past the same spot doesn't jump the bus ahead or back
+ * @param {ReturnType<typeof measurePath>} measured
+ * @param {ReturnType<typeof toPoints>} points oldest first
+ * @returns {Array<{along: number, timestamp: number}>}
+ */
+const progressAlong = (measured, points) => {
   /** @type {Array<{along: number, timestamp: number}>} */
   const progress = [];
-  for (const { point, timestamp } of sorted) {
+  for (const { point, timestamp } of points) {
     const last = progress.at(-1);
     const projected = last
       ? projectBetween(
@@ -126,21 +138,13 @@ const progressAlong = (measured, positions) => {
 };
 
 /**
- * When the bus went by each stop, from its recorded positions and the route shape. A stop
- * only gets a time once the bus is PASSED_METRES beyond it along the route, and the time
- * is worked out between the positions either side of that point
+ * Where along the route each stop counts as passed, in metres, or null for a stop that
+ * can't be placed on it
+ * @param {ReturnType<typeof measurePath>} measured
  * @param {Array<{lat: number|string, lon: number|string} | null>} stops in trip order
- * @param {Array<{lat: number|string, long: number|string, timestamp: number}>} positions
- * @param {[number, number][]} path the trip's route shape, [lat, lon] points
- * @returns {Array<number|null>} unix seconds per stop, null when the bus hasn't passed it
- *   (or wasn't recorded going by)
+ * @returns {Array<number|null>}
  */
-export const estimateStopArrivals = (stops, positions, path) => {
-  if (path.length < 2) {
-    return stops.map(() => null);
-  }
-  const measured = measurePath(path);
-  const progress = progressAlong(measured, positions);
+const passingPoints = (measured, stops) => {
   let stopFrom = 0;
   return stops.map((stop) => {
     const point = stop && /** @type {[number, number]} */ ([Number(stop.lat), Number(stop.lon)]);
@@ -154,7 +158,23 @@ export const estimateStopArrivals = (stops, positions, path) => {
     }
     stopFrom = projected.along;
     // the route can end right at its last stop, so that one counts once the bus is close to the end
-    const passedAt = Math.min(projected.along + PASSED_METRES, measured.length - PASSED_METRES);
+    return Math.min(projected.along + PASSED_METRES, measured.length - PASSED_METRES);
+  });
+};
+
+/**
+ * When the bus went past each passing point, between the positions either side of it
+ * @param {ReturnType<typeof measurePath>} measured
+ * @param {Array<number|null>} passing from passingPoints
+ * @param {ReturnType<typeof toPoints>} points oldest first
+ * @returns {Array<number|null>}
+ */
+const passingTimes = (measured, passing, points) => {
+  const progress = progressAlong(measured, points);
+  return passing.map((passedAt) => {
+    if (passedAt === null) {
+      return null;
+    }
     const index = progress.findIndex((position) => position.along >= passedAt);
     if (index === -1) {
       return null;
@@ -167,4 +187,75 @@ export const estimateStopArrivals = (stops, positions, path) => {
     const fraction = (passedAt - before.along) / (after.along - before.along);
     return Math.round(before.timestamp + fraction * (after.timestamp - before.timestamp));
   });
+};
+
+/**
+ * When the bus went by each stop, from its recorded positions and the route shape. A stop
+ * only gets a time once the bus is PASSED_METRES beyond it along the route, and the time
+ * is worked out between the positions either side of that point.
+ *
+ * A bus can switch to its next trip a few stops early, or keep its last trip's id for the
+ * first few stops of this one. The stops at either end that the run alone leaves without
+ * a time are then filled in from the bus's own positions just outside the run (`before`
+ * and `after`, within NEIGHBOUR_SECONDS of it, on whatever trip). At the start that only
+ * counts from when the bus was at the first stop, so the end of its last trip, which can
+ * come back along the same road, isn't taken for this one. Stops the run gives a time
+ * are never changed
+ * @param {Array<{lat: number|string, lon: number|string} | null>} stops in trip order
+ * @param {Array<{lat: number|string, long: number|string, timestamp: number}>} positions
+ * @param {[number, number][]} path the trip's route shape, [lat, lon] points
+ * @param {{
+ *   before?: Array<{lat: number|string, long: number|string, timestamp: number}>,
+ *   after?: Array<{lat: number|string, long: number|string, timestamp: number}>,
+ * }} [neighbours] the same bus's positions just before and after the run
+ * @returns {Array<number|null>} unix seconds per stop, null when the bus hasn't passed it
+ *   (or wasn't recorded going by)
+ */
+export const estimateStopArrivals = (stops, positions, path, { before = [], after = [] } = {}) => {
+  if (path.length < 2) {
+    return stops.map(() => null);
+  }
+  const measured = measurePath(path);
+  const passing = passingPoints(measured, stops);
+  const run = toPoints(positions);
+  const estimates = passingTimes(measured, passing, run);
+  if (!run.length) {
+    return estimates;
+  }
+  const start = run[0].timestamp;
+  const end = /** @type {{timestamp: number}} */ (run.at(-1)).timestamp;
+
+  // the stops before the first one with a time
+  const firstKnown = estimates.findIndex((estimate) => estimate !== null);
+  const leading = firstKnown === -1 ? estimates.length : firstKnown;
+  const firstStop = stops.find((stop) => stop && Number.isFinite(Number(stop.lat)) && Number.isFinite(Number(stop.lon)));
+  if (leading && firstStop) {
+    const [stopX, stopY] = measured.toXY([Number(firstStop.lat), Number(firstStop.lon)]);
+    const earlier = toPoints(before).filter(({ timestamp }) => timestamp < start && timestamp >= start - NEIGHBOUR_SECONDS);
+    const around = [...earlier, ...run];
+    const atStart = around.findIndex(({ point, timestamp }) => {
+      const [x, y] = measured.toXY(point);
+      return timestamp <= start + NEIGHBOUR_SECONDS && Math.hypot(x - stopX, y - stopY) <= AT_START_METRES;
+    });
+    // when the run itself starts at the first stop, it already gave what it could
+    if (atStart !== -1 && atStart !== earlier.length) {
+      const filled = passingTimes(measured, passing, around.slice(atStart));
+      for (let i = 0; i < leading; i++) {
+        estimates[i] = filled[i];
+      }
+    }
+  }
+
+  // the stops after the last one with a time
+  const lastKnown = estimates.findLastIndex((estimate) => estimate !== null);
+  if (lastKnown < estimates.length - 1) {
+    const later = toPoints(after).filter(({ timestamp }) => timestamp > end && timestamp <= end + NEIGHBOUR_SECONDS);
+    if (later.length) {
+      const filled = passingTimes(measured, passing, [...run, ...later]);
+      for (let i = lastKnown + 1; i < estimates.length; i++) {
+        estimates[i] = filled[i];
+      }
+    }
+  }
+  return estimates;
 };

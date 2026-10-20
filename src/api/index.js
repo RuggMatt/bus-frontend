@@ -248,6 +248,20 @@ export const getBusTripCounts = async (busId, { by = "day", from, to } = {}) => 
  * @property {number|null} avgSpeed m/s
  * @property {number|null} maxSpeed m/s
  * @property {Bus[]} positions Oldest first
+ * @property {RunNeighbour[]} [before] The bus's positions in the 15 minutes before the run,
+ *   on any trip, oldest first. Missing from a backend from before they were added
+ * @property {RunNeighbour[]} [after] And in the 15 minutes after it. A bus can take its next
+ *   trip's id a few stops early, so these time the stops it had left
+ */
+
+/**
+ * A position just outside a run, with only what the stop estimates need
+ * @typedef {Object} RunNeighbour
+ * @property {number|string} bus
+ * @property {number|string|null} trip
+ * @property {number} lat
+ * @property {number} long
+ * @property {number} timestamp Unix epoch seconds
  */
 
 /**

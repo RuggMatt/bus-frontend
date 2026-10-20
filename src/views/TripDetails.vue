@@ -66,6 +66,12 @@ function isTripCurrentlyActive(tripPoints) {
     return nowSeconds - latestTimestamp <= ACTIVE_TRIP_STALE_SECONDS;
 }
 
+/**
+ * A run's positions and its bus's positions after it
+ * @param {import('../api').TripRun | undefined} run
+ */
+const runAndAfter = (run) => [...(run?.positions ?? []), ...(run?.after ?? [])];
+
 const props = defineProps({
     tripId: {
         type: [String, Number],
@@ -157,7 +163,8 @@ const { data: runData, error: runError, isLoading: runLoading, isPlaceholderData
     retry: (count, error) => /** @type {any} */ (error).status !== 404 && count < 3,
     // a run that started yesterday can still be going past midnight
     staleTime: () => (selectedDate.value && selectedDate.value < addDays(today, -1) ? Infinity : 0),
-    refetchInterval: (query) => (isTripCurrentlyActive(query.state.data?.positions) ? 60000 : false),
+    // the bus's positions after the run can still time the stops it switched trips before
+    refetchInterval: (query) => (isTripCurrentlyActive(runAndAfter(query.state.data)) ? 60000 : false),
     refetchIntervalInBackground: true,
 })
 
@@ -456,17 +463,43 @@ const stopAlerts = computed(() => {
     return byStop;
 });
 
+const stopCoords = computed(() => (routeData.value ?? []).map((stop) => {
+    const stopInfo = keyedStops.value?.[stop.stop_id];
+    return stopInfo ? { lat: stopInfo.stop_lat, lon: stopInfo.stop_lon } : null;
+}));
+
+// the latest run (without ?date=) doesn't come with its bus's positions either side of it.
+// When a stop at either end has no time without them, they're fetched with the run's day,
+// on the key a picked day uses. At the end that's once the run has stopped, as when the bus
+// took its next trip's id a few stops early
+const latestRunGaps = computed(() => {
+    if (selectedDate.value || !runPositions.value.length || !stopCoords.value.length) return false;
+    const estimates = estimateStopArrivals(stopCoords.value, runPositions.value, tripPath(tripData.value));
+    return estimates[0] === null || (estimates.at(-1) === null && !isTripCurrentlyActive(runPositions.value));
+});
+const { data: latestRunData } = useQuery({
+    queryKey: computed(() => ['trip-run', props.tripId, latestRunDate.value]),
+    queryFn: () => getTripRun(props.tripId, latestRunDate.value),
+    enabled: latestRunGaps,
+    retry: (count, error) => /** @type {any} */ (error).status !== 404 && count < 3,
+    staleTime: () => (latestRunDate.value < addDays(today, -1) ? Infinity : 0),
+    refetchInterval: (query) => (isTripCurrentlyActive(runAndAfter(query.state.data)) ? 60000 : false),
+    refetchIntervalInBackground: true,
+});
+
+// the bus's positions just before and after the run being shown
+const runNeighbours = computed(() => {
+    if (selectedDate.value) return runData.value;
+    const run = latestRunData.value;
+    // only when it's the same run. The latest run's positions come newest first
+    const start = runPositions.value.reduce((min, position) => Math.min(min, position.timestamp), Infinity);
+    return latestRunGaps.value && run?.start === start ? run : undefined;
+});
+
 // worked out once per render, as the estimates follow the run's positions along the route shape
 const stopRows = computed(() => {
     const stops = routeData.value ?? [];
-    const estimates = estimateStopArrivals(
-        stops.map((stop) => {
-            const stopInfo = keyedStops.value?.[stop.stop_id];
-            return stopInfo ? { lat: stopInfo.stop_lat, lon: stopInfo.stop_lon } : null;
-        }),
-        runPositions.value,
-        tripPath(tripData.value),
-    );
+    const estimates = estimateStopArrivals(stopCoords.value, runPositions.value, tripPath(tripData.value), runNeighbours.value);
     return stops.map((stop, index) => {
         const stopInfo = keyedStops.value?.[stop.stop_id];
         const estimatedEpoch = estimates[index];
