@@ -458,7 +458,8 @@ const runQueries = useQueries({
         staleTime: passedTrips.value.has(`${entry.trip_id}|${entry.stop_sequence}`) ? Infinity : 30000,
         refetchInterval: (/** @type {any} */ query) => {
             if (passedTrips.value.has(`${entry.trip_id}|${entry.stop_sequence}`)) return false;
-            const positions = query.state.data?.positions ?? [];
+            // the bus's positions after the run can still time the stops it switched trips before
+            const positions = [...(query.state.data?.positions ?? []), ...(query.state.data?.after ?? [])];
             const latest = positions.reduce((max, position) => Math.max(max, position.timestamp), 0);
             return Date.now() / 1000 - latest <= ACTIVE_RUN_SECONDS ? 60000 : false;
         },
@@ -470,13 +471,14 @@ const estimatedDelays = computed(() => {
     /** @type {Map<string, number>} */
     const delays = new Map();
     runs.value.forEach(({ entry, place }, index) => {
-        const positions = runQueries.value[index]?.data?.positions;
+        const run = runQueries.value[index]?.data;
+        const positions = run?.positions;
         if (!positions?.length) return;
         const coords = place.shape.stops.slice(0, place.index + 1).map((stopTime) => {
             const info = keyedStops.value?.[stopTime.stop_id];
             return info ? { lat: info.stop_lat, lon: info.stop_lon } : null;
         });
-        const passedAt = estimateStopArrivals(coords, positions, place.shape.path)[place.index];
+        const passedAt = estimateStopArrivals(coords, positions, place.shape.path, run)[place.index];
         if (passedAt === null || passedAt === undefined) return;
         delays.set(`${entry.trip_id}|${entry.stop_sequence}`, serviceDaySeconds(passedAt, selectedDate.value) - timeToSeconds(entry.arrival_time));
     });

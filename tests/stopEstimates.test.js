@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateStopArrivals } from "../src/utils/stopEstimates";
+import { NEIGHBOUR_SECONDS, estimateStopArrivals } from "../src/utils/stopEstimates";
 
 // ~111 m per 0.001° of latitude
 const LON = -113.5;
@@ -109,3 +109,81 @@ describe("estimateStopArrivals", () => {
     expect(estimateStopArrivals([null], positions, straight)).toEqual([null]);
   });
 });
+
+describe("estimateStopArrivals with the bus's positions either side of the run", () => {
+  const stops = [stop(53.501), stop(53.505), stop(53.509)];
+  // the same road back south, as the bus's next trip
+  const southward = [
+    [53.51, LON],
+    [53.5, LON],
+  ];
+
+  it("fills in the last stops after the bus switched to its next trip early", () => {
+    // the run stops reporting halfway, when the bus takes its next trip's id
+    const positions = [position(53.5, 100), position(53.503, 130), position(53.5055, 160)];
+    expect(estimateStopArrivals(stops, positions, straight)[2]).toBeNull();
+    // it drives on to the end, then turns back down the same road
+    const after = [position(53.507, 190), position(53.5099, 220), position(53.508, 280), position(53.505, 310)];
+    const [first, second, last] = estimateStopArrivals(stops, positions, straight, { after });
+    expect(first).toBeLessThan(130);
+    expect(second).toBeGreaterThan(130);
+    expect(second).toBeLessThan(160);
+    expect(last).toBeGreaterThan(190);
+    expect(last).toBeLessThan(220);
+  });
+
+  it("doesn't change the stops the run gave a time", () => {
+    const positions = [position(53.5, 100), position(53.503, 130), position(53.5055, 160)];
+    const alone = estimateStopArrivals(stops, positions, straight);
+    const after = [position(53.5099, 190)];
+    expect(estimateStopArrivals(stops, positions, straight, { after }).slice(0, 2)).toEqual(alone.slice(0, 2));
+  });
+
+  it("only looks so far past the end of the run", () => {
+    const positions = [position(53.5, 100), position(53.5055, 160)];
+    const after = [position(53.507, 160 + NEIGHBOUR_SECONDS + 30), position(53.5099, 160 + NEIGHBOUR_SECONDS + 60)];
+    expect(estimateStopArrivals(stops, positions, straight, { after })[2]).toBeNull();
+  });
+
+  it("starts a run that began on the last trip's road from when the bus reached the first stop", () => {
+    // the next trip's id comes on while the bus is still heading north to the end of its
+    // last trip, along the road this trip goes back down
+    const positions = [
+      position(53.507, 100),
+      position(53.509, 130),
+      position(53.50995, 160),
+      position(53.51, 220),
+      position(53.508, 280),
+      position(53.5045, 340),
+      position(53.5005, 400),
+    ];
+    const southStops = [stop(53.51), stop(53.506), stop(53.501)];
+    const [first, second, last] = estimateStopArrivals(southStops, positions, southward);
+    expect(first).toBeGreaterThan(220);
+    expect(first).toBeLessThan(280);
+    expect(second).toBeGreaterThan(280);
+    expect(second).toBeLessThan(340);
+    expect(last).toBeGreaterThan(340);
+  });
+
+  it("fills in the first stops when the bus kept its last trip's id for them", () => {
+    // the run is only recorded from halfway; before that the bus left the first stop
+    // still showing its last trip
+    const before = [position(53.501, 40), position(53.501, 70), position(53.5025, 100)];
+    const positions = [position(53.504, 130), position(53.51, 190)];
+    expect(estimateStopArrivals(stops, positions, straight)[0]).toBeNull();
+    const [first, second, last] = estimateStopArrivals(stops, positions, straight, { before });
+    expect(first).toBeGreaterThan(70);
+    expect(first).toBeLessThan(100);
+    expect(second).toBeGreaterThan(130);
+    expect(last).toBeGreaterThan(130);
+  });
+
+  it("doesn't fill in the first stops from positions that never reached the first stop", () => {
+    // coming up the road from further away, as on a trip that didn't start here
+    const before = [position(53.5025, 100)];
+    const positions = [position(53.504, 130), position(53.51, 190)];
+    expect(estimateStopArrivals(stops, positions, straight, { before })[0]).toBeNull();
+  });
+});
+
