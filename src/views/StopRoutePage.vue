@@ -17,7 +17,7 @@ import { typicalStatus } from '../utils/delayStats';
 import { estimateStopArrivals } from '../utils/stopEstimates';
 import { alongRouteMetres, distanceMetres, formatDistance } from '../utils/geo';
 import { serviceDatesFrom, servicesOnDate } from '../utils/serviceCalendar';
-import { edmontonNow, timeToSeconds } from '../utils/serviceTime';
+import { edmontonNow, scheduledEpochsNear, timeToSeconds } from '../utils/serviceTime';
 import { approachTrack, arrivalsOnDate, commonShapeTrip, earlierCount, runDate, serviceDaySeconds, stopIndexOnTrip } from '../utils/stopRouteTimes';
 import { addDays, formatDayLabel, isDateString } from '../utils/weeks';
 import RouteBadge from '../components/RouteBadge.vue';
@@ -478,7 +478,11 @@ const estimatedDelays = computed(() => {
             const info = keyedStops.value?.[stopTime.stop_id];
             return info ? { lat: info.stop_lat, lon: info.stop_lon } : null;
         });
-        const passedAt = estimateStopArrivals(coords, positions, place.shape.path, run)[place.index];
+        // only this stop's time is known, which is enough to pick the lap of a run that went round a loop twice
+        const start = positions.reduce((min, position) => Math.min(min, position.timestamp), Infinity);
+        const [due] = scheduledEpochsNear([entry.arrival_time], start);
+        const scheduled = coords.map((_, stopIndex) => (stopIndex === place.index ? due : null));
+        const passedAt = estimateStopArrivals(coords, positions, place.shape.path, run, scheduled)[place.index];
         if (passedAt === null || passedAt === undefined) return;
         delays.set(`${entry.trip_id}|${entry.stop_sequence}`, serviceDaySeconds(passedAt, selectedDate.value) - timeToSeconds(entry.arrival_time));
     });
