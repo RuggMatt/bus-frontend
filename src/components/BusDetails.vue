@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router';
 import { useBusTrip } from '../composables/useBusTrip';
 import { formatScheduledTime, scheduleStatus } from '../utils/busStatus';
 import { headsignWithoutRoute, routeNumber } from '../utils/routes';
+import { runDateAt } from '../utils/timeTravel';
 import { transitionLinkClick } from '../utils/viewTransition';
 import RouteBadge from './RouteBadge.vue';
 import BusLink from './BusLink.vue';
@@ -17,16 +18,36 @@ const props = defineProps({
     type: Object,
     required: true,
   },
+  // a position from the map's time travel rather than a live one
+  past: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const router = useRouter();
-const { trip, stopTimes, isLoading, routeLongName, nextStop } = useBusTrip(toRef(props, 'bus'));
+const { trip, stopTimes, isLoading, routeLongName, nextStop } = useBusTrip(toRef(props, 'bus'), {
+  pastPosition: () => props.past,
+});
+
+// a past position opens the run it was on, rather than the trip's latest
+const tripLink = computed(() => {
+  if (!trip.value) return null;
+  const path = `/trips/${trip.value.trip_id}`;
+  if (!props.past || !stopTimes.value?.length) return path;
+  const first = stopTimes.value.reduce((earliest, stopTime) =>
+    (Number(stopTime.stop_sequence) < Number(earliest.stop_sequence) ? stopTime : earliest));
+  const firstTime = first.departure_time || first.arrival_time;
+  return firstTime ? { path, query: { date: runDateAt(firstTime, props.bus.timestamp) } } : path;
+});
 
 // detours and closures on the bus's route in effect for the rest of its run, naming one
 // of its stops or none, like the trip page's
 const serviceAlerts = useServiceAlerts();
 const nowLocal = useNowLocal();
 const busAlerts = computed(() => {
+  // what's in effect now says nothing about a past run
+  if (props.past) return [];
   if (!trip.value?.route_id || !stopTimes.value?.length) return [];
   const last = stopTimes.value.reduce((latest, stopTime) =>
     (Number(stopTime.stop_sequence) > Number(latest.stop_sequence) ? stopTime : latest));
@@ -148,8 +169,8 @@ const openRoute = (event) => {
         </div>
       </template>
       <v-btn
-        v-if="trip"
-        :to="`/trips/${trip.trip_id}`"
+        v-if="tripLink"
+        :to="tripLink"
         block
         size="large"
         height="50"

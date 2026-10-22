@@ -27,6 +27,26 @@ export const getAllBuses = async () => {
 };
 
 /**
+ * Fetches each bus's position within a minute either side of an Edmonton time, for the
+ * main map's time travel. Like /bus/now, without the predicted `delay`
+ * @param {string} date YYYY-MM-DD
+ * @param {string} time HH:MM
+ * @returns {Promise<Bus[]>}
+ */
+export const getBusesAt = async (date, time) => {
+  const url = `${import.meta.env.VITE_APP_API_URL}/bus/${date}/${time}/1`;
+  const result = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Error(result.status);
+};
+
+/**
  * Fetches hourly electric bus stats from the backend API
  * @returns {Promise<ElectricBusHourlyStat[]>}
  */

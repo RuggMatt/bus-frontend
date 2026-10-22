@@ -6,7 +6,7 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { getTrip, getBusStopTimes } from '../api';
 import { useStops } from '../composables/useStops';
-import { useBuses } from '../composables/useBuses';
+import { useMapBuses } from '../composables/useBuses';
 import { attachSharedMap, detachSharedMap, rememberedHomeView, rememberHomeView, ROUTE_PANE } from '../plugins/sharedMap';
 import { prefersReducedMotion } from '../utils/viewTransition';
 /** @type {import('leaflet').Map | null} */
@@ -35,6 +35,11 @@ const props = defineProps({
     bottomInset: {
         type: Number,
         default: 0,
+    },
+    // a time travel time (YYYY-MM-DDTHH:MM, Edmonton) to show the buses at, or null for live ones
+    at: {
+        type: String,
+        default: null,
     },
 });
 let pendingRestore = props.restoreBusId;
@@ -108,6 +113,31 @@ const renderBuses = (newBuses) => {
     }
     applyRouteHighlighting();
     restoreSelection(newBuses);
+    followSelection(newBuses);
+}
+
+// set when the time changes, so the selected bus moves with the map's buses once they load
+let timeChanged = false;
+
+/**
+ * After a time change, keeps the selected bus selected at its new position, or lets go
+ * of it when it wasn't out then
+ * @param {import("../api/index").Bus[]} newBuses
+ */
+const followSelection = (newBuses) => {
+    if (!timeChanged) {
+        return;
+    }
+    timeChanged = false;
+    if (!selectedBus.value) {
+        return;
+    }
+    const bus = newBuses.find((candidate) => String(candidate.bus) === String(selectedBus.value.bus));
+    if (bus) {
+        handleBusClick(bus, false);
+    } else {
+        clearRouteSelection();
+    }
 }
 
 /**
@@ -125,9 +155,11 @@ const restoreSelection = (newBuses) => {
     }
 }
 
-// shared with the other pages, and refetched when the backend's next snapshot should be ready
-const { buses: liveBuses } = useBuses();
-watch(liveBuses, renderBuses);
+// live: shared with the other pages, and refetched when the backend's next snapshot should be
+// ready. Time travel: the positions at the picked time
+const { buses: mapBuses } = useMapBuses(() => props.at);
+watch(() => props.at, () => { timeChanged = true; });
+watch(mapBuses, renderBuses);
 
 const selectedTripId = computed(() => selectedBus.value?.trip ?? null);
 
@@ -425,7 +457,7 @@ const createMap = () => {
 onMounted(() => {
     createMap();
     // a cached snapshot from an earlier visit shows straight away
-    renderBuses(liveBuses.value);
+    renderBuses(mapBuses.value);
 })
 
 onBeforeUnmount(() => {
