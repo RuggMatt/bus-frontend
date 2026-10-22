@@ -147,7 +147,7 @@ const edmontonEpoch = (date, time) => {
 
 // yesterday the bus ran 5001 on time at its first two stops and 3 min late at the last two,
 // then went on to 5002 and 5003
-const RUN_DATE = edmontonDate(-1);
+export const RUN_DATE = edmontonDate(-1);
 const RUN_KEYFRAMES = [["08:00:30", 0], ["08:06:00", 1], ["08:13:00", 2], ["08:18:00", 3]];
 
 /** A position every 30 s along the stops, between the times it reached each. */
@@ -288,6 +288,13 @@ const weekStats = (count, mean, histogram) => ({
 const backend = (url) => {
   const path = url.pathname;
   if (path === "/bus/now") return [{ ...liveBus(), delay: BUS_DELAY }];
+  // the main map's time travel: the bus on yesterday's run of 5001, and nothing at other times
+  const at = /^\/bus\/(\d{4}-\d{2}-\d{2})\/(\d{2}:\d{2})\/1$/.exec(path);
+  if (at) {
+    const time = edmontonEpoch(at[1], `${at[2]}:00`);
+    const near = runPositions().filter((position) => Math.abs(position.timestamp - time) <= 60);
+    return near.length ? [near.at(-1)] : [];
+  }
   if (path === `/bus/trips/${BUS.trip}`) return [liveBus()];
   if (/^\/bus\/trips\/[^/]+$/.test(path)) return [];
   if (path === `/bus/trips/5001/${RUN_DATE}`) {

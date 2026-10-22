@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/vue-query";
-import { computed } from "vue";
+import { computed, toValue } from "vue";
 import { getBusStopTimes, getTrip } from "../api";
 import { alongRouteMetres } from "../utils/geo";
 import { predictedOffsetMinutes } from "../utils/busStatus";
@@ -12,8 +12,10 @@ import { AVERAGE_SPEED_METRES_PER_SECOND, tripPath } from "./useStopArrivals";
  * The trip a bus is running, and how it is doing against the schedule at its next stop.
  *
  * @param {import("vue").Ref<import("../api").Bus | null>} bus
+ * @param {{ pastPosition?: import("vue").MaybeRefOrGetter<boolean> }} [options] pastPosition: the
+ *   position is from the map's time travel, so the status is as of when it was reported, not now
  */
-export const useBusTrip = (bus) => {
+export const useBusTrip = (bus, { pastPosition = false } = {}) => {
   const tripId = computed(() => (bus.value ? String(bus.value.trip) : null));
 
   // same queries as the stops page, so either page warms the other's cache
@@ -57,9 +59,9 @@ export const useBusTrip = (bus) => {
       .find(({ along }) => along !== undefined && along > busAlong);
     if (!upcoming?.stop) return null;
 
-    const nowSeconds = edmontonNow().secondsSinceMidnight;
     // the bus has kept moving since its position was reported
     const reportedSeconds = edmontonNow(new Date(bus.value.timestamp * 1000)).secondsSinceMidnight;
+    const nowSeconds = toValue(pastPosition) ? reportedSeconds : edmontonNow().secondsSinceMidnight;
     const arrivalSeconds = reportedSeconds + (upcoming.along - busAlong) / AVERAGE_SPEED_METRES_PER_SECOND;
     const scheduledSeconds = scheduledSecondsNear(upcoming.stopTime.arrival_time, nowSeconds);
     return {

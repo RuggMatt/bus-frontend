@@ -1,14 +1,35 @@
 <script setup>
 import NewBusMap from '../components/NewBusMap.vue';
 import BusDetails from '../components/BusDetails.vue';
-import { onBeforeUnmount, ref, watch } from 'vue';
+import TimeTravelChip from '../components/TimeTravelChip.vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useBusTrip } from '../composables/useBusTrip';
 import { useDisplay } from 'vuetify';
-import { useBuses } from '../composables/useBuses';
+import { useMapBuses } from '../composables/useBuses';
 import { navigatingByHistory, rememberedHomeView } from '../plugins/sharedMap';
+import { parseTravelTime } from '../utils/timeTravel';
 
 const { mdAndUp } = useDisplay();
-const { buses } = useBuses();
+const route = useRoute();
+const router = useRouter();
+
+// time travel: the time in ?at=, so going back to the map comes back to it too
+const at = computed({
+  get: () => (parseTravelTime(route.query.at) ? /** @type {string} */ (route.query.at) : null),
+  set: (value) => {
+    const { at: _old, ...query } = route.query;
+    // replaced rather than pushed, so stepping through times doesn't fill the history
+    router.replace({ query: value ? { ...query, at: value } : query });
+  },
+});
+const { buses, loading: loadingBuses, isError: busesError } = useMapBuses(at);
+
+// nothing was recorded then, e.g. before collection started or in an outage
+const showNoBuses = ref(false);
+watch(buses, (shown) => {
+  showNoBuses.value = Boolean(at.value) && Array.isArray(shown) && shown.length === 0;
+});
 
 // going back to the map (not opening it from a tab or link) reselects the bus the user left from, with its latest position
 const restoreBusId = navigatingByHistory ? rememberedHomeView?.busId ?? null : null;
@@ -21,7 +42,7 @@ const showBottomSheet = ref(Boolean(restoredBus) && !mdAndUp.value);
 /** @type {import('vue').Ref<import('../api').Bus | null>} */
 const bus = ref(restoredBus);
 
-const { trip, isError } = useBusTrip(bus);
+const { trip, isError } = useBusTrip(bus, { pastPosition: () => Boolean(at.value) });
 
 const showRouteNotFound = ref(false);
 // getTrip resolves to null when the open data API has no matching trip
@@ -103,7 +124,7 @@ const viewBusDetails = (clickedBus) => {
     <!-- Desktop: Left Sidebar -->
     <div v-if="bus && mdAndUp" class="bus-details-panel">
       <VCard class="rounded-0 h-100">
-        <BusDetails :bus="bus" />
+        <BusDetails :bus="bus" :past="Boolean(at)" />
       </VCard>
     </div>
 
@@ -113,8 +134,10 @@ const viewBusDetails = (clickedBus) => {
         ref="busMap"
         :restore-bus-id="restoredBus?.bus ?? null"
         :bottom-inset="showBottomSheet ? sheetHeight : 0"
+        :at="at"
         @bus-details="viewBusDetails($event)"
       />
+      <TimeTravelChip v-model="at" :loading="loadingBuses" class="time-travel-overlay" />
     </div>
 
     <!-- Mobile: Bottom Sheet -->
@@ -137,12 +160,18 @@ const viewBusDetails = (clickedBus) => {
         @touchend="onSheetTouchEnd"
         @touchcancel="onSheetTouchEnd"
       >
-        <BusDetails v-if="bus" :bus="bus" />
+        <BusDetails v-if="bus" :bus="bus" :past="Boolean(at)" />
       </VCard>
     </VBottomSheet>
 
     <VSnackbar v-model="showRouteNotFound" location="bottom" :timeout="3000" color="error">
       Route could not be found
+    </VSnackbar>
+    <VSnackbar v-model="showNoBuses" location="bottom" :timeout="4000">
+      No buses were recorded at that time
+    </VSnackbar>
+    <VSnackbar :model-value="busesError" location="bottom" :timeout="-1" color="error">
+      The buses for that time could not be loaded
     </VSnackbar>
   </div>
 </template>
@@ -174,5 +203,14 @@ const viewBusDetails = (clickedBus) => {
   flex: 1;
   min-width: 0;
   height: 100%;
+  position: relative;
+}
+
+.time-travel-overlay {
+  left: 50%;
+  position: absolute;
+  top: 12px;
+  transform: translateX(-50%);
+  z-index: 1;
 }
 </style>
