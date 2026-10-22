@@ -9,7 +9,7 @@ import { usePageTitle } from '../composables/usePageTitle';
 import { useBusTrip } from '../composables/useBusTrip';
 import { liveBusesQuery } from '../composables/useBuses';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
-import { edmontonNow, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
+import { edmontonNow, scheduledEpochsNear, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
 import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
 import { NO_TIMES_HEX, STATUS_HEX, formatScheduledTime, scheduleStatus } from '../utils/busStatus';
@@ -468,13 +468,19 @@ const stopCoords = computed(() => (routeData.value ?? []).map((stop) => {
     return stopInfo ? { lat: stopInfo.stop_lat, lon: stopInfo.stop_lon } : null;
 }));
 
+// when the run was due at each stop, so a run that went round a loop twice is timed on the right lap
+const scheduledEpochs = computed(() => {
+    const start = runPositions.value.reduce((min, position) => Math.min(min, position.timestamp), Infinity);
+    return Number.isFinite(start) ? scheduledEpochsNear((routeData.value ?? []).map((stop) => stop.arrival_time), start) : [];
+});
+
 // the latest run (without ?date=) doesn't come with its bus's positions either side of it.
 // When a stop at either end has no time without them, they're fetched with the run's day,
 // on the key a picked day uses. At the end that's once the run has stopped, as when the bus
 // took its next trip's id a few stops early
 const latestRunGaps = computed(() => {
     if (selectedDate.value || !runPositions.value.length || !stopCoords.value.length) return false;
-    const estimates = estimateStopArrivals(stopCoords.value, runPositions.value, tripPath(tripData.value));
+    const estimates = estimateStopArrivals(stopCoords.value, runPositions.value, tripPath(tripData.value), {}, scheduledEpochs.value);
     return estimates[0] === null || (estimates.at(-1) === null && !isTripCurrentlyActive(runPositions.value));
 });
 const { data: latestRunData } = useQuery({
@@ -499,7 +505,13 @@ const runNeighbours = computed(() => {
 // worked out once per render, as the estimates follow the run's positions along the route shape
 const stopRows = computed(() => {
     const stops = routeData.value ?? [];
-    const estimates = estimateStopArrivals(stopCoords.value, runPositions.value, tripPath(tripData.value), runNeighbours.value);
+    const estimates = estimateStopArrivals(
+        stopCoords.value,
+        runPositions.value,
+        tripPath(tripData.value),
+        runNeighbours.value,
+        scheduledEpochs.value,
+    );
     return stops.map((stop, index) => {
         const stopInfo = keyedStops.value?.[stop.stop_id];
         const estimatedEpoch = estimates[index];

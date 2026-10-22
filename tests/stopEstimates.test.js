@@ -103,6 +103,65 @@ describe("estimateStopArrivals", () => {
     expect(last).toBeGreaterThan(250);
   });
 
+  describe("on a run that went round a loop twice", () => {
+    // a square about 1.1 km a side, starting and ending at its south-west corner
+    const square = [
+      [53.5, -113.52],
+      [53.5, -113.5035],
+      [53.51, -113.5035],
+      [53.51, -113.52],
+      [53.5, -113.52],
+    ];
+    const loopStops = [stop(53.5, -113.52), stop(53.5, -113.51), stop(53.51, -113.51), stop(53.5, -113.52)];
+    // one lap every 10 minutes around the square, starting at `from`
+    const lap = (from) => [
+      position(53.5, from, -113.52),
+      position(53.5, from + 60, -113.512),
+      position(53.5, from + 150, -113.5035),
+      position(53.506, from + 240, -113.5035),
+      position(53.51, from + 300, -113.5035),
+      position(53.51, from + 390, -113.512),
+      position(53.51, from + 450, -113.52),
+      position(53.504, from + 540, -113.52),
+      position(53.5, from + 600, -113.52),
+    ];
+    // the bus kept the trip's id for the lap before this one, and waited a minute between
+    const positions = [...lap(1000), ...lap(1660)];
+    const scheduledFrom = (from) => [from, from + 50, from + 380, from + 600];
+
+    it("times every stop on the first lap without a schedule", () => {
+      const [first, , , last] = estimateStopArrivals(loopStops, positions, square);
+      expect(first).toBeGreaterThan(1000);
+      expect(first).toBeLessThan(1060);
+      expect(last).toBeLessThanOrEqual(1600);
+    });
+
+    it("takes the lap nearest the schedule", () => {
+      const estimates = estimateStopArrivals(loopStops, positions, square, {}, scheduledFrom(1660));
+      expect(estimates[0]).toBeGreaterThan(1660);
+      expect(estimates[0]).toBeLessThan(1720);
+      expect(estimates[3]).toBeGreaterThan(2200);
+      estimates.forEach((estimate, index) => expect(Math.abs(estimate - scheduledFrom(1660)[index])).toBeLessThan(60));
+      const early = estimateStopArrivals(loopStops, positions, square, {}, scheduledFrom(1000));
+      expect(early).toEqual(estimateStopArrivals(loopStops, positions, square));
+    });
+
+    it("doesn't take a bus waiting at the end as another lap", () => {
+      const waiting = [...lap(1000), position(53.50002, 1630, -113.52), position(53.5, 1660, -113.52)];
+      const estimates = estimateStopArrivals(loopStops, waiting, square, {}, scheduledFrom(1700));
+      expect(estimates[0]).toBeLessThan(1060);
+      expect(estimates[3]).toBeLessThanOrEqual(1600);
+    });
+
+    it("times the end of a part lap from the lap after it", () => {
+      // the trip's id only came on halfway round the lap before
+      const partway = [...lap(1000).slice(4), ...lap(1660)];
+      const estimates = estimateStopArrivals(loopStops, partway, square, {}, scheduledFrom(1660));
+      expect(estimates[1]).toBeGreaterThan(1660);
+      expect(estimates[3]).toBeGreaterThan(2200);
+    });
+  });
+
   it("gives nothing without a route shape or for stops without a place", () => {
     const positions = [position(53.5, 100), position(53.51, 200)];
     expect(estimateStopArrivals([stop(53.505)], positions, [])).toEqual([null]);

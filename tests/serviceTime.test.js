@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scheduledSecondsNear, serviceRunsOnDay, weekdayOf } from "../src/utils/serviceTime";
+import { scheduledEpochsNear, scheduledSecondsNear, serviceRunsOnDay, weekdayOf } from "../src/utils/serviceTime";
 
 describe("weekdayOf", () => {
   it("names the day of a date", () => {
@@ -41,5 +41,20 @@ describe("scheduledSecondsNear", () => {
   it("puts a trip past 24:00 just after midnight on yesterday's service day", () => {
     // 24:40 on yesterday's service is 00:40 today
     expect(scheduledSecondsNear("24:40:00", 30 * 60)).toBe(40 * 60);
+  });
+});
+
+describe("scheduledEpochsNear", () => {
+  // 8:00 AM in Edmonton on 2026-10-14 (MDT, UTC-6)
+  const eight = Date.UTC(2026, 9, 14, 14) / 1000;
+
+  it("puts times on the day of the time near them", () => {
+    expect(scheduledEpochsNear(["08:10:00", "07:55:00", null], eight)).toEqual([eight + 600, eight - 300, null]);
+  });
+
+  it("puts times past 24:00:00 on the service day before", () => {
+    // 12:05 AM the next day, on a trip scheduled at 24:10:00
+    const pastMidnight = eight + 16 * 3600 + 300;
+    expect(scheduledEpochsNear(["24:10:00", "23:58:00"], pastMidnight)).toEqual([pastMidnight + 300, pastMidnight - 420]);
   });
 });

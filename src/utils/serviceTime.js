@@ -83,6 +83,20 @@ export const scheduledSecondsNear = (time, referenceSeconds) => {
     : yesterday;
 };
 
+/**
+ * Scheduled times as unix seconds, on whichever service day puts them closest to a time
+ * near them, such as when a run of the trip started
+ * @param {Array<string|null|undefined>} times HH:MM:SS
+ * @param {number} nearEpoch Unix seconds
+ * @returns {Array<number|null>}
+ */
+export const scheduledEpochsNear = (times, nearEpoch) => {
+  const { secondsSinceMidnight } = edmontonNow(new Date(nearEpoch * 1000));
+  return times.map((time) =>
+    time ? nearEpoch + scheduledSecondsNear(time, secondsSinceMidnight) - secondsSinceMidnight : null,
+  );
+};
+
 /** @typedef {'monday'|'tuesday'|'wednesday'|'thursday'|'friday'|'saturday'|'sunday'} Weekday */
 
 /** @type {Weekday[]} indexed like Date.getDay() */
