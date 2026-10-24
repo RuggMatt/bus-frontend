@@ -6,7 +6,12 @@ const links = [
     title: 'bus-frontend',
     text: 'the source of this site',
   },
-  
+  {
+    href: 'https://github.com/RuggMatt/bus-frontend/issues',
+    icon: 'mdi-bug-outline',
+    title: 'Report an issue',
+    text: 'something broken or wrong on the site',
+  },
   {
     href: 'https://data.edmonton.ca',
     icon: 'mdi-database',
@@ -53,6 +58,15 @@ const links = [
       position and its scheduled speed, and they can be wrong by several minutes. For anything
       time-critical, check
       <a href="https://www.edmonton.ca/transit">the official ETS information</a>.
+    </p>
+
+    <h2 class="text-h6 mt-8">
+      Found a problem?
+    </h2>
+    <p class="text-body-medium">
+      If something's broken, looks wrong or could be better, please
+      <a href="https://github.com/RuggMatt/bus-frontend/issues">open an issue on GitHub</a>.
+      A link to the page and what you expected to see helps.
     </p>
 
     <h2 class="text-h6 mt-8">
