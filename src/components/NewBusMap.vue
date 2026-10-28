@@ -7,8 +7,11 @@ import { useQuery } from '@tanstack/vue-query';
 import { getTrip, getBusStopTimes } from '../api';
 import { useStops } from '../composables/useStops';
 import { useMapBuses } from '../composables/useBuses';
-import { attachSharedMap, detachSharedMap, rememberedHomeView, rememberHomeView, ROUTE_PANE } from '../plugins/sharedMap';
+import { attachSharedMap, detachSharedMap, navigatingByHistory, rememberedHomeView, rememberHomeView, ROUTE_PANE } from '../plugins/sharedMap';
 import { prefersReducedMotion } from '../utils/viewTransition';
+import { routeNumber } from '../utils/routes';
+import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
+import { DISRUPTION_RING_STYLE, disruptedStops as stopsWithAlerts, effectLabel } from '../utils/serviceAlerts';
 /** @type {import('leaflet').Map | null} */
 let map = null
 /** @type {object | null} the shared map's owner token */
@@ -41,6 +44,22 @@ const props = defineProps({
         type: String,
         default: null,
     },
+    // the stop open in the page's panel, drawn larger and centred on
+    stopId: {
+        type: String,
+        default: null,
+    },
+    // with a stop open, the buses on their way to it. The rest are hidden, like other routes' are with a bus picked
+    /** @type {import('vue').PropType<(string | number)[] | null>} */
+    stopBusIds: {
+        type: Array,
+        default: null,
+    },
+    // a bus picked in the stop's panel, outlined like a selected one
+    highlightBusId: {
+        type: [String, Number],
+        default: null,
+    },
 });
 let pendingRestore = props.restoreBusId;
 // a restored selection keeps the remembered view rather than fitting its route
@@ -54,7 +73,7 @@ const buses = {};
 /** @type {import("vue").Ref<{bus: string, lat: string, long: string, trip: string}|null>} */
 const selectedBus = ref(null);
 
-const emits = defineEmits(["bus-details"]);
+const emits = defineEmits(["bus-details", "stop-click", "map-click"]);
 
 /**
  * Given a list of new buses, removes the buses from the map that are no longer 
@@ -88,6 +107,7 @@ const renderBuses = (newBuses) => {
     removeOldBuses(newBuses);
     // a backend without predicted delays would leave every bus grey, so keep the plain colours
     const status = newBuses.some((bus) => "delay" in bus);
+    const iconFor = (bus) => createBusIcon(bus, { status, route: bus.route_id ? routeNumber(String(bus.route_id)) : "" });
     for (let bus of newBuses) {
         // add new ones
         if (buses[bus.bus]) {
@@ -95,7 +115,7 @@ const renderBuses = (newBuses) => {
             let prev = buses[bus.bus];
             let line = L.polyline([prev.getLatLng(), [bus.lat, bus.long]])
             prev.remove();
-            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: createBusIcon(bus, { status }), route_id: bus.route_id}).addTo(homeLayer)
+            let newMarker = L.animatedMarker(line.getLatLngs(), {title: bus.bus, icon: iconFor(bus), route_id: bus.route_id}).addTo(homeLayer)
             newMarker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -103,7 +123,7 @@ const renderBuses = (newBuses) => {
             buses[bus.bus] = newMarker;
         } else {
             // bus not in list
-            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: createBusIcon(bus, { status }), route_id: bus.route_id}).addTo(homeLayer)
+            let marker = L.animatedMarker([[bus.lat, bus.long], [bus.lat, bus.long]], {title: bus.bus, icon: iconFor(bus), route_id: bus.route_id}).addTo(homeLayer)
             marker.on("click", (event) => {
                 L.DomEvent.stopPropagation(event);
                 handleBusClick(bus);
@@ -178,7 +198,13 @@ const { data: tripStops } = useQuery({
     staleTime: Infinity,
 });
 
-const { stops } = useStops();
+// below this zoom there are too many stops on screen to tell apart, and the buses matter more
+const MIN_STOP_ZOOM = 15;
+// the stops aren't loaded until something needs them: zooming in (or locating), a bus's route or an open stop
+const stopsWanted = ref(false);
+const { stops, keyedStops } = useStops({
+    enabled: () => stopsWanted.value || Boolean(selectedTripId.value) || Boolean(props.stopId),
+});
 
 /** @type {import("vue").ComputedRef<Record<string, import("../api/index").BusStop>>} */
 const stopsHashMap = computed(() => {
@@ -238,10 +264,11 @@ const getClosestRoutePoint = (lat, lon) => {
 }
 
 const applySelectedStyling = () => {
+    const picked = selectedBus.value?.bus ?? props.highlightBusId;
     for (const marker of Object.values(buses)) {
         marker.getElement()?.classList.toggle(
             "bus-marker-icon--selected",
-            marker.options.title === selectedBus.value?.bus,
+            picked !== null && picked !== undefined && String(marker.options.title) === String(picked),
         );
     }
 }
@@ -253,15 +280,21 @@ watch(selectedBus, applySelectedStyling);
 const applyRouteHighlighting = () => {
     // the live bus knows its route, so this doesn't wait for (and flash while) its trip loads
     const selectedRouteId = selectedBus.value ? selectedBus.value.route_id ?? trip.value?.route_id ?? null : null;
+    // with a stop open (and no bus), only the buses on their way to it
+    const stopBuses = !selectedBus.value && props.stopBusIds && !props.at ? new Set(props.stopBusIds.map(String)) : null;
     for (const marker of Object.values(buses)) {
         const isSelected = marker.options.title === selectedBus.value?.bus;
-        const onRoute = !selectedRouteId || marker.options?.route_id === selectedRouteId;
+        const onRoute = stopBuses
+            ? stopBuses.has(String(marker.options.title))
+            : !selectedRouteId || marker.options?.route_id === selectedRouteId;
         // hidden rather than faded, so they can't be tapped or focused either
         marker.getElement()?.classList.toggle("bus-marker-icon--hidden", !isSelected && !onRoute);
-        marker.setZIndexOffset(isSelected ? 2000 : selectedRouteId && onRoute ? 1000 : 0);
+        marker.setZIndexOffset(isSelected ? 2000 : (selectedRouteId || stopBuses) && onRoute ? 1000 : 0);
     }
     applySelectedStyling();
 }
+
+watch([() => props.stopBusIds, () => props.highlightBusId, () => props.at], applyRouteHighlighting);
 
 watch(trip, () => {
     if (!map) {
@@ -298,6 +331,18 @@ let routeFitted = false;
 let fitMoving = false;
 let refitQueued = false;
 
+/** px of the map's bottom the page's sheet covers */
+const coveredBottom = () => {
+    if (!map) {
+        return 0;
+    }
+    const mapBox = map.getContainer().getBoundingClientRect();
+    // the sheet sits at the bottom of the window, which can be below the map's bottom
+    const covered = Math.max(0, props.bottomInset - (window.innerHeight - mapBox.bottom));
+    // a sheet that takes most of the map still leaves room for the route above it
+    return Math.min(covered, mapBox.height / 2);
+}
+
 const fitRoute = () => {
     if (!map || !previousPolyline) {
         return;
@@ -307,11 +352,7 @@ const fitRoute = () => {
         refitQueued = true;
         return;
     }
-    const mapBox = map.getContainer().getBoundingClientRect();
-    // the sheet sits at the bottom of the window, which can be below the map's bottom
-    const covered = Math.max(0, props.bottomInset - (window.innerHeight - mapBox.bottom));
-    // a sheet that takes most of the map still leaves room for the route above it
-    const bottom = Math.min(covered, mapBox.height / 2);
+    const bottom = coveredBottom();
     fitMoving = true;
     // before the fit, as a fit that doesn't animate ends straight away
     map.once("moveend", fitLanded);
@@ -330,13 +371,196 @@ const fitLanded = () => {
 
 const stopFollowingSheet = () => {
     routeFitted = false;
+    stopFocused = false;
 }
 
 watch(() => props.bottomInset, () => {
     if (routeFitted) {
         fitRoute();
     }
+    if (stopFocused) {
+        focusStop(false);
+    }
 });
+
+// --- stops: drawn once zoomed in, and the open one at any zoom ---
+const STOP_STYLE = {
+    radius: 5,
+    color: "#000000",
+    fillColor: "#ffffff",
+    fillOpacity: 1,
+    weight: 2,
+};
+const SELECTED_STOP_STYLE = {
+    radius: 8,
+    color: "#ffffff",
+    fillColor: "#3f51b5",
+    fillOpacity: 1,
+    weight: 3,
+};
+const STOP_FOCUS_ZOOM = 16;
+
+// stops closed, moved or detoured around by an alert in effect, ringed on the map
+const serviceAlerts = useServiceAlerts();
+const nowLocal = useNowLocal();
+const disruptedStops = computed(() => stopsWithAlerts(serviceAlerts.value, nowLocal.value));
+
+/** @type {import('leaflet').LayerGroup | null} */
+let stopLayer = null;
+/** @type {import('leaflet').Canvas | null} thousands of stops are too slow as svg elements */
+let stopRenderer = null;
+
+const stopPoints = computed(() =>
+    (stops.value ?? [])
+        .filter((stop) => !stop.location_type || stop.location_type === "0")
+        .map((stop) => ({ stop, lat: Number(stop.stop_lat), lon: Number(stop.stop_lon) }))
+        .filter(({ lat, lon }) => Number.isFinite(lat) && Number.isFinite(lon)),
+);
+
+/**
+ * @param {{lat: number, lon: number, stop: import("../api/index").BusStop}} point
+ * @param {object} style
+ */
+const addStopMarker = (point, style) => {
+    const effect = disruptedStops.value.get(point.stop.stop_id);
+    if (effect) {
+        stopLayer.addLayer(L.circleMarker([point.lat, point.lon], { ...DISRUPTION_RING_STYLE, radius: style.radius + 4, renderer: stopRenderer }));
+    }
+    const marker = L.circleMarker([point.lat, point.lon], { ...style, renderer: stopRenderer });
+    marker.on("click", (event) => {
+        L.DomEvent.stopPropagation(event);
+        emits("stop-click", point.stop);
+    });
+    marker.bindTooltip(effect ? `${point.stop.stop_name} • ${effectLabel(effect)}` : point.stop.stop_name);
+    stopLayer.addLayer(marker);
+}
+
+const drawStops = () => {
+    if (!map || !stopLayer) {
+        return;
+    }
+    stopLayer.clearLayers();
+    const zoomedIn = map.getZoom() >= MIN_STOP_ZOOM;
+    if (zoomedIn) {
+        stopsWanted.value = true;
+    }
+    let selected = null;
+    // a picked bus shows its own route's stops instead
+    const showAll = zoomedIn && !selectedBus.value;
+    const bounds = map.getBounds().pad(0.2);
+    for (const point of stopPoints.value) {
+        if (point.stop.stop_id === props.stopId) {
+            selected = point;
+        } else if (showAll && bounds.contains([point.lat, point.lon])) {
+            addStopMarker(point, STOP_STYLE);
+        }
+    }
+    // drawn last so it sits on top of its neighbours
+    if (selected) {
+        addStopMarker(selected, SELECTED_STOP_STYLE);
+    }
+}
+
+watch([stopPoints, () => props.stopId, disruptedStops, selectedBus], drawStops);
+
+const selectedStop = computed(() => (props.stopId ? keyedStops.value[props.stopId] ?? null : null));
+
+// set while the map is still centred on the open stop, so it follows the sheet as it opens
+let stopFocused = false;
+/** @type {string | null} the stop or station the map last centred on */
+let focusedKey = null;
+// going back to a stop returns to the view the user left, rather than re-centring
+let keepRememberedView = navigatingByHistory && Boolean(rememberedHomeView);
+// the first centring jumps, so a stop opened from a link doesn't start with a flight across the city
+let hasFocused = false;
+let focusMoving = false;
+let refocusQueued = false;
+
+/**
+ * Centres the map on a point, in the part above the page's sheet
+ * @param {import('leaflet').LatLngExpression} latlng
+ * @param {number} zoom
+ * @param {boolean} animate
+ */
+const centreAboveSheet = (latlng, zoom, animate) => {
+    const target = map.unproject(map.project(latlng, zoom).add([0, coveredBottom() / 2]), zoom);
+    if (animate && !prefersReducedMotion()) {
+        focusMoving = true;
+        map.once("moveend", focusLanded);
+        map.flyTo(target, zoom, { duration: FLY_DURATION_SECONDS });
+    } else {
+        map.setView(target, zoom);
+    }
+}
+
+const focusLanded = () => {
+    focusMoving = false;
+    if (refocusQueued) {
+        refocusQueued = false;
+        if (stopFocused) {
+            focusStop(false);
+        }
+    }
+}
+
+/**
+ * Centres on the open stop, or the middle of its station, so switching between an
+ * LRT station's platforms doesn't nudge the map
+ * @param {boolean} animate
+ */
+const focusStop = (animate) => {
+    const stop = selectedStop.value;
+    if (!map || !stop) {
+        return;
+    }
+    if (focusMoving) {
+        refocusQueued = true;
+        return;
+    }
+    const place = (stop.parent_station && keyedStops.value[stop.parent_station]) || stop;
+    const lat = Number(place.stop_lat);
+    const lon = Number(place.stop_lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return;
+    }
+    stopFocused = true;
+    centreAboveSheet([lat, lon], Math.max(map.getZoom(), STOP_FOCUS_ZOOM), animate);
+}
+
+const onStopChange = () => {
+    const stop = selectedStop.value;
+    if (!stop) {
+        focusedKey = null;
+        stopFocused = false;
+        return;
+    }
+    const key = stop.parent_station ? `station:${stop.parent_station}` : `stop:${stop.stop_id}`;
+    if (!map || key === focusedKey) {
+        return;
+    }
+    focusedKey = key;
+    if (keepRememberedView) {
+        keepRememberedView = false;
+        return;
+    }
+    focusStop(hasFocused);
+    hasFocused = true;
+}
+
+watch(selectedStop, onStopChange);
+
+/**
+ * Brings a point into view above the sheet, e.g. a bus picked in the stop's panel
+ * @param {number} lat
+ * @param {number} lng
+ */
+const showPoint = (lat, lng) => {
+    if (!map) {
+        return;
+    }
+    stopFocused = false;
+    centreAboveSheet([lat, lng], Math.max(map.getZoom(), STOP_FOCUS_ZOOM), true);
+}
 
 /** @type {import("leaflet").Marker[]} */
 let stopMarkers = [];
@@ -371,7 +595,10 @@ watch(tripStops, () => {
                 weight: 2
             }
         ).addTo(homeLayer);
-        marker.on("click", (event) => L.DomEvent.stopPropagation(event));
+        marker.on("click", (event) => {
+            L.DomEvent.stopPropagation(event);
+            emits("stop-click", stopDetails);
+        });
         marker.bindTooltip(`${stopDetails.stop_name} ${stop.arrival_time_fixed}`);
         stopMarkers.push(marker);
     }
@@ -402,7 +629,8 @@ const locate = () => {
                 weight: 3,
                 interactive: false,
             }).addTo(homeLayer);
-            map.setView(latlng, 16);
+            stopFocused = false;
+            map.setView(latlng, STOP_FOCUS_ZOOM);
         },
         () => {
             showLocationError.value = true;
@@ -411,12 +639,24 @@ const locate = () => {
     );
 }
 
+const onMapClick = () => {
+    clearRouteSelection();
+    emits("map-click");
+}
+
 const releaseMap = () => {
-    map?.off("click", clearRouteSelection);
+    map?.off("click", onMapClick);
     map?.off("moveend", landedHome);
     map?.off("moveend", fitLanded);
+    map?.off("moveend", focusLanded);
+    map?.off("moveend", drawStops);
     fitMoving = false;
     refitQueued = false;
+    focusMoving = false;
+    refocusQueued = false;
+    stopRenderer?.remove();
+    stopRenderer = null;
+    stopLayer = null;
     map?.getContainer().removeEventListener("pointerdown", stopFollowingSheet);
     map?.getContainer().removeEventListener("wheel", stopFollowingSheet);
     homeLayer?.remove();
@@ -439,7 +679,10 @@ const createMap = () => {
     map.twoFingerPan.disable();
     map.ctrlScrollZoom.disable();
     homeLayer = L.layerGroup().addTo(map);
-    map.on("click", clearRouteSelection);
+    stopRenderer = L.canvas({ padding: 0.2, tolerance: 6 });
+    stopLayer = L.layerGroup().addTo(homeLayer);
+    map.on("click", onMapClick);
+    map.on("moveend", drawStops);
     map.getContainer().addEventListener("pointerdown", stopFollowingSheet);
     map.getContainer().addEventListener("wheel", stopFollowingSheet, { passive: true });
     // back to where the user was, or the whole city the first time
@@ -458,6 +701,8 @@ onMounted(() => {
     createMap();
     // a cached snapshot from an earlier visit shows straight away
     renderBuses(mapBuses.value);
+    drawStops();
+    onStopChange();
 })
 
 onBeforeUnmount(() => {
@@ -474,7 +719,7 @@ onBeforeUnmount(() => {
 })
 
 // so the page can close the selection too, e.g. when the bottom sheet is swiped away
-defineExpose({ clearSelection: clearRouteSelection });
+defineExpose({ clearSelection: clearRouteSelection, showPoint });
 </script>
 <template>
   <div class="map-wrapper">

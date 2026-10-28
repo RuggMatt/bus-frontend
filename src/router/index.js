@@ -5,11 +5,14 @@ import { pageTitle } from "../utils/pageTitle";
 import { setNavigatingByHistory } from "../plugins/sharedMap";
 import { installStaleBuildReload } from "../utils/staleBuild";
 
+// the main map and a stop share one page, so going between them keeps the map
+const HomePage = () => import("../views/HomePage.vue");
+
 const routes = [
   {
     path: "/",
     name: "Home",
-    component: () => import("../views/HomePage.vue"),
+    component: HomePage,
   },
   {
     path: "/routes",
@@ -17,11 +20,13 @@ const routes = [
     meta: { title: "Routes" },
     component: () => import("../views/RoutesPage.vue"),
   },
+  // a stop opens over the main map, so the stops list moved there
+  { path: "/stops", redirect: "/" },
   {
-    path: "/stops/:stopId?",
-    name: "Stops",
-    meta: { title: (route) => (route.params.stopId ? `Stop ${route.params.stopId}` : "Stops") },
-    component: () => import("../views/StopsPage.vue"),
+    path: "/stops/:stopId",
+    name: "Stop",
+    meta: { title: (route) => `Stop ${route.params.stopId}` },
+    component: HomePage,
     props: true,
   },
   {
