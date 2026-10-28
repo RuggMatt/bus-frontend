@@ -4,9 +4,8 @@ import { useRoute } from 'vue-router';
 const route = useRoute();
 
 const links = [
-  { to: '/', icon: 'mdi-bus', title: 'Buses' },
+  { to: '/', icon: 'mdi-map', title: 'Map' },
   { to: '/routes', icon: 'mdi-routes', title: 'Routes' },
-  { to: '/stops', icon: 'mdi-bus-stop', title: 'Stops' },
 ];
 </script>
 <template>

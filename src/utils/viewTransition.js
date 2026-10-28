@@ -35,7 +35,10 @@ export const navigateWithTransition = async (router, to) => {
 };
 
 // the pages sharing one map (see plugins/sharedMap.js)
-const MAP_PAGES = new Set(["Home", "Trip Details", "Bus Details", "Route Details"]);
+const MAP_PAGES = new Set(["Home", "Stop", "Trip Details", "Bus Details", "Route Details"]);
+// a stop opens on the main map's page, so the two are one page here
+/** @param {import("vue-router").RouteLocationNormalized} route */
+const mapPage = (route) => (route.name === "Stop" ? "Home" : route.name);
 
 /**
  * Between two different map pages. The same page with new params keeps its map.
@@ -44,7 +47,7 @@ const MAP_PAGES = new Set(["Home", "Trip Details", "Bus Details", "Route Details
  * @param {import("vue-router").RouteLocationNormalized} from
  */
 const isMapPair = (to, from) =>
-  to.name !== from.name && MAP_PAGES.has(String(to.name)) && MAP_PAGES.has(String(from.name));
+  mapPage(to) !== mapPage(from) && MAP_PAGES.has(String(to.name)) && MAP_PAGES.has(String(from.name));
 
 /**
  * Plays a view transition on every navigation between two pages with the shared

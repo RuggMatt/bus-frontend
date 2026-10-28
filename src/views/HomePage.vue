@@ -2,6 +2,8 @@
 import NewBusMap from '../components/NewBusMap.vue';
 import BusDetails from '../components/BusDetails.vue';
 import TimeTravelChip from '../components/TimeTravelChip.vue';
+import MapSearch from '../components/MapSearch.vue';
+import StopPanel from '../components/StopPanel.vue';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useBusTrip } from '../composables/useBusTrip';
@@ -9,6 +11,14 @@ import { useDisplay } from 'vuetify';
 import { useMapBuses } from '../composables/useBuses';
 import { navigatingByHistory, rememberedHomeView } from '../plugins/sharedMap';
 import { parseTravelTime } from '../utils/timeTravel';
+
+const props = defineProps({
+  // /stops/:stopId opens the stop's upcoming buses over the same map
+  stopId: {
+    type: String,
+    default: null,
+  },
+});
 
 const { mdAndUp } = useDisplay();
 const route = useRoute();
@@ -37,10 +47,11 @@ const restoredBus = restoreBusId === null
   ? null
   : buses.value?.find((candidate) => String(candidate.bus) === String(restoreBusId)) ?? null;
 
-// opened from the start, so the map already has its final size when it flies back
-const showBottomSheet = ref(Boolean(restoredBus) && !mdAndUp.value);
 /** @type {import('vue').Ref<import('../api').Bus | null>} */
 const bus = ref(restoredBus);
+// on a phone the bus or stop opens in a sheet, from the start when restored so the map
+// already has its final size when it flies back
+const showBottomSheet = computed(() => !mdAndUp.value && Boolean(bus.value || props.stopId));
 
 const { trip, isError } = useBusTrip(bus, { pastPosition: () => Boolean(at.value) });
 
@@ -53,6 +64,7 @@ watch([trip, isError, bus], () => {
 // swipe down on the sheet to dismiss it; only when its content isn't scrolled down
 const DISMISS_DISTANCE = 80;
 const dragStartY = ref(null);
+const dragStartX = ref(0);
 const dragOffset = ref(0);
 
 const scrolledAncestor = (el, stop) => {
@@ -66,11 +78,18 @@ const onSheetTouchStart = (event) => {
   dragStartY.value = scrolledAncestor(event.target, event.currentTarget)
     ? null
     : event.touches[0].clientY;
+  dragStartX.value = event.touches[0].clientX;
 };
 
 const onSheetTouchMove = (event) => {
   if (dragStartY.value === null) return;
-  dragOffset.value = Math.max(0, event.touches[0].clientY - dragStartY.value);
+  const dy = event.touches[0].clientY - dragStartY.value;
+  // a sideways swipe is the stop panel's, between an LRT station's directions
+  if (!dragOffset.value && Math.abs(event.touches[0].clientX - dragStartX.value) > Math.abs(dy)) {
+    dragStartY.value = null;
+    return;
+  }
+  dragOffset.value = Math.max(0, dy);
   // the drag is the sheet's, so Chrome mustn't take it as pull to refresh
   if (dragOffset.value > 0 && event.cancelable) event.preventDefault();
 };
@@ -85,20 +104,48 @@ onBeforeUnmount(() => setPullToRefresh(true));
 
 const onSheetTouchEnd = () => {
   if (dragOffset.value > DISMISS_DISTANCE) {
-    showBottomSheet.value = false;
+    closeSelection();
   }
   dragStartY.value = null;
   dragOffset.value = 0;
 };
 
-/** @type {import('vue').Ref<{clearSelection: () => void} | null>} */
+/** @type {import('vue').Ref<{clearSelection: () => void, showPoint: (lat: number, lng: number) => void} | null>} */
 const busMap = ref(null);
+
+// --- a stop, opened from the map or the search ---
+/** @type {import('vue').Ref<(string | number)[] | null>} the buses on their way to the open stop */
+const stopBusIds = ref(null);
+/** @type {import('vue').Ref<string | number | null>} a bus picked in the stop's list */
+const stopBusId = ref(null);
+watch(() => props.stopId, () => {
+  stopBusIds.value = null;
+  stopBusId.value = null;
+});
+
+/** @param {import('../api').BusStop} stop */
+const openStop = (stop) => {
+  // the map lets go of the bus, so its route line goes and the stop's buses show
+  if (bus.value) busMap.value?.clearSelection();
+  if (stop.stop_id !== props.stopId) router.push(`/stops/${encodeURIComponent(stop.stop_id)}`);
+};
+
+const closeStop = () => {
+  if (props.stopId) router.push('/');
+};
+
+/** @param {import('../composables/useStopArrivals').StopBus | null} stopBus */
+const showStopBus = (stopBus) => {
+  stopBusId.value = stopBus?.bus ?? null;
+  if (stopBus) busMap.value?.showPoint(stopBus.lat, stopBus.long);
+};
 
 // however the sheet closes (swiped away included), the map lets go of the bus, so its
 // route line goes and every bus shows again
-watch(showBottomSheet, (open) => {
-  if (!open && bus.value && !mdAndUp.value) busMap.value?.clearSelection();
-});
+const closeSelection = () => {
+  if (bus.value) busMap.value?.clearSelection();
+  else closeStop();
+};
 
 // how tall the open sheet is, so the map can fit the bus's route above it
 const sheetCard = ref(null);
@@ -114,17 +161,23 @@ onBeforeUnmount(() => sheetObserver.disconnect());
 
 const viewBusDetails = (clickedBus) => {
     bus.value = clickedBus;
-    if (!mdAndUp.value) {
-      showBottomSheet.value = Boolean(clickedBus);
-    }
+    // a bus and a stop don't share the panel
+    if (clickedBus) closeStop();
 }
 </script>
 <template>
   <div class="home-layout">
     <!-- Desktop: Left Sidebar -->
-    <div v-if="bus && mdAndUp" class="bus-details-panel">
+    <div v-if="(bus || stopId) && mdAndUp" class="bus-details-panel">
       <VCard class="rounded-0 h-100">
-        <BusDetails :bus="bus" :past="Boolean(at)" />
+        <BusDetails v-if="bus" :bus="bus" :past="Boolean(at)" />
+        <StopPanel
+          v-else
+          :stop-id="stopId"
+          @close="closeStop"
+          @buses="stopBusIds = $event"
+          @select-bus="showStopBus"
+        />
       </VCard>
     </div>
 
@@ -135,15 +188,23 @@ const viewBusDetails = (clickedBus) => {
         :restore-bus-id="restoredBus?.bus ?? null"
         :bottom-inset="showBottomSheet ? sheetHeight : 0"
         :at="at"
+        :stop-id="bus ? null : stopId"
+        :stop-bus-ids="stopId && !bus ? stopBusIds : null"
+        :highlight-bus-id="stopId && !bus ? stopBusId : null"
         @bus-details="viewBusDetails($event)"
+        @stop-click="openStop"
+        @map-click="closeStop"
       />
-      <TimeTravelChip v-model="at" :loading="loadingBuses" class="time-travel-overlay" />
+      <div class="map-top">
+        <MapSearch class="map-search" @select-stop="openStop" />
+        <TimeTravelChip v-model="at" :loading="loadingBuses" />
+      </div>
     </div>
 
     <!-- Mobile: Bottom Sheet -->
     <!-- non-modal so the map can still be panned and zoomed; tapping the map closes it -->
     <VBottomSheet
-      v-model="showBottomSheet"
+      :model-value="showBottomSheet"
       :scrim="false"
       persistent
       no-click-animation
@@ -160,7 +221,16 @@ const viewBusDetails = (clickedBus) => {
         @touchend="onSheetTouchEnd"
         @touchcancel="onSheetTouchEnd"
       >
-        <BusDetails v-if="bus" :bus="bus" :past="Boolean(at)" />
+        <div class="sheet-content">
+          <BusDetails v-if="bus" :bus="bus" :past="Boolean(at)" />
+          <StopPanel
+            v-else-if="stopId && !mdAndUp"
+            :stop-id="stopId"
+            @close="closeStop"
+            @buses="stopBusIds = $event"
+            @select-bus="showStopBus"
+          />
+        </div>
       </VCard>
     </VBottomSheet>
 
@@ -206,11 +276,32 @@ const viewBusDetails = (clickedBus) => {
   position: relative;
 }
 
-.time-travel-overlay {
-  left: 50%;
+/* the search and time travel, clear of leaflet's zoom buttons in the top left */
+.map-top {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  left: 56px;
+  pointer-events: none;
   position: absolute;
-  top: 12px;
-  transform: translateX(-50%);
+  right: 12px;
+  top: 10px;
   z-index: 1;
+}
+
+.map-top > * {
+  pointer-events: auto;
+}
+
+.map-search {
+  max-width: 360px;
+  width: 100%;
+}
+
+/* a stop's list can be long, so it scrolls inside the sheet and leaves the map in view */
+.sheet-content {
+  max-height: 60dvh;
+  overflow-y: auto;
 }
 </style>

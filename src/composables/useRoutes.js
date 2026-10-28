@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/vue-query";
 import { getAllRoutes } from "../api";
 import { computed } from "vue";
 
-export const useRoutes = () => {
+/** @param {{ enabled?: import("vue").MaybeRefOrGetter<boolean> }} [options] */
+export const useRoutes = ({ enabled = true } = {}) => {
   const {
     data: routes,
     isLoading,
@@ -10,6 +11,7 @@ export const useRoutes = () => {
   } = useQuery({
     queryKey: ["routes"],
     queryFn: getAllRoutes,
+    enabled,
   });
 
   return {

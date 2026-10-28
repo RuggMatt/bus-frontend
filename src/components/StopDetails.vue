@@ -291,7 +291,7 @@ const onTouchEnd = (event) => {
           :value="platform.stop_id"
           class="text-none"
         >
-          <span class="text-truncate">{{ platformLabel(platform) }}</span>
+          {{ platformLabel(platform) }}
         </v-btn>
       </v-btn-toggle>
     </div>
@@ -347,14 +347,26 @@ const onTouchEnd = (event) => {
   margin-top: 8px;
 }
 
-/* long headsigns share the width instead of pushing past the panel */
+/* the directions stack, so a long headsign gets the full width instead of being cut off */
 .platform-toggle {
+  flex-direction: column;
+  height: auto;
   width: 100%;
 }
 
 .platform-toggle .v-btn {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-height: 44px;
+  width: 100%;
+}
+
+.platform-toggle .v-btn :deep(.v-btn__content) {
+  white-space: normal;
+}
+
+.platform-toggle.v-btn-group--divided .v-btn:not(:last-child) {
+  border-inline-end-width: 0;
+  border-bottom-width: thin;
 }
 
 /* clips sideways only, so the cards' shadows and fades still show above and below */

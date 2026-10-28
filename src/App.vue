@@ -97,8 +97,7 @@ const moreOpen = ref(false);
 const navSections = [
   {
     items: [
-      { title: 'Buses', to: '/', icon: 'mdi-bus', tab: 'buses' },
-      { title: 'Stops', to: '/stops', icon: 'mdi-bus-stop', tab: 'stops' },
+      { title: 'Map', to: '/', icon: 'mdi-map', tab: 'map' },
       { title: 'Routes', to: '/routes', icon: 'mdi-routes', tab: 'routes' },
     ],
   },
@@ -135,8 +134,8 @@ const activeTab = computed(() => {
   const path = route.path;
   // a mistyped /trips/… address isn't in any section
   if (route.name === 'Not Found') return null;
-  if (path === '/' || path.startsWith('/buses/')) return 'buses';
-  if (path.startsWith('/stops')) return 'stops';
+  // a stop and a route's page for it open from the map
+  if (path === '/' || path.startsWith('/buses/') || path.startsWith('/stops')) return 'map';
   if (path.startsWith('/routes') || path.startsWith('/trips')) return 'routes';
   return 'more';
 });

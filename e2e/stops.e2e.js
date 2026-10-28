@@ -24,3 +24,32 @@ test("a stop lists its routes with a bus on the way first, and a week of delays 
   await cards.nth(0).getByRole("link", { name: "Route 8 at this stop" }).click({ position: { x: 24, y: 24 } });
   await expect(page).toHaveURL(/\/stops\/1003\/routes\/008/);
 });
+
+test("a stop opens over the main map, and tapping the map closes it", async ({ page }) => {
+  await page.goto("/stops/1003");
+  await expect(page.getByText("Jasper Ave & 100 St").first()).toBeVisible();
+  await expect(page).toHaveTitle(/Jasper Ave & 100 St · Stop 1003/);
+  // its bus is on the map, badged with its route
+  await expect(page.locator(".leaflet-marker-icon .bus-route-badge").first()).toHaveText("8");
+
+  // empty map, well away from the panel or sheet
+  await page.locator(".leaflet-container").click({ position: { x: 200, y: 140 } });
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(".stop-arrivals")).toHaveCount(0);
+});
+
+test("the map's search finds a route by number or a stop by number", async ({ page }) => {
+  await page.goto("/");
+  const search = page.getByRole("combobox", { name: /Search for a route/ });
+
+  await search.fill("1003");
+  await page.getByRole("option", { name: /Jasper Ave & 100 St/ }).click();
+  await expect(page).toHaveURL(/\/stops\/1003$/);
+  await expect(page.locator(".stop-arrivals > .v-card").first()).toContainText("Abbottsfield - Downtown - University");
+
+  await search.fill("8");
+  // the route's own number comes before stops starting with it
+  await expect(page.getByRole("option").first()).toContainText("Route 8");
+  await page.getByRole("option").first().click();
+  await expect(page).toHaveURL(/\/routes\/008$/);
+});

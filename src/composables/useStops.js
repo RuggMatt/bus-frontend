@@ -3,7 +3,12 @@ import { getAllBusStops } from "../api";
 import { computed } from "vue";
 
 
-export const useStops = () => {
+/**
+ * Every stop, from the open data API. They're a few thousand rows, so a page that doesn't
+ * always need them can hold off with `enabled`.
+ * @param {{ enabled?: import("vue").MaybeRefOrGetter<boolean> }} [options]
+ */
+export const useStops = ({ enabled = true } = {}) => {
   const {
     data: stops,
     isLoading,
@@ -12,6 +17,7 @@ export const useStops = () => {
     queryKey: ["stops"],
     queryFn: getAllBusStops,
     staleTime: Infinity,
+    enabled,
   });
 
   return {
