@@ -26,13 +26,14 @@ export const refreshReportAges = (element) => {
 /**
  * Pin pointing in the bus's direction of travel, with an upright glyph on top
  * @param {import("../api").Bus} bus
- * @param {{showAge?: boolean, label?: string, history?: boolean, selected?: boolean, status?: boolean}} [options]
+ * @param {{showAge?: boolean, label?: string, history?: boolean, selected?: boolean, status?: boolean, route?: string}} [options]
  *   showAge: label the pin with how old its position is, kept current by refreshReportAges.
  *   status: colour the pin by how late the bus is running (its `delay`), grey when unknown.
  *   label: a fixed badge instead, e.g. the time of a recorded position. history: a smaller
- *   pin for a past position. selected: the one picked from a list
+ *   pin for a past position. selected: the one picked from a list. route: a route number
+ *   to badge the pin with, so buses can be told apart without tapping them
  */
-export const createBusIcon = (bus, { showAge = false, label = "", history = false, selected = false, status = false } = {}) => {
+export const createBusIcon = (bus, { showAge = false, label = "", history = false, selected = false, status = false, route = "" } = {}) => {
     const level = showAge && bus.timestamp ? reportAgeLevel(bus.timestamp) : "fresh";
     const offset = status ? predictedOffsetMinutes(bus) : null;
     return L.divIcon({
@@ -54,6 +55,7 @@ export const createBusIcon = (bus, { showAge = false, label = "", history = fals
             <i class="bus-icon-glyph mdi ${isElectric(bus) ? "mdi-lightning-bolt" : "mdi-bus"}"></i>
             ${showAge && bus.timestamp ? `<span class="bus-age-badge" data-level="${level}" data-timestamp="${Number(bus.timestamp)}">${formatReportAge(bus.timestamp)}</span>` : ""}
             ${label ? `<span class="bus-time-badge">${escapeHtml(label)}</span>` : ""}
+            ${route ? `<span class="bus-route-badge">${escapeHtml(route)}</span>` : ""}
         </div>`,
         iconSize: [36, 36],
         iconAnchor: [18, 18],
