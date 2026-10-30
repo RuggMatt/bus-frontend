@@ -1187,6 +1187,9 @@ export const getTripStartTimes = async (tripIds) => {
  * @property {number} totalBytes
  * @property {number} usedBytes
  * @property {number} percentFull
+ * @property {number} [databaseBytes] Size of the database file and its WAL
+ * @property {number} [reusableBytes] Space inside the database freed by trims, reused before the file grows
+ * @property {number} [effectivePercentFull] percentFull not counting reusableBytes, which the disk alert goes by
  */
 
 /**
