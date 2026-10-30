@@ -23,6 +23,47 @@
         </div>
       </v-card-text>
     </v-card>
+
+    <!-- only from a backend that reports the database's own space -->
+    <v-card
+      v-if="diskStats.databaseBytes !== undefined"
+      class="mt-4"
+    >
+      <v-card-title>Database</v-card-title>
+      <v-card-text>
+        <div class="d-flex justify-space-between align-center mb-1">
+          <span>Database size</span>
+          <span class="font-weight-bold text-no-wrap ms-4">{{ formatBytes(diskStats.databaseBytes) }}</span>
+        </div>
+        <div class="d-flex justify-space-between align-center mb-1">
+          <span>Freed by trims, reused first</span>
+          <span class="font-weight-bold text-no-wrap ms-4">{{ formatBytes(diskStats.reusableBytes) }}</span>
+        </div>
+        <div class="d-flex justify-space-between align-center mb-1">
+          <span>Data stored</span>
+          <span class="font-weight-bold text-no-wrap ms-4">{{ formatBytes(diskStats.databaseBytes - diskStats.reusableBytes) }}</span>
+        </div>
+        <div class="mt-6">
+          <div class="d-flex justify-space-between align-center mb-3">
+            <span class="font-weight-bold">Disk Full, counting freed space as available: {{ (diskStats.effectivePercentFull * 100).toFixed(2) }}%</span>
+            <span class="text-caption">{{ formatBytes(diskStats.availableBytes + diskStats.reusableBytes) }} available</span>
+          </div>
+          <div class="progress-bar-container">
+            <v-progress-linear
+              :model-value="diskStats.effectivePercentFull * 100"
+              :color="getDiskUsageColor(diskStats.effectivePercentFull)"
+              height="32"
+            />
+            <div class="progress-bar-label">
+              {{ (diskStats.effectivePercentFull * 100).toFixed(2) }}%
+            </div>
+          </div>
+          <div class="text-caption mt-2">
+            The disk space alert goes by this figure.
+          </div>
+        </div>
+      </v-card-text>
+    </v-card>
   </v-container>
 </template>
 
@@ -38,7 +79,7 @@ const diskStats = ref({
 });
 
 const formatBytes = (bytes) => {
-  if (bytes === 0) return '0 Bytes';
+  if (bytes <= 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
