@@ -10,6 +10,7 @@ import { useBusTrip } from '../composables/useBusTrip';
 import { liveBusesQuery } from '../composables/useBuses';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { edmontonNow, scheduledEpochsNear, scheduledSecondsNear, serviceRunsOnDay, timeToSeconds, weekdayOf } from '../utils/serviceTime';
+import { edmontonTimeZone } from '../utils/edmontonTimeZone';
 import { alertsForTrip, edmontonLocal, effectLabel } from '../utils/serviceAlerts';
 import { LOCAL_AGENCY, RAIL_ROUTE_TYPE, headsignWithoutRoute, routeColor, routeNumber } from '../utils/routes';
 import { NO_TIMES_HEX, STATUS_HEX, formatScheduledTime, scheduleStatus } from '../utils/busStatus';
@@ -352,7 +353,7 @@ function convertUnixEpochToTime(unixEpoch) {
     if (!unixEpoch) return null;
     const date = new Date(unixEpoch * 1000);
     // schedules are in Edmonton time, so show estimates the same way wherever the viewer is
-    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: 'America/Edmonton' });
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: edmontonTimeZone(date) });
 }
 
 const startTime = computed(() => {

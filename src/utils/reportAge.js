@@ -1,4 +1,5 @@
 // @ts-check
+import { edmontonDateTimeFormat } from "./edmontonTimeZone";
 
 const MINUTE = 60;
 const HOUR = 60 * MINUTE;
@@ -7,13 +8,11 @@ const DAY = 24 * HOUR;
 const STALE_SECONDS = 5 * MINUTE;
 const OLD_SECONDS = HOUR;
 
-const DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Edmonton",
+const DATE_FORMAT = edmontonDateTimeFormat("en-CA", {
   month: "short",
   day: "numeric",
 });
-const DATE_WITH_YEAR_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Edmonton",
+const DATE_WITH_YEAR_FORMAT = edmontonDateTimeFormat("en-CA", {
   month: "short",
   day: "numeric",
   year: "numeric",
