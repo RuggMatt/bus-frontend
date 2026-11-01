@@ -15,6 +15,7 @@ import { formatDelay, typicalStatus } from '../utils/delayStats';
 import { percent } from '../utils/delayRankings';
 import { formatReportAge, reportAgeLevel } from '../utils/reportAge';
 import { edmontonNow } from '../utils/serviceTime';
+import { edmontonTimeZone } from '../utils/edmontonTimeZone';
 import { edmontonDate, formatTripDuration, formatTripTimes, tripDayLabel } from '../utils/tripTimes';
 import { addDays, formatShortDate, isDateString, weekRange, weekStart } from '../utils/weeks';
 import { headsignWithoutRoute } from '../utils/routes';
@@ -261,7 +262,7 @@ const isElectric = computed(() => Number(props.busId) >= 8000 && Number(props.bu
 const trackedSince = computed(() =>
     busInfo.value?.firstSeen
         ? new Date(busInfo.value.firstSeen * 1000).toLocaleDateString('en-CA', {
-            timeZone: 'America/Edmonton',
+            timeZone: edmontonTimeZone(busInfo.value.firstSeen * 1000),
             month: 'short',
             day: 'numeric',
             year: 'numeric',

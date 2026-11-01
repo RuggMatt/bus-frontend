@@ -1,9 +1,10 @@
+import { edmontonDateTimeFormat } from "./edmontonTimeZone";
+
 const DAY_SECONDS = 24 * 60 * 60;
 // GTFS times run past 24:00:00 for trips that started on the previous service day
 const MAX_SERVICE_SECONDS = 30 * 60 * 60;
 
-const EDMONTON_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Edmonton",
+const EDMONTON_FORMAT = edmontonDateTimeFormat("en-CA", {
   year: "numeric",
   month: "2-digit",
   day: "2-digit",

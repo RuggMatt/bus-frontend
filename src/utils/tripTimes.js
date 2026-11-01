@@ -1,21 +1,19 @@
 // @ts-check
+import { edmontonDateTimeFormat } from "./edmontonTimeZone";
 import { edmontonNow } from "./serviceTime";
 
-const TIME_FORMAT = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Edmonton",
+const TIME_FORMAT = edmontonDateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
   hour12: true,
 });
-const TIME_WITH_SECONDS_FORMAT = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Edmonton",
+const TIME_WITH_SECONDS_FORMAT = edmontonDateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
   second: "2-digit",
   hour12: true,
 });
-const DAY_FORMAT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Edmonton",
+const DAY_FORMAT = edmontonDateTimeFormat("en-CA", {
   weekday: "long",
   month: "short",
   day: "numeric",
