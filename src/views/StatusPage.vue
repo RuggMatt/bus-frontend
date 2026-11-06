@@ -64,6 +64,50 @@
         </div>
       </v-card-text>
     </v-card>
+
+    <!-- only from a backend that reports each table's size -->
+    <v-card
+      v-if="diskStats.tableSizes"
+      class="mt-4"
+    >
+      <v-card-title>Space by Table</v-card-title>
+      <v-card-text>
+        <div v-if="!diskStats.tableSizes.tables">
+          Working out each table's size. Reload in a minute to see it.
+        </div>
+        <template v-else>
+          <div
+            v-for="table in diskStats.tableSizes.tables"
+            :key="table.name"
+            class="mb-3"
+          >
+            <div class="d-flex justify-space-between align-center mb-1">
+              <span>
+                {{ TABLE_LABELS[table.name] ?? table.name }}
+                <span
+                  v-if="TABLE_LABELS[table.name]"
+                  class="text-caption text-medium-emphasis"
+                >{{ table.name }}</span>
+              </span>
+              <span class="font-weight-bold text-no-wrap ms-4">
+                {{ formatBytes(table.bytes) }}
+                <span class="text-caption">({{ tableShare(table.bytes) }}%)</span>
+              </span>
+            </div>
+            <v-progress-linear
+              :model-value="tableShare(table.bytes)"
+              color="#39FF14"
+              height="6"
+              rounded
+            />
+          </div>
+          <div class="text-caption mt-2">
+            Each table's indexes are included. Shares are of the data stored.
+            Worked out {{ formatAge(diskStats.tableSizes.computedAt) }}, and again every six hours at most.
+          </div>
+        </template>
+      </v-card-text>
+    </v-card>
   </v-container>
 </template>
 
@@ -84,6 +128,29 @@ const formatBytes = (bytes) => {
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+};
+
+// what the backend's tables hold, for the table sizes card
+const TABLE_LABELS = {
+  pos: 'Bus positions',
+  actual_stop_times: 'Stop times',
+  trip_delays: 'Trip delay summaries',
+  actual_stop_time_days: 'Days of stop times worked out',
+  backups: 'Completed downloads',
+  sqlite_schema: 'Table list',
+  sqlite_sequence: 'Id counters',
+};
+
+const tableShare = (bytes) => {
+  const total = diskStats.value.tableSizes.tables.reduce((sum, t) => sum + t.bytes, 0);
+  return total ? Math.round((bytes / total) * 1000) / 10 : 0;
+};
+
+const formatAge = (seconds) => {
+  const minutes = Math.round((Date.now() / 1000 - seconds) / 60);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  return `${Math.round(minutes / 60)} h ago`;
 };
 
 const getDiskUsageColor = (percentFull) => {
