@@ -84,8 +84,7 @@ export const rangeDays = ({ from, to }) => Math.round((Date.parse(to) - Date.par
 /**
  * The period to show from the URL: a valid day up to today (whose trips are added as
  * they finish), or a week or month's date up to yesterday, moved to its period's start.
- * Without one a day is yesterday, the last whole day, and a week or month the last 7 or
- * 30 days ("").
+ * Without one a day is today, and a week or month the last 7 or 30 days ("").
  * @param {DelayPeriod} period
  * @param {unknown} date ?date=
  * @param {string} today YYYY-MM-DD in Edmonton
@@ -94,12 +93,12 @@ export const rangeDays = ({ from, to }) => Math.round((Date.parse(to) - Date.par
 export const initialPeriodStart = (period, date, today) => {
   const yesterday = addDays(today, -1);
   if (isDateString(date) && date <= (period === "day" ? today : yesterday)) return periodStart(period, date);
-  return period === "day" ? yesterday : "";
+  return period === "day" ? today : "";
 };
 
 /**
  * Where a switch to another period starts: a week or month is the last 7 or 30 days,
- * and a day is the last day shown, no later than yesterday
+ * and a day is the last day shown, no later than today
  * @param {DelayPeriod} next
  * @param {{from: string, to: string}} shown The range shown before
  * @param {string} today
@@ -107,8 +106,7 @@ export const initialPeriodStart = (period, date, today) => {
  */
 export const switchedPeriodStart = (next, shown, today) => {
   if (next !== "day") return "";
-  const yesterday = addDays(today, -1);
-  return shown.to > yesterday ? yesterday : shown.to;
+  return shown.to > today ? today : shown.to;
 };
 
 /**

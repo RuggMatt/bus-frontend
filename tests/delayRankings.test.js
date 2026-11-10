@@ -38,11 +38,13 @@ describe("periods", () => {
     expect(rangeDays(periodRange("month", "", today))).toBe(30);
   });
 
-  it("switches a week or month to the last 7 or 30 days, and a day to no later than yesterday", () => {
+  it("switches a week or month to the last 7 or 30 days, and a day to no later than today", () => {
     // this month runs past today, and its week would be in the future
     const thisMonth = periodRange("month", "2026-10-01", today);
     expect(switchedPeriodStart("week", thisMonth, today)).toBe("");
-    expect(switchedPeriodStart("day", thisMonth, today)).toBe("2026-10-13");
+    expect(switchedPeriodStart("day", thisMonth, today)).toBe("2026-10-14");
+    // the last 7 days end yesterday
+    expect(switchedPeriodStart("day", periodRange("week", "", today), today)).toBe("2026-10-13");
     expect(switchedPeriodStart("day", periodRange("week", "2026-09-27", today), today)).toBe("2026-10-03");
   });
 
@@ -51,11 +53,11 @@ describe("periods", () => {
     expect(addMonths("2026-01-01", -1)).toBe("2025-12-01");
   });
 
-  it("opens yesterday unless the URL has a day up to today", () => {
-    expect(initialPeriodStart("day", undefined, today)).toBe("2026-10-13");
-    expect(initialPeriodStart("day", today, today)).toBe("2026-10-14");
-    expect(initialPeriodStart("day", "2026-10-15", today)).toBe("2026-10-13");
-    expect(initialPeriodStart("day", "2026-02-30", today)).toBe("2026-10-13");
+  it("opens today unless the URL has an earlier day", () => {
+    expect(initialPeriodStart("day", undefined, today)).toBe("2026-10-14");
+    expect(initialPeriodStart("day", "2026-10-13", today)).toBe("2026-10-13");
+    expect(initialPeriodStart("day", "2026-10-15", today)).toBe("2026-10-14");
+    expect(initialPeriodStart("day", "2026-02-30", today)).toBe("2026-10-14");
     expect(initialPeriodStart("week", "2026-10-01", today)).toBe("2026-09-27");
     expect(initialPeriodStart("week", undefined, today)).toBe("");
     expect(initialPeriodStart("month", "2026-10-20", today)).toBe("");

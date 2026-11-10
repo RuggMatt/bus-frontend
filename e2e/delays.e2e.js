@@ -11,13 +11,16 @@ test("the delays page ranks the latest trips, routes and buses", async ({ page }
   const rows = page.locator(".delay-row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0)).toContainText("University");
-  await expect(rows.nth(0)).toContainText("Yesterday · 8:00 AM");
+  // it opens on today, with the trips that have finished so far
+  await expect(page.getByRole("button", { name: "Pick a day" })).toHaveText("Today");
+  await expect(page).not.toHaveURL(/date=/);
+  await expect(rows.nth(0)).toContainText("Today · 8:00 AM");
   await expect(rows.nth(0).getByText("6 min late on average")).toBeVisible();
 
   // a trip opens its details, with the stop it was latest at and its run that day
   await rows.nth(0).click();
   await expect(page.getByRole("link", { name: "Jasper Ave & 100 St" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "View trip" })).toHaveAttribute("href", `/trips/5001?date=${edmontonDate(-1)}`);
+  await expect(page.getByRole("link", { name: "View trip" })).toHaveAttribute("href", `/trips/5001?date=${edmontonDate(0)}`);
 
   // ranked by worst delay instead
   await page.getByText("Worst", { exact: true }).click();
@@ -25,7 +28,7 @@ test("the delays page ranks the latest trips, routes and buses", async ({ page }
   await expect(rows.nth(0).getByText("Worst 15 min late")).toBeVisible();
 
   // a month, with how much of it has been worked out
-  await page.getByRole("button", { name: "Month" }).click();
+  await page.getByRole("button", { name: "Month", exact: true }).click();
   await expect(page).toHaveURL(/period=month/);
   await expect(page.getByText("Worked out for 3 of its 30 days so far")).toBeVisible();
   // the last 30 days by default, with calendar months in the picker
@@ -36,10 +39,10 @@ test("the delays page ranks the latest trips, routes and buses", async ({ page }
   await expect(page).toHaveURL(/date=\d{4}-\d{2}-01/);
   await expect(page.getByRole("button", { name: "Pick a month" })).toHaveText("Last month");
   // a week starts on the last 7 days, never a week still to come
-  await page.getByRole("button", { name: "Week" }).click();
+  await page.getByRole("button", { name: "Week", exact: true }).click();
   await expect(page.getByRole("button", { name: "Pick a week" })).toHaveText("Last 7 days");
   await expect(page).not.toHaveURL(/date=/);
-  await page.getByRole("button", { name: "Month" }).click();
+  await page.getByRole("button", { name: "Month", exact: true }).click();
 
   // routes, and from a route to its latest trips
   await page.getByRole("tab", { name: "Routes" }).click();
@@ -95,10 +98,26 @@ test("the trips running now come in pages of 10", async ({ page }) => {
   await expect(rows.nth(0)).toContainText("3 min late");
 });
 
-test("the delays page can show today's finished trips", async ({ page }) => {
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
-  await page.goto(`/delays?date=${today}`);
-  await expect(page.getByRole("button", { name: "Pick a day" })).toHaveText("Today");
-  await expect(page.locator(".delay-row").first()).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`date=${today}`));
+test("the delays page steps back from today to yesterday", async ({ page }) => {
+  await page.goto("/delays");
+  await page.getByRole("button", { name: "Previous day" }).click();
+  await expect(page.getByRole("button", { name: "Pick a day" })).toHaveText("Yesterday");
+  await expect(page).toHaveURL(new RegExp(`date=${edmontonDate(-1)}`));
+  await expect(page.locator(".delay-row").first()).toContainText("Yesterday · 8:00 AM");
+});
+
+test("a day with none of its trips worked out yet says so, and offers yesterday", async ({ page }) => {
+  await page.route("**/stop-times/delays/trips?**", (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("to") !== edmontonDate(0)) return route.fallback();
+    return route.fulfill({
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ from: edmontonDate(0), to: edmontonDate(0), days: 0, sort: "mean", trips: [] }),
+    });
+  });
+  await page.goto("/delays");
+  await expect(page.getByText("None of today's trips have been worked out yet.")).toBeVisible();
+  await page.getByRole("button", { name: "See yesterday" }).click();
+  await expect(page.locator(".delay-row").first()).toContainText("Yesterday · 8:00 AM");
 });

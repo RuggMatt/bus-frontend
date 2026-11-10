@@ -62,8 +62,8 @@ watch([period, start, by, sort, routeFilter], () => {
     /** @type {Record<string, string>} */
     const query = {};
     if (period.value !== 'day') query.period = period.value;
-    // a day defaults to yesterday, a week or month to the last 7 or 30 days
-    if (start.value && !(period.value === 'day' && start.value === yesterday)) query.date = start.value;
+    // a day defaults to today, a week or month to the last 7 or 30 days
+    if (start.value && !(period.value === 'day' && start.value === today)) query.date = start.value;
     if (by.value !== 'trip') query.by = by.value;
     if (sort.value !== 'mean') query.sort = sort.value;
     if (by.value === 'trip' && routeFilter.value) query.route = routeFilter.value;
@@ -370,7 +370,21 @@ const coverage = computed(() => {
     </div>
     <!-- today isn't counted as worked out until overnight, but has its finished trips -->
     <div v-else-if="ranking && !ranking.days && !rows.length" class="text-medium-emphasis px-2">
-      No delays have been worked out for {{ periodLabel }} yet.
+      <template v-if="period === 'day' && start === today">
+        None of today's trips have been worked out yet. They're added within about an hour of finishing.
+        <v-btn
+          variant="text"
+          color="primary"
+          size="small"
+          class="text-none"
+          @click="start = yesterday"
+        >
+          See yesterday
+        </v-btn>
+      </template>
+      <template v-else>
+        No delays have been worked out for {{ periodLabel }} yet.
+      </template>
     </div>
     <div v-else-if="!rows.length" class="text-medium-emphasis px-2">
       Nothing to rank for {{ periodLabel }}.
