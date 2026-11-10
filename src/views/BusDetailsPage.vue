@@ -3,14 +3,14 @@
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getBus, getBusRecentTrips, getBusStopTimes, getBusTripCounts, getDelayRanking, getTrip, getTripSummaries } from '../api';
+import { getBlockTrips, getBus, getBusRecentTrips, getBusStopTimes, getBusTripCounts, getDelayRanking, getTrip, getTripStartTimes, getTripSummaries } from '../api';
 import { useLiveBuses } from '../composables/useBuses';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
 import { tripPath } from '../composables/useStopArrivals';
 import { nextBusRefreshDelay } from '../utils/busRefresh';
-import { predictedOffsetMinutes, scheduleStatus } from '../utils/busStatus';
-import { matchTripDelays } from '../utils/busTrips';
+import { formatScheduledTime, predictedOffsetMinutes, scheduleStatus } from '../utils/busStatus';
+import { matchTripDelays, nextBlockTrips } from '../utils/busTrips';
 import { formatDelay, typicalStatus } from '../utils/delayStats';
 import { percent } from '../utils/delayRankings';
 import { formatReportAge, reportAgeLevel } from '../utils/reportAge';
@@ -82,20 +82,21 @@ const { data: recentTrips, isLoading: tripsLoading, isError: tripsError, refetch
     staleTime: () => (isCurrentWeek.value ? 0 : Infinity),
 });
 
-// how late each run was, from the nightly delays, so up to yesterday. A run just past
-// midnight belongs to the service day before, so that's asked for too
+// how late each run was, from the backend's delays: up to today, whose trips are added
+// as they finish. A run just past midnight belongs to the service day before, so that's
+// asked for too
 const delaysRange = computed(() => {
     const { to } = weekRange(selectedWeek.value);
-    const yesterday = addDays(today.value, -1);
-    return { from: addDays(selectedWeek.value, -1), to: to < yesterday ? to : yesterday };
+    return { from: addDays(selectedWeek.value, -1), to: to < today.value ? to : today.value };
 });
 
 const { data: tripDelays } = useQuery({
     queryKey: computed(() => ['bus-trip-delays', props.busId, delaysRange.value.from, delaysRange.value.to]),
     // a week of a bus's runs fits in the most the backend gives
     queryFn: () => getDelayRanking('trip', { ...delaysRange.value, sort: 'mean', bus: props.busId, limit: 200 }),
-    // nothing changes until the nightly run, which the backend caches for an hour
-    staleTime: 60 * 60_000,
+    // past days only change with the nightly run, which the backend caches for an hour,
+    // and today's trips are added as they finish
+    staleTime: () => (delaysRange.value.to >= today.value ? 5 * 60_000 : 60 * 60_000),
 });
 
 const delaysByRun = computed(() => matchTripDelays(recentTrips.value ?? [], tripDelays.value?.trips ?? []));
@@ -188,6 +189,47 @@ const currentTripId = computed(() => {
     const lastTrip = recentTrips.value?.find((summary) => hasTrip(summary.trip))?.trip;
     return hasTrip(lastTrip) ? String(lastTrip) : null;
 });
+
+// --- the trips the bus is scheduled to run next: the rest of its block ---
+
+// only while it's out on a trip, as a bus that has gone in has nothing next
+const liveTripId = computed(() => {
+    const latestTrip = busInfo.value?.latest?.trip;
+    return busInfo.value?.active && hasTrip(latestTrip) ? String(latestTrip) : null;
+});
+
+// the map's own query for the bus's trip, so it's already cached
+const { data: liveTrip } = useQuery({
+    queryKey: computed(() => ['trip-shape', liveTripId.value]),
+    queryFn: () => getTrip(liveTripId.value),
+    enabled: () => !!liveTripId.value,
+    staleTime: Infinity,
+});
+
+const block = computed(() => {
+    const trip = liveTripId.value ? liveTrip.value : null;
+    return trip?.block_id && trip.service_id ? { id: trip.block_id, service: trip.service_id } : null;
+});
+
+const { data: blockTrips } = useQuery({
+    queryKey: computed(() => ['block-trips', block.value?.id, block.value?.service]),
+    queryFn: () => getBlockTrips(/** @type {string} */ (block.value?.id), /** @type {string} */ (block.value?.service)),
+    enabled: () => !!block.value,
+    staleTime: Infinity,
+});
+
+const blockTripIds = computed(() => (blockTrips.value ?? []).map((trip) => String(trip.trip_id)).sort());
+const { data: blockStartTimes } = useQuery({
+    queryKey: computed(() => ['trip-start-times', blockTripIds.value.join(',')]),
+    queryFn: () => getTripStartTimes(blockTripIds.value),
+    enabled: () => blockTripIds.value.length > 0,
+    staleTime: Infinity,
+});
+
+// nothing shows if any of it fails, or the feed has no block for the trip
+const nextTrips = computed(() => (liveTripId.value && block.value
+    ? nextBlockTrips(blockTrips.value ?? [], blockStartTimes.value ?? [], liveTripId.value)
+    : []));
 
 // the expanded row, by key, so it stays open through refreshes
 /** @type {import('vue').Ref<string | null>} */
@@ -387,6 +429,38 @@ const tripDays = computed(() => {
       <v-progress-circular indeterminate color="primary" />
     </div>
     <template v-else-if="!notFound && !busError">
+      <section v-if="nextTrips.length" aria-labelledby="next-trips-heading">
+        <h2 id="next-trips-heading" class="text-title-large mt-5 px-2">
+          Next trips
+        </h2>
+        <div class="text-body-medium text-medium-emphasis px-2 mb-2">
+          What this bus is scheduled to run after this trip. Buses are sometimes swapped, so it may not.
+        </div>
+        <v-card variant="outlined">
+          <template v-for="(trip, index) in nextTrips" :key="trip.trip_id">
+            <v-divider v-if="index > 0" />
+            <router-link
+              v-ripple
+              :to="{ path: `/trips/${encodeURIComponent(trip.trip_id)}`, query: { date: today } }"
+              class="next-trip-row d-flex align-center pa-3"
+            >
+              <div class="flex-grow-1 min-width-0">
+                <div class="d-flex align-center text-body-large">
+                  <RouteBadge :route-id="trip.route_id" size="small" class="mr-2" />
+                  <span class="text-truncate">{{ headsignWithoutRoute(trip.trip_headsign, trip.route_id) }}</span>
+                </div>
+                <div class="text-body-small text-medium-emphasis text-truncate">
+                  {{ keyedroutes[trip.route_id]?.route_long_name }}
+                </div>
+              </div>
+              <div class="text-body-medium text-right flex-shrink-0 ml-2">
+                {{ formatScheduledTime(trip.start) }}
+              </div>
+            </router-link>
+          </template>
+        </v-card>
+      </section>
+
       <div class="d-flex align-center flex-wrap ga-2 mt-5 mb-2 px-2">
         <h2 class="text-title-large mr-auto">
           Activity
@@ -571,6 +645,15 @@ const tripDays = computed(() => {
 }
 
 .trip-row:hover {
+    background: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.next-trip-row {
+    color: inherit;
+    text-decoration: none;
+}
+
+.next-trip-row:hover {
     background: rgba(var(--v-theme-on-surface), 0.04);
 }
 

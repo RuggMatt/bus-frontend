@@ -47,3 +47,18 @@ test("the bus page says how late each trip ran, and how late it's running now", 
   await rows.nth(1).click();
   await expect(page.getByText("Average 6 min 20 s late · worst 15 min late · 17% of stops on time")).toBeVisible();
 });
+
+test("the bus page lists the trips the bus is scheduled to run next", async ({ page }) => {
+  await page.goto(`/buses/${BUS.bus}`);
+
+  // it's on the 9:00 trip, and its block has the 10:00 and then the 11:00 back
+  await expect(page.getByRole("heading", { name: "Next trips" })).toBeVisible();
+  const next = page.locator(".next-trip-row");
+  await expect(next).toHaveCount(2);
+  await expect(next.nth(0)).toContainText("10:00 AM");
+  await expect(next.nth(1)).toContainText("Abbottsfield");
+  await expect(next.nth(1)).toContainText("11:00 AM");
+
+  await next.nth(0).click();
+  await expect(page).toHaveURL(new RegExp(`/trips/5003\\?date=${edmontonDate(0)}`));
+});

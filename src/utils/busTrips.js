@@ -34,6 +34,35 @@ export const busTripNeighbours = (trips, tripId, runStart, runEnd) => {
   return { previous: inService[nearest.index - 1] ?? null, next: inService[nearest.index + 1] ?? null };
 };
 
+// how many of a bus's next trips are listed
+export const NEXT_TRIPS_COUNT = 5;
+
+/**
+ * The trips a bus is scheduled to run after the one it's on: the rest of its block, in
+ * the order they start. It's the schedule, so a bus swapped partway through the day
+ * won't run them.
+ * @template {{trip_id: string}} T
+ * @param {T[]} blockTrips The trips of the bus's block on its service
+ * @param {{trip_id: string, start: string}[]} startTimes Each trip's first departure, HH:MM:SS, which can pass 24:00:00
+ * @param {string} currentTripId The trip the bus is on
+ * @param {number} [count]
+ * @returns {(T & {start: string})[]} Earliest first, none if the current trip isn't in the block
+ */
+export const nextBlockTrips = (blockTrips, startTimes, currentTripId, count = NEXT_TRIPS_COUNT) => {
+  const startOf = new Map(startTimes.map(({ trip_id, start }) => [String(trip_id), start]));
+  const current = startOf.get(String(currentTripId));
+  if (!current || !blockTrips.some((trip) => String(trip.trip_id) === String(currentTripId))) return [];
+  return blockTrips
+    .flatMap((trip) => {
+      const start = startOf.get(String(trip.trip_id));
+      return start && String(trip.trip_id) !== String(currentTripId) ? [{ ...trip, start }] : [];
+    })
+    // times are zero-padded, so they sort as text, past midnight (25:10:00) last
+    .filter((trip) => trip.start > current)
+    .sort((a, b) => a.start.localeCompare(b.start) || String(a.trip_id).localeCompare(String(b.trip_id)))
+    .slice(0, count);
+};
+
 // a run's first position and its first scheduled stop are this close at most, in seconds.
 // The same trip id runs a day apart, so this only has to tell days apart
 const RUN_MATCH_SECONDS = 6 * 3600;

@@ -1,15 +1,17 @@
 import { test, expect } from "./fixtures.js";
 
-test("a past day's timetable shows when the buses actually went by", async ({ page }) => {
+test("a timetable shows when the buses actually went by, today's finished trips included", async ({ page }) => {
   await page.goto("/routes/008");
 
-  // today's aren't worked out until overnight
   await page.getByRole("button", { name: "Actual" }).click();
   await expect(page).toHaveURL(/times=actual/);
-  await expect(page.getByText("today's show tomorrow")).toBeVisible();
-
-  await page.getByRole("button", { name: /^See / }).click();
   const table = page.locator(".timetable-scroll table");
+  // today only the 8:00 trip has finished, so the others have no times yet
+  await expect(table.getByText("2 min late").first()).toBeVisible();
+  await expect(table.getByText("3 min early")).toHaveCount(0);
+
+  // a past day has every trip's
+  await page.getByRole("button", { name: "Previous date" }).click();
   // 8:00 at the second stop, 2 min 10 s late
   await expect(table.locator("td", { hasText: "8:07" })).toHaveCSS("color", /251, 140, 0|fb8c00/i);
   await expect(table.getByText("2 min late").first()).toBeVisible();

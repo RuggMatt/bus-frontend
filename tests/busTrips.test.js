@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busTripNeighbours, matchTripDelays } from "../src/utils/busTrips";
+import { busTripNeighbours, matchTripDelays, nextBlockTrips } from "../src/utils/busTrips";
 
 // newest first, as the backend gives them
 const trips = [
@@ -50,5 +50,41 @@ describe("matchTripDelays", () => {
   it("leaves out runs with no delay near them, like today's", () => {
     const runs = [run(101, 2 * day), run(102, 0)];
     expect(matchTripDelays(runs, [delay(101, 0, 60)]).size).toBe(0);
+  });
+});
+
+describe("nextBlockTrips", () => {
+  const block = [
+    { trip_id: "5003", route_id: "008" },
+    { trip_id: "6001", route_id: "008" },
+    { trip_id: "5001", route_id: "008" },
+    { trip_id: "5002", route_id: "008" },
+    { trip_id: "7001", route_id: "009" },
+  ];
+  const starts = [
+    { trip_id: "5001", start: "08:00:00" },
+    { trip_id: "5002", start: "09:00:00" },
+    { trip_id: "5003", start: "10:00:00" },
+    { trip_id: "6001", start: "11:00:00" },
+    { trip_id: "7001", start: "24:15:00" },
+  ];
+
+  it("lists the rest of the block in the order it starts, past midnight last", () => {
+    expect(nextBlockTrips(block, starts, "5002")).toEqual([
+      { trip_id: "5003", route_id: "008", start: "10:00:00" },
+      { trip_id: "6001", route_id: "008", start: "11:00:00" },
+      { trip_id: "7001", route_id: "009", start: "24:15:00" },
+    ]);
+    expect(nextBlockTrips(block, starts, 5002, 1).map((trip) => trip.trip_id)).toEqual(["5003"]);
+  });
+
+  it("has none after the block's last trip, or for a trip that isn't in it", () => {
+    expect(nextBlockTrips(block, starts, "7001")).toEqual([]);
+    expect(nextBlockTrips(block, starts, "9999")).toEqual([]);
+    expect(nextBlockTrips(block, [], "5002")).toEqual([]);
+  });
+
+  it("leaves out trips without a start time", () => {
+    expect(nextBlockTrips(block, starts.slice(0, 3), "5001").map((trip) => trip.trip_id)).toEqual(["5002", "5003"]);
   });
 });

@@ -94,3 +94,11 @@ test("the trips running now come in pages of 10", async ({ page }) => {
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText("3 min late");
 });
+
+test("the delays page can show today's finished trips", async ({ page }) => {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Edmonton" });
+  await page.goto(`/delays?date=${today}`);
+  await expect(page.getByRole("button", { name: "Pick a day" })).toHaveText("Today");
+  await expect(page.locator(".delay-row").first()).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`date=${today}`));
+});
