@@ -53,3 +53,38 @@ test("the map's search finds a route by number or a stop by number", async ({ pa
   await page.getByRole("option").first().click();
   await expect(page).toHaveURL(/\/routes\/008$/);
 });
+
+test("a starred stop is listed in the map's search before anything is typed, and kept over a reload", async ({ page }) => {
+  await page.goto("/stops/1003");
+  await page.getByRole("button", { name: "Save this stop" }).click();
+  await expect(page.getByRole("button", { name: "Remove from saved stops" })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Remove from saved stops" })).toBeVisible();
+
+  // back on the map, the search offers it straight away
+  await page.goto("/");
+  await page.getByRole("combobox", { name: /Search for a route/ }).click();
+  await expect(page.getByText("Saved stops")).toBeVisible();
+  await page.getByRole("option", { name: /Jasper Ave & 100 St/ }).click();
+  await expect(page).toHaveURL(/\/stops\/1003$/);
+
+  // unstarring takes it out again
+  await page.getByRole("button", { name: "Remove from saved stops" }).click();
+  await expect(page.getByRole("button", { name: "Save this stop" })).toBeVisible();
+  await page.goto("/");
+  await page.getByRole("combobox", { name: /Search for a route/ }).click();
+  await expect(page.getByText("Saved stops")).toHaveCount(0);
+});
+
+test("the app can be installed: its manifest and icons are served", async ({ page }) => {
+  await page.goto("/");
+  const href = await page.locator('link[rel="manifest"]').getAttribute("href");
+  const manifest = await (await page.request.get(href)).json();
+  expect(manifest.display).toBe("standalone");
+  expect(manifest.start_url).toBe("/");
+  for (const icon of manifest.icons) {
+    const response = await page.request.get(icon.src);
+    expect(response.headers()["content-type"]).toContain("image/png");
+  }
+});
