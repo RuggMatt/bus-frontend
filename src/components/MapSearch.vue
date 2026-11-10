@@ -5,8 +5,10 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
+import { useSavedRoutes } from '../composables/useSavedRoutes';
 import { useSavedStops } from '../composables/useSavedStops';
 import { rankSearchResults } from '../utils/mapSearch';
+import { savedRouteResults } from '../utils/savedRoutes';
 import { savedStopResults } from '../utils/savedStops';
 
 const emit = defineEmits(['select-stop']);
@@ -19,11 +21,14 @@ const { routes, isLoading: routesLoading } = useRoutes({ enabled: wanted });
 const { stops, keyedStops, isLoading: stopsLoading } = useStops({ enabled: wanted });
 
 const { savedStops, isSaved } = useSavedStops();
+const { savedRoutes } = useSavedRoutes();
 
-// before anything is typed the field lists the rider's saved stops, which need no request
-const showingSaved = computed(() => !search.value?.trim() && savedStops.value.length > 0);
+// before anything is typed the field lists the rider's saved routes and stops, which need
+// no request
+const showingSaved = computed(() =>
+  !search.value?.trim() && savedStops.value.length + savedRoutes.value.length > 0);
 const results = computed(() => (showingSaved.value
-  ? savedStopResults(savedStops.value)
+  ? [...savedRouteResults(savedRoutes.value), ...savedStopResults(savedStops.value)]
   : rankSearchResults(search.value, routes.value ?? [], stops.value ?? [])));
 
 /** @param {string | null} value `route:<id>` or `stop:<id>` */
@@ -35,7 +40,9 @@ const pick = (value) => {
   const [kind, id] = [value.slice(0, value.indexOf(':')), value.slice(value.indexOf(':') + 1)];
   if (kind === 'route') {
     const route = routes.value?.find((candidate) => candidate.route_id === id);
-    router.push({ path: `/routes/${encodeURIComponent(id)}`, state: { routeLongName: route?.route_long_name } });
+    // a saved route's name is known before the routes have loaded
+    const routeLongName = route?.route_long_name ?? (savedRoutes.value.find((saved) => saved.id === id)?.name || undefined);
+    router.push({ path: `/routes/${encodeURIComponent(id)}`, state: { routeLongName } });
   } else if (keyedStops.value[id]) {
     emit('select-stop', keyedStops.value[id]);
   } else if (isSaved(id)) {
@@ -69,7 +76,7 @@ const pick = (value) => {
     @update:model-value="pick"
   >
     <template v-if="showingSaved" #prepend-item>
-      <v-list-subheader>Saved stops</v-list-subheader>
+      <v-list-subheader>Saved</v-list-subheader>
     </template>
     <template #item="{ props: itemProps, item }">
       <v-list-item v-bind="itemProps">

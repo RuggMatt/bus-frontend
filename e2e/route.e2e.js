@@ -56,3 +56,26 @@ test("a route's map can colour its stops by their average delay", async ({ page 
   await expect(legend).toContainText("On time");
   await expect(legend).toContainText("No times");
 });
+
+test("a starred route heads the routes list and the map's search", async ({ page }) => {
+  await page.goto("/routes/008");
+  await page.getByRole("button", { name: "Save this route" }).click();
+  await expect(page.getByRole("button", { name: "Remove from saved routes" })).toBeVisible();
+
+  // it comes first on the routes list, under its own heading, and isn't listed twice
+  await page.goto("/routes");
+  await expect(page.getByRole("heading", { name: "Saved" })).toBeVisible();
+  await expect(page.locator(".route-row").first()).toContainText("Abbottsfield - Downtown - University");
+  await expect(page.locator(".route-row", { hasText: "Abbottsfield - Downtown - University" })).toHaveCount(1);
+
+  // and the map's search offers it before anything is typed
+  await page.goto("/");
+  await page.getByRole("combobox", { name: /Search for a route/ }).click();
+  await page.getByRole("option", { name: /Route 8/ }).click();
+  await expect(page).toHaveURL(/\/routes\/008$/);
+
+  await page.getByRole("button", { name: "Remove from saved routes" }).click();
+  await page.goto("/routes");
+  await expect(page.locator(".route-row").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Saved" })).toHaveCount(0);
+});

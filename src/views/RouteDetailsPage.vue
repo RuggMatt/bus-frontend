@@ -1,5 +1,6 @@
 <script setup>
 // @ts-check
+import { useSavedRoutes } from '../composables/useSavedRoutes';
 import { useQueries, useQuery } from '@tanstack/vue-query';
 import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule, getRouteStopTimes, getRouteStopsStats } from '../api';
 import { useRoutes } from '../composables/useRoutes';
@@ -60,6 +61,9 @@ const handoff = window.history.state ?? {};
 
 const routeLongName = computed(() => route.value?.route_long_name ?? handoff.routeLongName ?? '');
 usePageTitle(() => [`Route ${routeNumber(props.routeId)}`, routeLongName.value]);
+
+const { isSaved: isRouteSaved, toggle: toggleSavedRoute } = useSavedRoutes();
+const routeSaved = computed(() => isRouteSaved(props.routeId));
 
 // --- Trips for this route ---
 const { data: trips, isLoading: tripsLoading } = useQuery({
@@ -787,10 +791,22 @@ const stationTrains = computed(() => {
       All Routes
     </v-btn>
 
-    <h1 class="route-heading text-headline-large">
-      <RouteBadge :route-id="routeId" size="large" style="view-transition-name: route-number" />
-      <span style="view-transition-name: route-name">{{ routeLongName }}</span>
-    </h1>
+    <div class="d-flex align-start ga-2">
+      <h1 class="route-heading text-headline-large flex-grow-1">
+        <RouteBadge :route-id="routeId" size="large" style="view-transition-name: route-number" />
+        <span style="view-transition-name: route-name">{{ routeLongName }}</span>
+      </h1>
+      <!-- saved routes head the routes list, and the map's search before anything is typed -->
+      <v-btn
+        :icon="routeSaved ? 'mdi-star' : 'mdi-star-outline'"
+        :color="routeSaved ? 'amber-darken-2' : undefined"
+        variant="text"
+        class="flex-shrink-0"
+        :aria-label="routeSaved ? 'Remove from saved routes' : 'Save this route'"
+        :aria-pressed="routeSaved"
+        @click="toggleSavedRoute(routeId, routeLongName)"
+      />
+    </div>
 
     <!-- the space is kept while the agency loads, so the page doesn't shift -->
     <div class="agency-line d-flex flex-wrap align-center ga-1 mt-2 text-body-medium">
