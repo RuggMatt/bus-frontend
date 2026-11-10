@@ -3,6 +3,7 @@ import { routeNumber } from '../utils/routes';
 import { bayName, describePlatforms, sortBays } from '../utils/stations';
 import { useStops } from '../composables/useStops';
 import { useStationHeadsigns } from '../composables/useStationHeadsigns';
+import { useSavedStops } from '../composables/useSavedStops';
 import StopArrivalsList from './StopArrivalsList.vue';
 import StationBay from './StationBay.vue';
 import { computed, nextTick, ref, watch } from 'vue';
@@ -54,6 +55,9 @@ const props = defineProps({
 defineEmits(["close", "bus-click", "bay-route-groups"]);
 
 const router = useRouter();
+
+const { isSaved, toggle: toggleSaved } = useSavedStops();
+const saved = computed(() => isSaved(props.stop.stop_id));
 
 // --- the other platforms or bays of the stop's station ---
 const { keyedStops } = useStops();
@@ -244,6 +248,16 @@ const onTouchEnd = (event) => {
           {{ bays.length ? `${bays.length} bays` : `Stop ${stop.stop_code || stop.stop_id}` }}
         </div>
       </div>
+      <!-- saved stops are listed in the map's search before anything is typed -->
+      <v-btn
+        :icon="saved ? 'mdi-star' : 'mdi-star-outline'"
+        :color="saved ? 'amber-darken-2' : undefined"
+        variant="text"
+        density="comfortable"
+        :aria-label="saved ? 'Remove from saved stops' : 'Save this stop'"
+        :aria-pressed="saved"
+        @click="toggleSaved(stop)"
+      />
       <v-btn
         icon="mdi-close"
         variant="text"
