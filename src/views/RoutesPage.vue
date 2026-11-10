@@ -11,6 +11,8 @@ import RouteBadge from '../components/RouteBadge.vue';
 import { transitionLinkClick } from '../utils/viewTransition';
 import { useNowLocal, useServiceAlerts } from '../composables/useServiceAlerts';
 import { routesWithActiveAlerts } from '../utils/serviceAlerts';
+import { useSavedRoutes } from '../composables/useSavedRoutes';
+import { splitSavedRoutes } from '../utils/savedRoutes';
 
 const { routes } = useRoutes();
 const { buses } = useBuses();
@@ -157,7 +159,14 @@ const filteredRoutes = computed(() =>
     { agencies: agencyByRoute.value, liveRoutes: liveRoutes.value, disruptedRoutes: disruptedRoutes.value },
   ));
 
-const agencyGroups = computed(() => groupRoutesByAgency(filteredRoutes.value, agencyByRoute.value));
+// the rider's saved routes come first under their own heading, and aren't repeated under
+// their agency
+const { savedRoutes } = useSavedRoutes();
+const agencyGroups = computed(() => {
+  const { saved, rest } = splitSavedRoutes(filteredRoutes.value, savedRoutes.value);
+  const groups = groupRoutesByAgency(rest, agencyByRoute.value).map((group) => ({ ...group, saved: false }));
+  return saved.length ? [{ agency: 'Saved', routes: saved, saved: true }, ...groups] : groups;
+});
 
 // grouping waits for the agencies too, so the list doesn't reshuffle when they arrive
 const listLoading = computed(() => !routes.value || agenciesPending.value);
@@ -244,12 +253,18 @@ const listLoading = computed(() => !routes.value || agenciesPending.value);
         <div v-if="!listLoading && !filteredRoutes.length" class="text-medium-emphasis pa-4 text-center">
           No routes match
         </div>
-        <template v-for="group in agencyGroups" v-else-if="!listLoading" :key="group.agency ?? ''">
+        <template v-for="group in agencyGroups" v-else-if="!listLoading" :key="group.saved ? ' saved' : group.agency ?? ''">
           <h2
             v-if="group.agency || agencyGroups.length > 1"
             class="text-title-small text-medium-emphasis mt-4 mb-1 px-2"
           >
-            {{ group.agency ?? 'Other' }}
+            <v-icon
+              v-if="group.saved"
+              icon="mdi-star"
+              color="amber-darken-2"
+              size="small"
+              class="mr-1"
+            />{{ group.agency ?? 'Other' }}
           </h2>
           <v-card variant="outlined">
             <template v-for="(route, index) in group.routes" :key="route.route_id">

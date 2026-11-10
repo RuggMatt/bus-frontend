@@ -65,7 +65,7 @@ test("a starred stop is listed in the map's search before anything is typed, and
   // back on the map, the search offers it straight away
   await page.goto("/");
   await page.getByRole("combobox", { name: /Search for a route/ }).click();
-  await expect(page.getByText("Saved stops")).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible();
   await page.getByRole("option", { name: /Jasper Ave & 100 St/ }).click();
   await expect(page).toHaveURL(/\/stops\/1003$/);
 
@@ -74,7 +74,7 @@ test("a starred stop is listed in the map's search before anything is typed, and
   await expect(page.getByRole("button", { name: "Save this stop" })).toBeVisible();
   await page.goto("/");
   await page.getByRole("combobox", { name: /Search for a route/ }).click();
-  await expect(page.getByText("Saved stops")).toHaveCount(0);
+  await expect(page.getByText("Saved", { exact: true })).toHaveCount(0);
 });
 
 test("the app can be installed: its manifest and icons are served", async ({ page }) => {
