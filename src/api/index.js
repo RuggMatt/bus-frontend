@@ -674,6 +674,33 @@ export const getTripSummaries = async (tripIds) => {
 };
 
 /**
+ * Fetches the trips of a block, the chain of trips one bus is scheduled to run in a
+ * day, without their shapes. Block ids repeat across services, so it's one service's.
+ * @param {string} blockId
+ * @param {string} serviceId
+ * @returns {Promise<Array<Pick<Trip, "trip_id" | "route_id" | "trip_headsign" | "direction_id">>>}
+ */
+export const getBlockTrips = async (blockId, serviceId) => {
+  // Escape single quotes to prevent SoQL injection
+  const quote = (/** @type {string} */ value) => `'${String(value).replace(/'/g, "''")}'`;
+  const params = new URLSearchParams({
+    $select: "trip_id,route_id,trip_headsign,direction_id",
+    $where: `block_id = ${quote(blockId)} AND service_id = ${quote(serviceId)}`,
+    $limit: "1000",
+  });
+  const result = await fetch(`https://data.edmonton.ca/resource/ctwr-tvrd.json?${params}`, {
+    headers: {
+      Accept: "application/json",
+      "X-App-Token": import.meta.env.VITE_APP_SODA_APP_TOKEN,
+    },
+  });
+  if (result.ok) {
+    return result.json();
+  }
+  throw Error(result.status);
+};
+
+/**
  * @typedef {Object} Route
  * @property {string} route_id
  * @property {string} route_short_name

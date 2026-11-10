@@ -328,10 +328,13 @@ const backend = (url) => {
       ...weekStats(21, 20, [{ minutes: -2, count: 2 }, { minutes: 0, count: 15 }, { minutes: 2, count: 4 }]),
     };
   }
-  // a day's actual stop times: 5001 ran late, 5002 on time, and 5003 early and wasn't seen at its last stop
+  // a day's actual stop times: 5001 ran late, 5002 on time, and 5003 early and wasn't seen at its last stop.
+  // today only has the trip that has finished, 5001
   const routeStopTimes = path.match(/^\/stop-times\/routes\/([^/]+)\/([^/]+)$/);
   if (routeStopTimes) {
-    const delays = { 5001: [60, 130, 150, 200], 5002: [0, 20, -30, 45], 5003: [-60, -150, -200] };
+    const delays = routeStopTimes[2] === edmontonDate()
+      ? { 5001: [60, 130, 150, 200] }
+      : { 5001: [60, 130, 150, 200], 5002: [0, 20, -30, 45], 5003: [-60, -150, -200] };
     return {
       route: routeStopTimes[1], date: routeStopTimes[2], count: TRIPS.length,
       trips: Object.entries(delays).map(([trip, stops]) => ({

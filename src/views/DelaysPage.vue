@@ -38,7 +38,7 @@ const router = useRouter();
 const currentRoute = useRoute();
 
 const today = edmontonNow().dateString;
-// today's stop times aren't worked out until overnight
+// the last whole day: today's trips are only added as they finish
 const yesterday = addDays(today, -1);
 const earliest = addDays(today, -366);
 
@@ -77,8 +77,8 @@ const activeRoute = computed(() => (by.value === 'trip' ? routeFilter.value : nu
 const { data: ranking, isLoading, isError, isPlaceholderData } = useQuery({
     queryKey: computed(() => ['delay-ranking', by.value, range.value.from, range.value.to, sort.value, activeRoute.value]),
     queryFn: () => getDelayRanking(by.value, { ...range.value, sort: sort.value, route: activeRoute.value }),
-    // worked out nightly
-    staleTime: 60 * 60_000,
+    // worked out nightly, but today's trips are added as they finish
+    staleTime: () => (range.value.to >= today ? 5 * 60_000 : 60 * 60_000),
     placeholderData: keepPreviousData,
 });
 
@@ -286,8 +286,8 @@ const coverage = computed(() => {
       Past days
     </h2>
     <div class="text-body-medium text-medium-emphasis px-2 mb-4">
-      The latest trips, routes and buses, from when buses went by each stop. These are worked out
-      overnight, so today isn't in them yet.
+      The latest trips, routes and buses, from when buses went by each stop. Today's trips are
+      added within about an hour of finishing, and each day is worked out in full overnight.
     </div>
 
     <div class="d-flex align-center flex-wrap ga-2 px-2 mb-2">
@@ -314,7 +314,7 @@ const coverage = computed(() => {
         v-if="period === 'day'"
         v-model="start"
         :min="earliest"
-        :max="yesterday"
+        :max="today"
         :today="today"
       />
       <DelayRangePicker
@@ -368,7 +368,8 @@ const coverage = computed(() => {
     <div v-else-if="isError" class="text-error px-2">
       Delays could not be loaded.
     </div>
-    <div v-else-if="ranking && !ranking.days" class="text-medium-emphasis px-2">
+    <!-- today isn't counted as worked out until overnight, but has its finished trips -->
+    <div v-else-if="ranking && !ranking.days && !rows.length" class="text-medium-emphasis px-2">
       No delays have been worked out for {{ periodLabel }} yet.
     </div>
     <div v-else-if="!rows.length" class="text-medium-emphasis px-2">

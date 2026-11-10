@@ -51,9 +51,10 @@ describe("periods", () => {
     expect(addMonths("2026-01-01", -1)).toBe("2025-12-01");
   });
 
-  it("opens yesterday unless the URL has an earlier day", () => {
+  it("opens yesterday unless the URL has a day up to today", () => {
     expect(initialPeriodStart("day", undefined, today)).toBe("2026-10-13");
-    expect(initialPeriodStart("day", today, today)).toBe("2026-10-13");
+    expect(initialPeriodStart("day", today, today)).toBe("2026-10-14");
+    expect(initialPeriodStart("day", "2026-10-15", today)).toBe("2026-10-13");
     expect(initialPeriodStart("day", "2026-02-30", today)).toBe("2026-10-13");
     expect(initialPeriodStart("week", "2026-10-01", today)).toBe("2026-09-27");
     expect(initialPeriodStart("week", undefined, today)).toBe("");

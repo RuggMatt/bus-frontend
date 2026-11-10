@@ -446,9 +446,9 @@ watch(timesMode, (mode) => {
 const { data: actualData, isLoading: actualLoading, isError: actualError } = useQuery({
   queryKey: computed(() => ['route-stop-times', props.routeId, selectedDate.value]),
   queryFn: () => getRouteStopTimes(props.routeId, /** @type {string} */ (selectedDate.value)),
-  enabled: () => showActual.value && selectedDate.value !== today,
-  // yesterday's are worked out early in the morning
-  staleTime: 60 * 60 * 1000,
+  enabled: () => showActual.value,
+  // yesterday's are worked out early in the morning, and today's trips are added as they finish
+  staleTime: () => (selectedDate.value === today ? 5 * 60 * 1000 : 60 * 60 * 1000),
 });
 
 const actualDelays = computed(() => delaysByTrip(actualData.value));
@@ -558,7 +558,7 @@ watch([timetableTrips, timetableStops, showActual], sizeColumns, { flush: 'post'
 
 const timetableLoading = computed(
   () => tripsLoading.value || activeFeedLoading.value || serviceDatesLoading.value || stopTimesLoading.value
-    || (showActual.value && selectedDate.value !== today && actualLoading.value)
+    || (showActual.value && actualLoading.value)
 );
 
 // --- Time helpers ---
@@ -1178,13 +1178,13 @@ const stationTrains = computed(() => {
         {{ selectedDate ? 'No trips scheduled on this date in this direction.' : 'No trips scheduled for this day and direction.' }}
       </div>
 
-      <!-- Actual times aren't there for today until they're worked out overnight -->
-      <div v-else-if="showActual && (selectedDate === today || actualError || !hasActualTimes)" class="text-medium-emphasis py-4">
-        <template v-if="selectedDate === today">
-          Actual times are worked out overnight, so today's show tomorrow.
-        </template>
-        <template v-else-if="actualError">
+      <!-- today's are added as its trips finish, so there may be none yet -->
+      <div v-else-if="showActual && (actualError || !hasActualTimes)" class="text-medium-emphasis py-4">
+        <template v-if="actualError">
           Actual times couldn't be loaded.
+        </template>
+        <template v-else-if="selectedDate === today">
+          No actual times yet today in this direction. They're added within about an hour of a trip finishing.
         </template>
         <template v-else>
           No actual times for this date in this direction.
