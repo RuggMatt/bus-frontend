@@ -1,7 +1,8 @@
 <script setup>
 // @ts-check
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getBusRecentTrips, getRecentTripData, getServiceDates, getTrip, getTripRun, getTripStartTimes, getTripsByRouteId, getBusStopTimes, getStopRoutes } from '../api';
+import { getBusRecentTrips, getRecentTripData, getServiceDates, getTripRun, getTripStartTimes, getTripsByRouteId, getStopRoutes } from '../api';
+import { tripShapeQuery, tripStopTimesQuery } from '../api/queries';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTrips } from '../composables/useRecordedTrips';
@@ -174,22 +175,18 @@ const isLoading = computed(() => (selectedDate.value ? !isFuture.value && runLoa
 const error = computed(() => (selectedDate.value ? (runMissing.value ? null : runError.value) : latestError.value));
 
 // the bus cards share these keys, so coming from one the heading and map show straight away
-const { data: tripData, isLoading: tripLoading, isPlaceholderData: tripPlaceholder } = useQuery({
-    queryKey: computed(() => ['trip-shape', props.tripId]),
-    queryFn: () => getTrip(props.tripId),
-    enabled: () => !!props.tripId,
+const { data: tripData, isLoading: tripLoading, isPlaceholderData: tripPlaceholder } = useQuery(() => ({
+    ...tripShapeQuery(props.tripId),
+    enabled: !!props.tripId,
     placeholderData: keepPreviousData,
-    staleTime: Infinity,
-})
+}))
 
 // route data is a list of stops along this trip
-const { data: routeData, isPlaceholderData: stopsPlaceholder } = useQuery({
-    queryKey: computed(() => ['trip-stop-times', props.tripId]),
-    queryFn: () => getBusStopTimes(props.tripId),
-    enabled: () => !!props.tripId,
+const { data: routeData, isPlaceholderData: stopsPlaceholder } = useQuery(() => ({
+    ...tripStopTimesQuery(props.tripId),
+    enabled: !!props.tripId,
     placeholderData: keepPreviousData,
-    staleTime: Infinity,
-})
+}))
 
 // part of what's shown is still the last trip's or day's. The pieces that depend on it wait,
 // while the route header, pickers and map stay

@@ -73,7 +73,7 @@ Both read `['buses-live']`, with `nextBusRefreshDelay` for their `staleTime` and
 | `f2sy-bth7` | Calendar dates: every date each service runs (`exception_type` 1), for every agency. `getServiceDates` |
 | `5yvt-mcye` | Service disruption alerts (detours, stop closures), for every agency. `getServiceAlerts` fetches all that ended in the last week or haven't, a few hundred rows. See Service alerts below |
 
-SODA queries escape single quotes in ids to prevent SoQL injection.
+SODA queries escape single quotes in ids to prevent SoQL injection. In `src/api/index.js`, backend requests go through `getJson(path)` and open data ones through `soda(dataset, params)` (or `sodaOr(fallback, …)` for the few that give an empty result rather than an error), with `soqlString`/`soqlList` for quoted values and `activeFeed()` for the stop schedule view's feed filter. A failed request throws an `Error` with the response's `status`.
 
 ### Service alerts (`5yvt-mcye`, `src/utils/serviceAlerts.js`)
 
@@ -107,7 +107,7 @@ SODA queries escape single quotes in ids to prevent SoQL injection.
 
 ### Query keys shared across pages
 
-Reuse these keys, with the same `staleTime`, so pages warm each other's cache:
+Reuse these keys, with the same `staleTime`, so pages warm each other's cache. The most shared ones have option factories in `src/api/queries.js` (`tripShapeQuery`, `tripStopTimesQuery`, `tripSummariesQuery`), which give the key, request and `staleTime` together; spread one into `useQuery(() => ({ ...tripShapeQuery(id), enabled }))` or pass it to `useQueries` and `fetchQuery`, rather than spelling the key out:
 
 | Key | Data |
 | --- | --- |

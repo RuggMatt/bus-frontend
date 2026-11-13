@@ -4,7 +4,7 @@ import '../plugins/AnimatedMarker';
 import { createBusIcon } from '../plugins/busIcon';
 import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
-import { getTrip, getBusStopTimes } from '../api';
+import { tripShapeQuery, tripStopTimesQuery } from '../api/queries';
 import { useStops } from '../composables/useStops';
 import { useMapBuses } from '../composables/useBuses';
 import { attachSharedMap, detachSharedMap, navigatingByHistory, rememberedHomeView, rememberHomeView, ROUTE_PANE } from '../plugins/sharedMap';
@@ -184,19 +184,15 @@ watch(mapBuses, renderBuses);
 const selectedTripId = computed(() => selectedBus.value?.trip ?? null);
 
 // the same keys as the bus card's, so the card and the map share one request
-const { data: trip } = useQuery({
-    queryKey: computed(() => ['trip-shape', selectedTripId.value]),
-    queryFn: () => getTrip(selectedTripId.value),
-    enabled: computed(() => Boolean(selectedTripId.value)),
-    staleTime: Infinity,
-});
+const { data: trip } = useQuery(() => ({
+    ...tripShapeQuery(selectedTripId.value),
+    enabled: Boolean(selectedTripId.value),
+}));
 
-const { data: tripStops } = useQuery({
-    queryKey: computed(() => ['trip-stop-times', selectedTripId.value]),
-    queryFn: () => getBusStopTimes(selectedTripId.value),
-    enabled: computed(() => Boolean(selectedTripId.value)),
-    staleTime: Infinity,
-});
+const { data: tripStops } = useQuery(() => ({
+    ...tripStopTimesQuery(selectedTripId.value),
+    enabled: Boolean(selectedTripId.value),
+}));
 
 // below this zoom there are too many stops on screen to tell apart, and the buses matter more
 const MIN_STOP_ZOOM = 15;

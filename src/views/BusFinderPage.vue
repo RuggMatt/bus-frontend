@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getElectricBuses, getHydrogenBuses, getTripSummaries } from '../api';
+import { getElectricBuses, getHydrogenBuses } from '../api';
+import { tripSummariesQuery } from '../api/queries';
 import { nextBusRefreshDelay } from '../utils/busRefresh';
 import { finderRows } from '../utils/busFinder';
 import { formatDistance } from '../utils/geo';
@@ -35,14 +36,12 @@ const { data: buses, isLoading, isError } = useQuery({
 const tripIds = computed(() =>
   [...new Set((buses.value ?? []).map((bus) => bus.trip).filter(Boolean).map(String))].sort(),
 );
-const { data: tripSummaries } = useQuery({
-  queryKey: computed(() => ['trip-summaries', tripIds.value]),
-  queryFn: () => getTripSummaries(tripIds.value),
-  enabled: computed(() => tripIds.value.length > 0),
-  staleTime: Infinity,
+const { data: tripSummaries } = useQuery(() => ({
+  ...tripSummariesQuery(tripIds.value),
+  enabled: tripIds.value.length > 0,
   // a bus starting a new trip shouldn't blank every row's route
   placeholderData: keepPreviousData,
-});
+}));
 const tripsById = computed(() => new Map((tripSummaries.value ?? []).map((trip) => [String(trip.trip_id), trip])));
 
 // only asked for when the locate button is tapped, never on load. until then the

@@ -3,7 +3,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getBlockTrips, getBus, getBusRecentTrips, getBusStopTimes, getBusTripCounts, getDelayRanking, getTrip, getTripStartTimes, getTripSummaries } from '../api';
+import { getBlockTrips, getBus, getBusRecentTrips, getBusTripCounts, getDelayRanking, getTripStartTimes } from '../api';
+import { tripShapeQuery, tripStopTimesQuery, tripSummariesQuery } from '../api/queries';
 import { useLiveBuses } from '../composables/useBuses';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
@@ -166,14 +167,12 @@ const tripIds = computed(() =>
     [...new Set((recentTrips.value ?? []).filter((summary) => hasTrip(summary.trip)).map((summary) => String(summary.trip)))].sort(),
 );
 
-const { data: tripSummaries, isLoading: summariesLoading } = useQuery({
-    queryKey: computed(() => ['trip-summaries', tripIds.value]),
-    queryFn: () => getTripSummaries(tripIds.value),
-    enabled: () => tripIds.value.length > 0,
-    staleTime: Infinity,
+const { data: tripSummaries, isLoading: summariesLoading } = useQuery(() => ({
+    ...tripSummariesQuery(tripIds.value),
+    enabled: tripIds.value.length > 0,
     // a new trip shouldn't blank the names of the others while it loads
     placeholderData: keepPreviousData,
-});
+}));
 
 const tripsById = computed(() => new Map((tripSummaries.value ?? []).map((trip) => [String(trip.trip_id), trip])));
 
@@ -199,12 +198,10 @@ const liveTripId = computed(() => {
 });
 
 // the map's own query for the bus's trip, so it's already cached
-const { data: liveTrip } = useQuery({
-    queryKey: computed(() => ['trip-shape', liveTripId.value]),
-    queryFn: () => getTrip(liveTripId.value),
-    enabled: () => !!liveTripId.value,
-    staleTime: Infinity,
-});
+const { data: liveTrip } = useQuery(() => ({
+    ...tripShapeQuery(liveTripId.value),
+    enabled: !!liveTripId.value,
+}));
 
 const block = computed(() => {
     const trip = liveTripId.value ? liveTrip.value : null;
@@ -257,19 +254,15 @@ const selectedTripId = computed(() => {
 const mapTripId = computed(() => selectedTripId.value ?? currentTripId.value);
 
 // same queries as the other pages, so they share their cache
-const { data: mapTrip } = useQuery({
-    queryKey: computed(() => ['trip-shape', mapTripId.value]),
-    queryFn: () => getTrip(mapTripId.value),
-    enabled: () => !!mapTripId.value,
-    staleTime: Infinity,
-});
+const { data: mapTrip } = useQuery(() => ({
+    ...tripShapeQuery(mapTripId.value),
+    enabled: !!mapTripId.value,
+}));
 
-const { data: mapStopTimes } = useQuery({
-    queryKey: computed(() => ['trip-stop-times', mapTripId.value]),
-    queryFn: () => getBusStopTimes(/** @type {string} */ (mapTripId.value)),
-    enabled: () => !!mapTripId.value,
-    staleTime: Infinity,
-});
+const { data: mapStopTimes } = useQuery(() => ({
+    ...tripStopTimesQuery(mapTripId.value),
+    enabled: !!mapTripId.value,
+}));
 
 const mapStops = computed(() =>
     (mapStopTimes.value ?? []).flatMap((stopTime) => {

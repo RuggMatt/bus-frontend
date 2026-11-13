@@ -3,7 +3,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getDelayRanking, getTripSummaries } from '../api';
+import { getDelayRanking } from '../api';
+import { tripSummariesQuery } from '../api/queries';
 import { useLiveBuses } from '../composables/useBuses';
 import { useRoutes } from '../composables/useRoutes';
 import { useStops } from '../composables/useStops';
@@ -112,14 +113,12 @@ const shownRunning = computed(() => {
 });
 
 const runningTripIds = computed(() => [...new Set(shownRunning.value.map((trip) => trip.trip))].sort());
-const { data: runningSummaries } = useQuery({
-    queryKey: computed(() => ['trip-summaries', runningTripIds.value]),
-    queryFn: () => getTripSummaries(runningTripIds.value),
-    enabled: () => runningTripIds.value.length > 0,
-    staleTime: Infinity,
+const { data: runningSummaries } = useQuery(() => ({
+    ...tripSummariesQuery(runningTripIds.value),
+    enabled: runningTripIds.value.length > 0,
     // the shown trips change with each snapshot, so keep the names while the next ones load
     placeholderData: keepPreviousData,
-});
+}));
 const runningHeadsigns = computed(() => new Map((runningSummaries.value ?? []).map((trip) => [trip.trip_id, trip.trip_headsign])));
 
 /** @param {string} trip the live trip page, without a date */
@@ -135,12 +134,10 @@ const runningTitle = (trip) => {
 const tripIds = computed(() =>
     [...new Set((ranking.value?.trips ?? []).map((trip) => String(trip.trip)))].sort(),
 );
-const { data: tripSummaries } = useQuery({
-    queryKey: computed(() => ['trip-summaries', tripIds.value]),
-    queryFn: () => getTripSummaries(tripIds.value),
-    enabled: () => tripIds.value.length > 0,
-    staleTime: Infinity,
-});
+const { data: tripSummaries } = useQuery(() => ({
+    ...tripSummariesQuery(tripIds.value),
+    enabled: tripIds.value.length > 0,
+}));
 const headsigns = computed(() => new Map((tripSummaries.value ?? []).map((trip) => [trip.trip_id, trip.trip_headsign])));
 
 /** @param {string} routeId */

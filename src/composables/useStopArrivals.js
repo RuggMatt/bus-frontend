@@ -1,6 +1,7 @@
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/vue-query";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getServiceDates, getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
+import { getServiceDates, getStopNextArrivals, getStopRoutes, getStopSchedule } from "../api";
+import { tripShapeQuery } from "../api/queries";
 import { serviceDatesFrom } from "../utils/serviceCalendar";
 import { alongRouteMetres, distanceMetres } from "../utils/geo";
 import { edmontonNow, scheduledSecondsNear, scheduleWindow, secondsToTime } from "../utils/serviceTime";
@@ -135,11 +136,7 @@ export const useStopArrivals = (stop, at = ref(null)) => {
 
   const tripQueries = useQueries({
     queries: computed(() =>
-      tripIds.value.map((tripId) => ({
-        queryKey: ["trip-shape", tripId],
-        queryFn: () => getTrip(tripId),
-        staleTime: Infinity,
-      })),
+      tripIds.value.map((tripId) => tripShapeQuery(tripId)),
     ),
   });
 

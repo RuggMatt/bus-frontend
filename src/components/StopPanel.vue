@@ -5,7 +5,7 @@ import { computed, ref, shallowRef, watch } from 'vue';
 import { usePageTitle } from '../composables/usePageTitle';
 import { useStops } from '../composables/useStops';
 import { useQuery } from '@tanstack/vue-query';
-import { getBusStopTimes, getTrip } from '../api';
+import { tripShapeQuery, tripStopTimesQuery } from '../api/queries';
 import { tripPath, useStopArrivals } from '../composables/useStopArrivals';
 import { alongRouteMetres } from '../utils/geo';
 import { stationStops } from '../utils/stations';
@@ -98,19 +98,15 @@ watch(selectedBus, (bus, old) => {
 });
 
 // same queries the arrivals use, so the shape is already cached
-const { data: selectedTrip } = useQuery({
-  queryKey: computed(() => ['trip-shape', selectedTripId.value]),
-  queryFn: () => getTrip(selectedTripId.value),
-  enabled: () => !!selectedTripId.value,
-  staleTime: Infinity,
-});
+const { data: selectedTrip } = useQuery(() => ({
+  ...tripShapeQuery(selectedTripId.value),
+  enabled: !!selectedTripId.value,
+}));
 
-const { data: selectedTripStopTimes } = useQuery({
-  queryKey: computed(() => ['trip-stop-times', selectedTripId.value]),
-  queryFn: () => getBusStopTimes(selectedTripId.value),
-  enabled: () => !!selectedTripId.value,
-  staleTime: Infinity,
-});
+const { data: selectedTripStopTimes } = useQuery(() => ({
+  ...tripStopTimesQuery(selectedTripId.value),
+  enabled: !!selectedTripId.value,
+}));
 
 // Where the selected bus is along its trip, relative to the stop
 const selectedBusProgress = computed(() => {
