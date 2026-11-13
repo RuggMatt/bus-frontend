@@ -4,7 +4,7 @@ import { ref, computed } from 'vue';
 import { useBuses } from '../composables/useBuses';
 import { useRoute, useRouter } from 'vue-router';
 import { keepPreviousData, useQuery } from '@tanstack/vue-query';
-import { getTripSummaries } from '../api';
+import { tripSummariesQuery } from '../api/queries';
 import { busesByHeadsign, compareAgencies, filterRoutes, groupRoutesByAgency, routeTypeLabel } from '../utils/routes';
 import { useRouteAgencies } from '../composables/useAgencies';
 import RouteBadge from '../components/RouteBadge.vue';
@@ -42,13 +42,11 @@ const expandedBuses = computed(() =>
 
 // the expanded route's headsigns, shared with the bus page and finders
 const tripIds = computed(() => [...new Set(expandedBuses.value.map((bus) => String(bus.trip)))].sort());
-const { data: tripSummaries, isFetching: summariesFetching } = useQuery({
-  queryKey: computed(() => ['trip-summaries', tripIds.value]),
-  queryFn: () => getTripSummaries(tripIds.value),
-  enabled: () => tripIds.value.length > 0,
-  staleTime: Infinity,
+const { data: tripSummaries, isFetching: summariesFetching } = useQuery(() => ({
+  ...tripSummariesQuery(tripIds.value),
+  enabled: tripIds.value.length > 0,
   placeholderData: keepPreviousData,
-});
+}));
 
 // kept data covers a refresh, but another route's needs its own lookup first
 const summariesLoading = computed(() => {

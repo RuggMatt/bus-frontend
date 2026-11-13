@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/vue-query";
 import { computed, toValue } from "vue";
-import { getBusStopTimes, getTrip } from "../api";
+import { tripShapeQuery, tripStopTimesQuery } from "../api/queries";
 import { alongRouteMetres } from "../utils/geo";
 import { predictedOffsetMinutes } from "../utils/busStatus";
 import { edmontonNow, scheduledSecondsNear } from "../utils/serviceTime";
@@ -19,19 +19,15 @@ export const useBusTrip = (bus, { pastPosition = false } = {}) => {
   const tripId = computed(() => (bus.value ? String(bus.value.trip) : null));
 
   // same queries as the stops page, so either page warms the other's cache
-  const { data: trip, isLoading, isError } = useQuery({
-    queryKey: computed(() => ["trip-shape", tripId.value]),
-    queryFn: () => getTrip(tripId.value),
-    enabled: () => !!tripId.value,
-    staleTime: Infinity,
-  });
+  const { data: trip, isLoading, isError } = useQuery(() => ({
+    ...tripShapeQuery(tripId.value),
+    enabled: !!tripId.value,
+  }));
 
-  const { data: stopTimes } = useQuery({
-    queryKey: computed(() => ["trip-stop-times", tripId.value]),
-    queryFn: () => getBusStopTimes(tripId.value),
-    enabled: () => !!tripId.value,
-    staleTime: Infinity,
-  });
+  const { data: stopTimes } = useQuery(() => ({
+    ...tripStopTimesQuery(tripId.value),
+    enabled: !!tripId.value,
+  }));
 
   const { keyedroutes } = useRoutes();
   const { keyedStops } = useStops();

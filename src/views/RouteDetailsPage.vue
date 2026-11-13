@@ -2,7 +2,8 @@
 // @ts-check
 import { useSavedRoutes } from '../composables/useSavedRoutes';
 import { useQueries, useQuery } from '@tanstack/vue-query';
-import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getTrip, getServiceDates, getRouteSchedule, getRouteStopTimes, getRouteStopsStats } from '../api';
+import { getTripsByRouteId, getStopTimesByTripIds, getActiveTripsByRouteId, getServiceDates, getRouteSchedule, getRouteStopTimes, getRouteStopsStats } from '../api';
+import { tripShapeQuery } from '../api/queries';
 import { useRoutes } from '../composables/useRoutes';
 import { useBuses } from '../composables/useBuses';
 import { useStops } from '../composables/useStops';
@@ -230,11 +231,7 @@ const mapStops = computed(() =>
 // same key as the trip page and bus cards, so they share the shapes
 const shapeQueries = useQueries({
   queries: computed(() =>
-    directionTripIds.value.map((tripId) => ({
-      queryKey: ['trip-shape', tripId],
-      queryFn: () => getTrip(tripId),
-      staleTime: Infinity,
-    })),
+    directionTripIds.value.map((tripId) => tripShapeQuery(tripId)),
   ),
 });
 

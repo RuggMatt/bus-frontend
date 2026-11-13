@@ -3,7 +3,8 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getActiveTripsByRouteId, getBusStopTimes, getRouteStopStats, getRouteStopTimes, getServiceDates, getStopRouteSchedule, getTrip, getTripRun, getTripsByRouteId } from '../api';
+import { getActiveTripsByRouteId, getRouteStopStats, getRouteStopTimes, getServiceDates, getStopRouteSchedule, getTripRun, getTripsByRouteId } from '../api';
+import { tripShapeQuery, tripStopTimesQuery } from '../api/queries';
 import { useStops } from '../composables/useStops';
 import { useRoutes } from '../composables/useRoutes';
 import { useRecordedTripsQuery } from '../composables/useRecordedTrips';
@@ -252,11 +253,7 @@ const pickDirection = async (target) => {
     }
     switchingTo.value = target;
     try {
-        const stopTimes = await queryClient.fetchQuery({
-            queryKey: ['trip-stop-times', tripId],
-            queryFn: () => getBusStopTimes(tripId),
-            staleTime: Infinity,
-        });
+        const stopTimes = await queryClient.fetchQuery(tripStopTimesQuery(tripId));
         const herePoint = [Number(here.stop_lat), Number(here.stop_lon)];
         let nearest = null;
         let nearestMetres = Infinity;
@@ -284,12 +281,10 @@ const pickDirection = async (target) => {
 // the route's stops in order, along the shape most of its buses here take, to step
 // between stops without going back to the stop page
 const listTrip = lastKnown(() => commonShapeTrip(directionEntries.value, shapeByTrip.value));
-const { data: listStopTimes } = useQuery({
-    queryKey: computed(() => ['trip-stop-times', listTrip.value]),
-    queryFn: () => getBusStopTimes(/** @type {string} */ (listTrip.value)),
-    enabled: () => !!listTrip.value,
-    staleTime: Infinity,
-});
+const { data: listStopTimes } = useQuery(() => ({
+    ...tripStopTimesQuery(listTrip.value),
+    enabled: !!listTrip.value,
+}));
 const routeStops = computed(() => (listStopTimes.value ?? []).map((stopTime) => {
     const info = keyedStops.value?.[stopTime.stop_id];
     return { stop_id: stopTime.stop_id, name: info?.stop_name ?? `Stop ${stopTime.stop_id}`, code: info?.stop_code ?? stopTime.stop_id };
@@ -395,18 +390,10 @@ const shapeTrips = computed(() => {
 });
 
 const shapeQueries = useQueries({
-    queries: computed(() => [...shapeTrips.value.values()].map((tripId) => ({
-        queryKey: ['trip-shape', tripId],
-        queryFn: () => getTrip(tripId),
-        staleTime: Infinity,
-    }))),
+    queries: computed(() => [...shapeTrips.value.values()].map((tripId) => tripShapeQuery(tripId))),
 });
 const shapeStopQueries = useQueries({
-    queries: computed(() => [...shapeTrips.value.values()].map((tripId) => ({
-        queryKey: ['trip-stop-times', tripId],
-        queryFn: () => getBusStopTimes(tripId),
-        staleTime: Infinity,
-    }))),
+    queries: computed(() => [...shapeTrips.value.values()].map((tripId) => tripStopTimesQuery(tripId))),
 });
 
 /**
@@ -511,11 +498,7 @@ const liveByTrip = computed(() => {
 const liveTripIds = computed(() => [...liveByTrip.value.keys()]);
 // the trip page's key, so the lines are shared
 const liveShapeQueries = useQueries({
-    queries: computed(() => liveTripIds.value.map((tripId) => ({
-        queryKey: ['trip-shape', tripId],
-        queryFn: () => getTrip(tripId),
-        staleTime: Infinity,
-    }))),
+    queries: computed(() => liveTripIds.value.map((tripId) => tripShapeQuery(tripId))),
 });
 
 /**
@@ -646,12 +629,10 @@ const toggleRow = (key) => {
 const openRow = computed(() => rows.value.find((row) => row.key === openKey.value) ?? null);
 const openApproach = computed(() => (openKey.value ? liveApproaches.value.get(openKey.value) ?? null : null));
 // the trip page's key, so the stops are shared
-const { data: openStopTimes } = useQuery({
-    queryKey: computed(() => ['trip-stop-times', openRow.value?.entry.trip_id ?? null]),
-    queryFn: () => getBusStopTimes(/** @type {NonNullable<typeof openRow.value>} */ (openRow.value).entry.trip_id),
-    enabled: () => !!openApproach.value,
-    staleTime: Infinity,
-});
+const { data: openStopTimes } = useQuery(() => ({
+    ...tripStopTimesQuery(openRow.value?.entry.trip_id ?? null),
+    enabled: !!openApproach.value,
+}));
 // the stops the bus has left before this one, and where it is among them
 const openDiagram = computed(() => {
     const approach = openApproach.value;
