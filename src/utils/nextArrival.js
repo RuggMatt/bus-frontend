@@ -1,6 +1,7 @@
 import { formatScheduledTime } from "./busStatus";
 import { serviceRunsOnDay, timeToSeconds, weekdayOf } from "./serviceTime";
 import { addDays } from "./weeks";
+import { spansDate } from "./serviceCalendar";
 
 const DAY_SECONDS = 24 * 60 * 60;
 // far enough to reach a route that runs one day a week, including today's weekday next week
@@ -111,7 +112,10 @@ export const describeNextArrival = (arrival, dateString, vehicle = "bus") => {
  *
  * Several service variants claim the same weekdays in their service_id (Weekday-1, -3,
  * -4 …) though only one runs on a given date, so the calendar dates decide when they're
- * known. Trips to the same place at the same time are kept once either way.
+ * known. Trips to the same place at the same time are kept once either way. A group
+ * with none of the calendar's services for today in the window falls back on services
+ * the calendar has no say on today (another schedule period), by their service_id days,
+ * as the open data's stop times have at times left out the services actually running.
  *
  * @template {import("../api").StopScheduleEntry} E
  * @param {E[]} entries The schedule around now
@@ -125,26 +129,40 @@ export const describeNextArrival = (arrival, dateString, vehicle = "bus") => {
  */
 export const upcomingArrivals = (entries, dateString, nowSeconds, { serviceDates = null, limit = 4, keyOf = routeKey } = {}) => {
   const yesterday = addDays(dateString, -1);
+  /** @param {string} serviceId @param {string} date */
+  const byDays = (serviceId, date) => serviceRunsOnDay(serviceId, weekdayOf(date));
+  /** @param {string} serviceId @param {string} date */
+  const byCalendar = (serviceId, date) => (serviceDates ? !!serviceDates.get(serviceId)?.has(date) : byDays(serviceId, date));
+  // a service the calendar has no say on for the date, standing in by its days
+  /** @param {string} serviceId @param {string} date */
+  const standingIn = (serviceId, date) =>
+    !!serviceDates && !spansDate(serviceDates.get(serviceId), date) && byDays(serviceId, date);
   /**
-   * @param {string} serviceId
-   * @param {string} date
+   * When an entry's trip runs, in seconds from today's midnight: today, or yesterday
+   * past midnight
+   * @param {E} entry
+   * @param {(serviceId: string, date: string) => boolean} runsOn
    */
-  const runsOn = (serviceId, date) =>
-    serviceDates ? !!serviceDates.get(serviceId)?.has(date) : serviceRunsOnDay(serviceId, weekdayOf(date));
+  const runTimes = (entry, runsOn) => {
+    const scheduled = timeToSeconds(entry.arrival_time);
+    const times = [];
+    if (runsOn(entry.service_id, dateString)) times.push(scheduled);
+    if (scheduled >= DAY_SECONDS && runsOn(entry.service_id, yesterday)) times.push(scheduled - DAY_SECONDS);
+    return times;
+  };
+  // the groups with a service the calendar runs in the window. The others fall back on
+  // services from another schedule period, as the open data's stop times have at times
+  // left out the ones running today
+  const covered = new Set(entries.filter((entry) => runTimes(entry, byCalendar).length).map(keyOf));
   const fromSeconds = Math.floor(nowSeconds / 60) * 60;
   /** @type {Map<string, UpcomingArrival[]>} */
   const byRoute = new Map();
   const seen = new Set();
   for (const entry of entries) {
-    const scheduled = timeToSeconds(entry.arrival_time);
-    const candidates = [];
-    if (runsOn(entry.service_id, dateString)) candidates.push(scheduled);
-    if (scheduled >= DAY_SECONDS && runsOn(entry.service_id, yesterday)) {
-      candidates.push(scheduled - DAY_SECONDS);
-    }
-    const seconds = candidates.find((candidate) => candidate >= fromSeconds);
-    if (seconds === undefined) continue;
     const key = keyOf(entry);
+    const runsOn = covered.has(key) ? byCalendar : standingIn;
+    const seconds = runTimes(entry, runsOn).find((candidate) => candidate >= fromSeconds);
+    if (seconds === undefined) continue;
     const tripKey = `${key}|${entry.trip_headsign}|${seconds}`;
     if (seen.has(tripKey)) continue;
     seen.add(tripKey);

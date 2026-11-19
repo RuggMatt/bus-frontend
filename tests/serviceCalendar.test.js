@@ -6,6 +6,7 @@ import {
   schedulePeriods,
   serviceDatesFrom,
   servicesOnDate,
+  standInServices,
 } from "../src/utils/serviceCalendar";
 import { ROUTE_8_CALENDAR } from "./fixtures/route8Calendar";
 
@@ -121,5 +122,25 @@ describe("sameServices", () => {
   it("compares as sets", () => {
     expect(sameServices(new Set(["a", "b"]), new Set(["b", "a"]))).toBe(true);
     expect(sameServices(new Set(["a"]), new Set(["a", "b"]))).toBe(false);
+  });
+});
+
+describe("standInServices", () => {
+  const calendar = new Map([
+    ["DX-021R-Weekday-9-26-09-1111100", new Set(["2026-11-17", "2026-11-18", "2026-11-27"])],
+    ["DX-021R-Weekday-1-26-12-1111100", new Set(["2026-11-30", "2026-12-11"])],
+    ["SA-021R-Saturday-2-26-12-0000010", new Set(["2026-12-05"])],
+  ]);
+  const ids = [...calendar.keys(), "DX-021R-Weekday-4-26-12-1111100"];
+
+  it("is the weekday services from outside their own period, or with no dates", () => {
+    expect(standInServices(calendar, ids, "2026-11-18")).toEqual([
+      "DX-021R-Weekday-1-26-12-1111100",
+      "DX-021R-Weekday-4-26-12-1111100",
+    ]);
+  });
+
+  it("leaves out a service on a day inside its period, even one it skips", () => {
+    expect(standInServices(calendar, ids, "2026-11-20")).not.toContain("DX-021R-Weekday-9-26-09-1111100");
   });
 });
