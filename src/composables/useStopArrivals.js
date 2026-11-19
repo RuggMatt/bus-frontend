@@ -1,12 +1,13 @@
 import { keepPreviousData, useQueries, useQuery } from "@tanstack/vue-query";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getServiceDates, getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip } from "../api";
+import { getServiceDates, getStopNextArrivals, getStopRoutes, getStopSchedule, getTrip, getTripSummaries } from "../api";
 import { serviceDatesFrom } from "../utils/serviceCalendar";
 import { alongRouteMetres, distanceMetres } from "../utils/geo";
 import { edmontonNow, scheduledSecondsNear, scheduleWindow, secondsToTime } from "../utils/serviceTime";
 import { nextArrivalByRoute, upcomingArrivals } from "../utils/nextArrival";
 import { RAIL_ROUTE_TYPE } from "../utils/routes";
 import { compareStopRouteGroups } from "../utils/stopRoutes";
+import { unscheduledEntries, unscheduledTripIds } from "../utils/unscheduledBuses";
 import { liveBusesQuery } from "./useBuses";
 
 // how far either side of now a trip can be scheduled and still be matched to a live bus
@@ -20,6 +21,8 @@ export const AVERAGE_SPEED_METRES_PER_SECOND = 20 / 3.6;
 const DAY_SECONDS = 24 * 60 * 60;
 // trips from the previous service day can run until 30:00:00, i.e. 6 AM
 const LATEST_PREVIOUS_DAY_SECONDS = 6 * 60 * 60;
+// a bus without its own time here counts only when the stop is this close to its route line
+const STOP_ON_PATH_METRES = 40;
 
 /**
  * @typedef {Object} StopBus
@@ -28,7 +31,8 @@ const LATEST_PREVIOUS_DAY_SECONDS = 6 * 60 * 60;
  * @property {number} long
  * @property {number} bearing
  * @property {number} timestamp Unix epoch seconds when the position was reported
- * @property {string} scheduledTime HH:MM:SS the trip is scheduled at this stop
+ * @property {string | null} scheduledTime HH:MM:SS the trip is scheduled at this stop, null
+ *   when the open data has no stop times for the trip
  * @property {string} trip_id
  * @property {[number, number][]} path The trip's route line as [lat, lon] points, empty until it loads
  * @property {string} headsign
@@ -123,10 +127,28 @@ export const useStopArrivals = (stop, at = ref(null)) => {
     return map;
   });
 
+  // buses on this stop's routes whose trips the schedule doesn't have, as happens when the
+  // open data's stop times leave out today's services
+  const unscheduledIds = computed(() => unscheduledTripIds(buses.value || [], scheduleByTrip.value, schedule.value || []));
+  const { data: unscheduledTrips } = useQuery({
+    queryKey: computed(() => ["trip-summaries", unscheduledIds.value.join(",")]),
+    queryFn: () => getTripSummaries(unscheduledIds.value),
+    enabled: () => unscheduledIds.value.length > 0,
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
+  });
+
+  /** @type {import("vue").ComputedRef<Map<string, import("../utils/unscheduledBuses").StopTripEntry>>} */
+  const entryByTrip = computed(() => {
+    const map = new Map(unscheduledEntries(unscheduledTrips.value || [], schedule.value || []));
+    scheduleByTrip.value.forEach((entry, tripId) => map.set(tripId, entry));
+    return map;
+  });
+
   // LRT isn't in the bus feed, and its schedule is shown on its own
   const matchedBuses = computed(() =>
     (buses.value || []).filter((bus) => {
-      const entry = scheduleByTrip.value.get(String(bus.trip));
+      const entry = entryByTrip.value.get(String(bus.trip));
       return !!entry && entry.route_type !== RAIL_ROUTE_TYPE;
     }),
   );
@@ -162,7 +184,8 @@ export const useStopArrivals = (stop, at = ref(null)) => {
 
     for (const bus of matchedBuses.value) {
       const tripId = String(bus.trip);
-      const entry = scheduleByTrip.value.get(tripId);
+      const entry = entryByTrip.value.get(tripId);
+      if (!entry) continue;
       const busPoint = [bus.lat, bus.long];
       const path = pathByTrip.value.get(tripId) || [];
       const stopAlong = alongRouteMetres(path, stopPoint);
@@ -172,6 +195,10 @@ export const useStopArrivals = (stop, at = ref(null)) => {
       let passed = null;
       let etaMinutes = null;
       let offsetMinutes = null;
+      // without its own time here, only a bus whose route line passes the stop, still
+      // to come, says it's on the way: its headsign alone could be the other side's
+      const unscheduled = entry.arrival_time === null;
+      if (unscheduled && !(stopAlong && busAlong && stopAlong.offset <= STOP_ON_PATH_METRES)) continue;
       if (stopAlong && busAlong) {
         const remaining = stopAlong.along - busAlong.along;
         passed = remaining < 0;
@@ -181,11 +208,18 @@ export const useStopArrivals = (stop, at = ref(null)) => {
           // the bus has kept moving since its position was reported
           const reportedSeconds = edmontonNow(new Date(bus.timestamp * 1000)).secondsSinceMidnight;
           const arrivalSeconds = reportedSeconds + remaining / AVERAGE_SPEED_METRES_PER_SECOND;
-          const scheduledSeconds = scheduledSecondsNear(entry.arrival_time, nowSeconds);
           etaMinutes = Math.max(0, Math.round((arrivalSeconds - nowSeconds) / 60));
-          offsetMinutes = Math.round((Math.max(arrivalSeconds, nowSeconds) - scheduledSeconds) / 60);
+          if (entry.arrival_time !== null) {
+            const scheduledSeconds = scheduledSecondsNear(entry.arrival_time, nowSeconds);
+            offsetMinutes = Math.round((Math.max(arrivalSeconds, nowSeconds) - scheduledSeconds) / 60);
+          } else if (typeof bus.delay === "number") {
+            // the agency's own prediction, at the bus's next stop
+            offsetMinutes = Math.round(bus.delay / 60);
+          }
         }
       }
+      // as far ahead as a scheduled trip would be matched
+      if (unscheduled && !passed && (etaMinutes === null || etaMinutes * 60 > LIVE_WINDOW_SECONDS)) continue;
 
       // route ids are only unique within an agency
       const key = `${entry.agency_name}|${entry.route_id}`;
