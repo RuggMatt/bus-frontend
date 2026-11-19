@@ -330,6 +330,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
                     {{ bus.etaMinutes < 1 ? 'Due' : `≈ ${bus.etaMinutes} min` }}
                   </div>
                   <v-chip
+                    v-if="bus.offsetMinutes !== null"
                     :color="scheduleStatus(bus.offsetMinutes).color"
                     size="x-small"
                     variant="tonal"
@@ -348,7 +349,7 @@ const formatStopsAway = (stopsAway) => (stopsAway === 1 ? 'This stop is next' : 
                     <v-icon icon="mdi-bus-stop" size="small" class="mr-1" />
                     Next stop: {{ selectedBusProgress.nextStopName }}
                   </div>
-                  <div>
+                  <div v-if="bus.scheduledTime">
                     <v-icon icon="mdi-clock-outline" size="small" class="mr-1" />
                     Scheduled here at {{ formatScheduledTime(bus.scheduledTime) }}
                   </div>
