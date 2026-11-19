@@ -34,6 +34,7 @@ import {
   schedulePeriods,
   serviceDatesFrom,
   servicesOnDate,
+  standInServices,
 } from '../utils/serviceCalendar';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -730,7 +731,8 @@ const TRAIN_WINDOW_STEP_SECONDS = 15 * 60;
 const trainWindowStart = computed(() =>
   Math.floor(clock.value.secondsSinceMidnight / TRAIN_WINDOW_STEP_SECONDS) * TRAIN_WINDOW_STEP_SECONDS);
 
-// today's services, and yesterday's for trains still running past midnight
+// today's services, and yesterday's for trains still running past midnight, plus
+// services from another schedule period that run on the same weekdays
 const trainServiceIds = computed(() => {
   const dates = [clock.value.dateString, addDays(clock.value.dateString, -1)];
   const ids = new Set();
@@ -739,6 +741,9 @@ const trainServiceIds = computed(() => {
       ? servicesOnDate(serviceDates.value, date)
       : routeServiceIds.value.filter((id) => serviceRunsOnDay(id, weekdayOf(date)));
     running.forEach((id) => ids.add(id));
+    // the open data's stop times have at times left out the services running today, so
+    // another period's stand in when they're missing (upcomingArrivals picks per station)
+    if (serviceDates.value) standInServices(serviceDates.value, routeServiceIds.value, date).forEach((id) => ids.add(id));
   }
   return [...ids].sort();
 });

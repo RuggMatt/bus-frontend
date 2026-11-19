@@ -1,5 +1,5 @@
 // @ts-check
-import { weekdayOf } from "./serviceTime";
+import { serviceRunsOnDay, weekdayOf } from "./serviceTime";
 
 /** @typedef {import("./serviceTime").Weekday} Weekday */
 
@@ -101,6 +101,32 @@ export const servicesOnDate = (dates, date) => {
   });
   return services;
 };
+
+/**
+ * Whether a date falls between a service's first and last calendar date, i.e. the
+ * calendar has a say on it.
+ * @param {Set<string> | undefined} serviceDates
+ * @param {string} date YYYY-MM-DD
+ */
+export const spansDate = (serviceDates, date) => {
+  if (!serviceDates?.size) return false;
+  const sorted = [...serviceDates].sort();
+  return sorted[0] <= date && date <= sorted[sorted.length - 1];
+};
+
+/**
+ * Services whose stop times can stand in for a date's own: the calendar doesn't
+ * cover the date for them (another schedule period, or no dates at all), but their
+ * service_id days include its weekday. The open data's stop times have at times held
+ * only one of a route's services, the next period's, so the services the calendar
+ * runs today had no stop times at all.
+ * @param {ServiceDates} dates
+ * @param {string[]} serviceIds
+ * @param {string} date YYYY-MM-DD
+ * @returns {string[]}
+ */
+export const standInServices = (dates, serviceIds, date) =>
+  serviceIds.filter((id) => !spansDate(dates.get(id), date) && serviceRunsOnDay(id, weekdayOf(date)));
 
 /**
  * The services that make up a typical week's day, leaving out one-off schedules.

@@ -183,6 +183,38 @@ describe("upcomingArrivals", () => {
     expect(arrivals?.map((arrival) => arrival.trip_id)).toEqual(["variant-1"]);
   });
 
+  it("falls back on another period's services when today's have no stop times", () => {
+    // the open data only held the next period's stop times, which start on 30 November
+    const next = (tripId, time) => ({ ...entry(tripId, WEEKDAYS, time), service_id: "DX-021R-Weekday-1-26-12-1111100" });
+    const entries = [next("a", "12:04:00"), next("b", "12:19:00")];
+    const serviceDates = new Map([
+      ["DX-021R-Weekday-9-26-09-1111100", new Set(["2026-10-16", MONDAY, "2026-10-20"])],
+      ["DX-021R-Weekday-1-26-12-1111100", new Set(["2026-11-30", "2026-12-01"])],
+    ]);
+    const arrivals = upcomingArrivals(entries, MONDAY, NOON, { serviceDates }).get(key("021R"));
+    expect(arrivals?.map((arrival) => [arrival.trip_id, arrival.minutes])).toEqual([["a", 4], ["b", 19]]);
+  });
+
+  it("leaves out a service whose own period skips today", () => {
+    // a holiday inside the service's period, so the calendar has its say
+    const entries = [entry("holiday", WEEKDAYS, "12:05:00")];
+    const serviceDates = new Map([[entries[0].service_id, new Set(["2026-10-16", "2026-10-20"])]]);
+    expect(upcomingArrivals(entries, MONDAY, NOON, { serviceDates }).get(key("021R"))).toBeUndefined();
+  });
+
+  it("prefers today's services over another period's", () => {
+    const entries = [
+      entry("today", WEEKDAYS, "12:05:00"),
+      { ...entry("next-period", WEEKDAYS, "12:06:00"), service_id: "DX-021R-Weekday-1-26-12-1111100" },
+    ];
+    const serviceDates = new Map([
+      [entries[0].service_id, new Set([MONDAY])],
+      ["DX-021R-Weekday-1-26-12-1111100", new Set(["2026-11-30"])],
+    ]);
+    const arrivals = upcomingArrivals(entries, MONDAY, NOON, { serviceDates }).get(key("021R"));
+    expect(arrivals?.map((arrival) => arrival.trip_id)).toEqual(["today"]);
+  });
+
   it("keeps a train once when several variants claim the day", () => {
     const entries = [
       entry("variant-1", WEEKDAYS, "12:05:00"),
